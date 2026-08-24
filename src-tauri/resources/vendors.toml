@@ -1,0 +1,48 @@
+[[applications]]
+package_name = "code"
+display_name = "Visual Studio Code"
+vendor = "Microsoft"
+official_repository_hosts = ["packages.microsoft.com"]
+stable_download_url = "https://update.code.visualstudio.com/latest/linux-deb-x64/stable"
+
+[[applications]]
+package_name = "google-chrome-stable"
+display_name = "Google Chrome"
+vendor = "Google"
+official_repository_hosts = ["dl.google.com"]
+
+[[applications]]
+package_name = "chatgpt"
+display_name = "ChatGPT Desktop"
+vendor = "OpenAI"
+official_repository_hosts = ["persistent.oaistatic.com"]
+
+[[applications]]
+package_name = "flclash"
+display_name = "FlClash"
+vendor = "FlClash"
+official_repository_hosts = []
+official_homepage_url = "https://github.com/chen08209/FlClash/releases"
+release_api_url = "https://api.github.com/repos/chen08209/FlClash/releases/latest"
+allowed_download_hosts = ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"]
+download_strategy = "release_api"
+
+[[applications]]
+package_name = "wechat"
+display_name = "微信"
+vendor = "腾讯"
+official_repository_hosts = []
+official_homepage_url = "https://linux.weixin.qq.com/"
+stable_download_url = "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb"
+allowed_download_hosts = ["dldir1v6.qq.com"]
+download_strategy = "stable_download_endpoint"
+
+[[applications]]
+package_name = "wemeet"
+display_name = "腾讯会议"
+vendor = "腾讯"
+official_repository_hosts = []
+official_homepage_url = "https://meeting.tencent.com/download/"
+manual_download_url = "https://meeting.tencent.com/download/"
+allowed_download_hosts = ["meeting.tencent.com"]
+download_strategy = "browser_import"

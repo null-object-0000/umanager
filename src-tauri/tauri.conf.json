@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "UManager",
+  "version": "0.1.0",
+  "identifier": "io.github.umanager.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build && npm run build:helper",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "UManager",
+        "width": 1200,
+        "height": 720,
+        "minWidth": 1200,
+        "minHeight": 720,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb"],
+    "icon": ["icons/icon.png"],
+    "category": "Utility",
+    "fileAssociations": [
+      {
+        "ext": ["deb"],
+        "name": "Debian package",
+        "mimeType": "application/vnd.debian.binary-package",
+        "role": "Viewer"
+      }
+    ],
+    "shortDescription": "Manage vendor-provided Ubuntu applications",
+    "longDescription": "Identify vendor-provided Debian packages and inspect official APT repository updates.",
+    "linux": {
+      "deb": {
+        "desktopTemplate": "../packaging/UManager.desktop.hbs",
+        "files": {
+          "/usr/libexec/umanager-helper": "../crates/umanager-helper/target/release/umanager-helper",
+          "/usr/share/polkit-1/actions/io.github.umanager.install-verified-deb.policy": "../packaging/io.github.umanager.install-verified-deb.policy"
+        }
+      }
+    }
+  }
+}

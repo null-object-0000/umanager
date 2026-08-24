@@ -1,0 +1,29 @@
+[package]
+name = "umanager"
+version = "0.1.0"
+description = "A read-only first Ubuntu manager for vendor .deb applications"
+authors = ["UManager contributors"]
+edition = "2024"
+rust-version = "1.97"
+
+[lib]
+name = "umanager_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "umanager"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["fs", "io-util"] }
+toml = "0.9"
+umanager-plan = { path = "../crates/umanager-plan" }
+
+serde_json = "1"
