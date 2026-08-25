@@ -9,8 +9,8 @@ import chromeIcon from "./assets/app-icons/google-chrome.png";
 import vscodeIcon from "./assets/app-icons/vscode.png";
 import wechatIcon from "./assets/app-icons/wechat.png";
 import wemeetIcon from "./assets/app-icons/wemeet.svg?no-inline";
-import nodejsIcon from "./assets/app-icons/nodejs.svg";
-import rustIcon from "./assets/app-icons/rust.svg";
+import nodejsIcon from "./assets/app-icons/nodejs.svg?no-inline";
+import rustIcon from "./assets/app-icons/rust.svg?no-inline";
 
 type Filter = "all" | "updates" | "local";
 type Page = "installed" | "installable" | "dev" | "settings";
