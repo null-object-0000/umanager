@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use umanager_catalog::{Application, Catalog, MetadataFeed};
 
 /// Upper bound for the feed response; the feed is a tiny curated JSON document.
@@ -9,6 +9,11 @@ const MAX_FEED_BYTES: u64 = 1024 * 1024;
 /// How long a successfully fetched feed is reused before it is refreshed.
 const FEED_TTL: Duration = Duration::from_secs(15 * 60);
 const FEED_SCHEMA_VERSION: u32 = 1;
+
+/// Embedded Ed25519 public key (raw 32 bytes, hex) that the feed must be signed
+/// with. The matching private key lives only in the GitHub Actions secret
+/// `FEED_SIGNING_KEY` and is never shipped with the application.
+const FEED_PUBLIC_KEY_HEX: &str = "57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9";
 
 /// The curated metadata feed published by the UManager project (e.g. GitHub Pages).
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -48,12 +53,76 @@ pub struct FeedToolEntry {
     pub version: String,
 }
 
+/// Human-readable snapshot of the last metadata-feed fetch, shown in Settings.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedStatus {
+    pub configured: bool,
+    pub url: Option<String>,
+    pub signature_enforced: bool,
+    pub signature_verified: bool,
+    pub last_success_at_unix_seconds: Option<u64>,
+    pub generated_at_unix_seconds: Option<u64>,
+    pub applications: usize,
+    pub development_tools: usize,
+    pub last_error: Option<String>,
+}
+
 struct CachedFeed {
     fetched_at: Instant,
     feed: Feed,
 }
 
-static FEED_CACHE: OnceLock<Mutex<HashMap<String, CachedFeed>>> = OnceLock::new();
+struct FeedState {
+    cache: HashMap<String, CachedFeed>,
+    status: FeedStatus,
+}
+
+fn initial_status(catalog: &Catalog) -> FeedStatus {
+    let configured = catalog.metadata_feed.as_ref();
+    FeedStatus {
+        configured: configured.is_some(),
+        url: configured.map(|value| value.url.clone()),
+        signature_enforced: true,
+        signature_verified: false,
+        last_success_at_unix_seconds: None,
+        generated_at_unix_seconds: None,
+        applications: 0,
+        development_tools: 0,
+        last_error: None,
+    }
+}
+
+static FEED_STATE: OnceLock<Mutex<FeedState>> = OnceLock::new();
+
+fn fallback_catalog() -> Catalog {
+    Catalog {
+        schema_version: FEED_SCHEMA_VERSION,
+        applications: Vec::new(),
+        development_toolchains: Vec::new(),
+        development_tools: Vec::new(),
+        self_update: None,
+        metadata_feed: None,
+    }
+}
+
+fn state_lock() -> &'static Mutex<FeedState> {
+    FEED_STATE.get_or_init(|| {
+        let catalog = Catalog::load().unwrap_or_else(|_| fallback_catalog());
+        Mutex::new(FeedState {
+            cache: HashMap::new(),
+            status: initial_status(&catalog),
+        })
+    })
+}
+
+/// Current status of the metadata feed (safe to clone and return to the UI).
+pub fn status() -> FeedStatus {
+    state_lock()
+        .lock()
+        .map(|guard| guard.status.clone())
+        .unwrap_or_else(|_| initial_status(&fallback_catalog()))
+}
 
 /// Whether a metadata feed is configured in the embedded software source.
 pub fn config(catalog: &Catalog) -> Option<&MetadataFeed> {
@@ -63,25 +132,46 @@ pub fn config(catalog: &Catalog) -> Option<&MetadataFeed> {
 /// Fetch and return the metadata feed, reusing a cached copy for up to `FEED_TTL`.
 pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
     let feed_config = config(catalog).ok_or_else(|| "软件源未配置元数据源".to_owned())?;
-    let cache = FEED_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     {
-        let guard = cache.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
-        if let Some(entry) = guard.get(&feed_config.url)
+        let state = state_lock();
+        let guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+        if let Some(entry) = guard.cache.get(&feed_config.url)
             && entry.fetched_at.elapsed() < FEED_TTL
         {
             return Ok(entry.feed.clone());
         }
     }
-    let feed = fetch(feed_config).await?;
-    let mut guard = cache.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
-    guard.insert(
-        feed_config.url.clone(),
-        CachedFeed {
-            fetched_at: Instant::now(),
-            feed: feed.clone(),
-        },
-    );
-    Ok(feed)
+
+    match fetch(feed_config).await {
+        Ok((feed, signature_verified)) => {
+            let mut guard = state_lock().lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+            guard.status = FeedStatus {
+                configured: true,
+                url: Some(feed_config.url.clone()),
+                signature_enforced: true,
+                signature_verified,
+                last_success_at_unix_seconds: Some(unix_timestamp_now()),
+                generated_at_unix_seconds: Some(feed.generated_at_unix_seconds),
+                applications: feed.applications.len(),
+                development_tools: feed.development_tools.len(),
+                last_error: None,
+            };
+            guard.cache.insert(
+                feed_config.url.clone(),
+                CachedFeed {
+                    fetched_at: Instant::now(),
+                    feed: feed.clone(),
+                },
+            );
+            Ok(feed)
+        }
+        Err(error) => {
+            if let Ok(mut guard) = state_lock().lock() {
+                guard.status.last_error = Some(error.clone());
+            }
+            Err(error)
+        }
+    }
 }
 
 pub async fn entry_for(app: &Application) -> Result<Option<FeedApplicationEntry>, String> {
@@ -99,9 +189,10 @@ pub async fn self_update_entry() -> Result<Option<FeedApplicationEntry>, String>
     Ok(load(&catalog).await?.self_update.clone())
 }
 
-async fn fetch(feed_config: &MetadataFeed) -> Result<Feed, String> {
+async fn fetch(feed_config: &MetadataFeed) -> Result<(Feed, bool), String> {
     let hosts = feed_config.hosts.clone();
     let client = crate::source_engine::restricted_client(&hosts, Duration::from_secs(20))?;
+
     let response = client
         .get(&feed_config.url)
         .send()
@@ -120,17 +211,88 @@ async fn fetch(feed_config: &MetadataFeed) -> Result<Feed, String> {
     {
         return Err("元数据源响应大小异常".to_owned());
     }
-    let body = response
-        .text()
+    let bytes = response
+        .bytes()
         .await
         .map_err(|error| format!("读取元数据源内容失败：{error}"))?;
-    if body.len() as u64 > MAX_FEED_BYTES {
+    if bytes.len() as u64 > MAX_FEED_BYTES {
         return Err("元数据源响应大小异常".to_owned());
     }
-    let feed: Feed = serde_json::from_str(&body)
+
+    let signature_verified = verify_feed_signature(&client, &feed_config.url, &hosts, &bytes).await?;
+    let feed: Feed = serde_json::from_slice(&bytes)
         .map_err(|error| format!("元数据源格式无效：{error}"))?;
     validate(&feed)?;
-    Ok(feed)
+    Ok((feed, signature_verified))
+}
+
+async fn verify_feed_signature(
+    client: &reqwest::Client,
+    feed_url: &str,
+    hosts: &[String],
+    message: &[u8],
+) -> Result<bool, String> {
+    let signature_url = format!("{feed_url}.sig");
+    let response = client
+        .get(&signature_url)
+        .send()
+        .await
+        .map_err(|error| format!("读取元数据源签名失败：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("元数据源签名返回错误：{error}"))?;
+    if response.url().scheme() != "https"
+        || !crate::source_engine::host_allowed(response.url().host_str(), hosts)
+    {
+        return Err("元数据源签名重定向到未授权域名".to_owned());
+    }
+    let signature_hex = response
+        .text()
+        .await
+        .map_err(|error| format!("读取元数据源签名内容失败：{error}"))?;
+    verify_ed25519(message, signature_hex.trim())?;
+    Ok(true)
+}
+
+fn verify_ed25519(message: &[u8], signature_hex: &str) -> Result<(), String> {
+    let key_bytes = decode_hex_32(FEED_PUBLIC_KEY_HEX)?;
+    let signature_bytes = decode_hex_64(signature_hex)?;
+    let public_key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &key_bytes);
+    public_key
+        .verify(message, &signature_bytes)
+        .map_err(|_| "元数据源签名校验失败".to_owned())
+}
+
+fn decode_hex_32(input: &str) -> Result<[u8; 32], String> {
+    let bytes = decode_hex(input)?;
+    let mut out = [0_u8; 32];
+    if bytes.len() != out.len() {
+        return Err("元数据源公钥长度无效".to_owned());
+    }
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+fn decode_hex_64(input: &str) -> Result<[u8; 64], String> {
+    let bytes = decode_hex(input)?;
+    let mut out = [0_u8; 64];
+    if bytes.len() != out.len() {
+        return Err("元数据源签名长度无效".to_owned());
+    }
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+fn decode_hex(input: &str) -> Result<Vec<u8>, String> {
+    if input.len() % 2 != 0 || !input.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("十六进制签名格式无效".to_owned());
+    }
+    (0..input.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&input[index..index + 2], 16)
+                .map_err(|_| "十六进制签名格式无效".to_owned())
+        })
+        .collect()
 }
 
 fn validate(feed: &Feed) -> Result<(), String> {
@@ -174,4 +336,11 @@ fn validate_application_entry(_id: &str, entry: &FeedApplicationEntry) -> Result
         return Err("下载地址必须为 HTTPS".to_owned());
     }
     Ok(())
+}
+
+fn unix_timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }

@@ -19,7 +19,7 @@
 //   developmentTools: { [toolId]: { npmPackage, version } }
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, sign } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -335,8 +335,18 @@ async function main() {
   };
 
   mkdirSync(dirname(OUT_PATH), { recursive: true });
-  writeFileSync(OUT_PATH, JSON.stringify(feed, null, 2));
+  const feedBytes = Buffer.from(JSON.stringify(feed, null, 2));
+  writeFileSync(OUT_PATH, feedBytes);
   log(`Wrote ${OUT_PATH}`);
+
+  if (process.env.FEED_SIGNING_KEY) {
+    const signature = sign(null, feedBytes, process.env.FEED_SIGNING_KEY);
+    writeFileSync(`${OUT_PATH}.sig`, signature.toString("hex"));
+    log(`Wrote ${OUT_PATH}.sig (Ed25519)`);
+  } else {
+    log("FEED_SIGNING_KEY not set — feed published unsigned");
+  }
+
   log(
     `applications=${Object.keys(applications).length} selfUpdate=${selfUpdate !== null} tools=${Object.keys(developmentTools).length}`,
   );

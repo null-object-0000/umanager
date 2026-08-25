@@ -112,25 +112,24 @@ UManager 不再为每个软件写死适配器。新增一个软件只需要在 `
   - `releaseApi`：从 GitHub Releases API 选择匹配资产，读取 `sha256:` 摘要（如 FlClash）；
   - `browserImport`：仅登记本机识别与卸载，不在软件商店提供自动下载（如腾讯会议）。
 
-`source` 中声明的所有 `*Hosts` 都是精确域名白名单：下载、HTTP 重定向和 `apt-cache policy` 匹配都只接受这些域名，拒绝相似域名。主程序的通用下载引擎（`src-tauri/src/source_engine.rs`）与 helper 的白名单校验都从同一份内置 JSON 生成，因此新增软件不需要改动 Rust 代码，也不需要新增 Tauri command。
+`source` 中声明的所有 `*Hosts` 都是精确域名白名单：下载与 HTTP 重定向都只接受这些域名，拒绝相似域名。主程序的通用下载引擎（`src-tauri/src/source_engine.rs`）与 helper 的白名单校验都从同一份内置 JSON 生成，因此新增软件不需要改动 Rust 代码，也不需要新增 Tauri command。
 
 `aptRepository` 类来源还可选声明 `packagesIndexUrl`，指向该仓库的 Debian `Packages` 索引；它仅供下面的中央元数据源在 CI 中解析候选版本，应用本身不依赖该字段。
 
 ## 中央元数据源（GitHub Actions + GitHub Pages）
 
-默认情况下，UManager 在用户机器上直接抓取官网 / 调用发布 API / 读本机 `apt-cache policy` 来获知候选版本。这会把最脆弱的 HTML 抓取和 GitHub API 限流带到每台用户机器上。
+UManager 的软件/版本信息**只依赖一份中央 feed**，不再在用户机器上抓取官网、调用发布 API 或解析本机 `apt-cache policy`。GitHub Actions 定时爬取厂商来源，把「最新版本 + 大小 + SHA-256 + 下载地址」整理成单个 `feed.json`，用 Ed25519 签名后发布到 GitHub Pages；应用只拉取这个文件（外加 `feed.json.sig`），验签通过后把候选版本交给下载与安装链路。`vendors.json` 顶层的 `metadataFeed` 声明了 feed 的 URL 与精确域名白名单（加入白名单的域名会经过 HTTPS 精确匹配才能被接受）。
 
-项目现在提供一个集中式做法：GitHub Actions 定时爬取这些厂商来源，把「最新版本 + 大小 + SHA-256 + 下载地址」整理成单个 `feed.json`，发布到 GitHub Pages；应用只拉取这个文件，并把校验后的候选版本交给下载与安装链路。`vendors.json` 顶层的 `metadataFeed` 声明了 feed 的 URL 与精确域名白名单（加入白名单的域名会经过 HTTPS 精确匹配才能被接受）。
-
-- 触发：`.github/workflows/update-feed.yml` 定时（每 6 小时）、手动触发，以及 `vendors.json` 变更时；
+- 触发：`.github/workflows/update-feed.yml` 定时（每 6 小时）、手动触发，以及 `vendors.json` / `scripts/update-feed.mjs` / workflow 变更时；
 - 生成：`scripts/update-feed.mjs` 读取 `vendors.json`，逐个解析 `aptRepository` 的 `Packages` 索引、官网固定地址、GitHub Releases 资产和 npm registry，产出 `feed.json`；
-- 发布：用 `actions/configure-pages` + `actions/upload-pages-artifact` + `actions/deploy-pages` 部署到 GitHub Pages，无需维护专用分支，托管地址为 `https://<owner>.github.io/<repo>/feed.json`。
+- 签名：用 GitHub Actions secret `FEED_SIGNING_KEY` 对 `feed.json` 原文做 Ed25519 签名，产出 `feed.json.sig`；私钥只存在 CI 秘密里，App 内置对应的公钥（`src-tauri/src/feed.rs`）；
+- 发布：用 `actions/configure-pages` + `actions/upload-pages-artifact` + `actions/deploy-pages` 部署到 GitHub Pages，托管地址为 `https://<owner>.github.io/<repo>/feed.json`。
 
-要让该地址生效，需要在仓库 Settings → Pages 的 Build and deployment → Source 选择「GitHub Actions」；也可以直接运行一次 `update-feed` workflow（`configure-pages` 会自动启用 Pages）。之后 UManager 会优先使用 feed：「软件」页与「软件商店」的候选版本、大小、SHA-256 和下载地址都来自 feed，只有 feed 中缺失或抓取失败时才回退到本机抓取。
+要让该地址生效，需要在仓库 Settings → Pages 的 Build and deployment → Source 选择「GitHub Actions」；也可以直接运行一次 `update-feed` workflow（`configure-pages` 会自动启用 Pages）。应用会校验 feed 的 HTTPS 精确域名、大小上限、Ed25519 签名与字段格式；一旦抓取失败或签名不符，对应应用的候选版本会显示为不可用，并在「设置 → 软件信息源」里展示最近抓取时间与失败原因。
 
 `feed.json` 只影响「展示哪个是最新版本 / 候选版本」；真正的安装路径不变——应用仍按 feed 里的下载地址下载 `.deb`，核对 HTTPS 精确域名、响应大小、SHA-256 与 `.deb` 的包名/版本/架构，再生成不可变计划并经特权 helper 复核后才 `dpkg --install`。
 
-> **信任边界**：feed 成为元数据来源后，候选版本、大小和 SHA-256 的锚点从「厂商签名 APT 索引 / GitHub 发布摘要 / 官网页面」转移到「UManager 官方 Pages 上的 HTTPS JSON」。APT 类软件因此从「厂商 GPG 签名索引」降级为「HTTPS + 哈希」（应用仍校验 `.deb` 的包名、版本、架构与 SHA-256，且下载地址仍被限制在厂商允许域名内）。UI 会在「官方证据」中标注「元数据来源：UManager 官方采集镜像」以披露这一边界。微信在抓取时即被钉死 SHA-256，比之前「下载后计算哈希」更稳。
+> **信任边界**：feed 经 Ed25519 签名后成为元数据信任锚点。APT 类软件因此从「厂商 GPG 签名索引」降级为「UManager 签名 feed + HTTPS + 哈希」（应用仍校验 `.deb` 的包名、版本、架构与 SHA-256，且下载地址仍被限制在厂商允许域名内；发布 feed 的 CI 私钥只存在 GitHub Actions secret 中）。UI 会在「官方证据」中标注「元数据来源：UManager 官方采集镜像（Ed25519 签名）」，并在设置页展示抓取状态。微信在抓取时即被钉死 SHA-256。
 
 ### feed.json 结构
 
@@ -201,6 +200,8 @@ nvm 是 shell 函数，因此通过 `/bin/bash -c 'source nvm.sh --no-use; nvm �
 
 ## Visual Studio Code 适配
 
+> 本节描述历史行为；候选版本、大小与 SHA-256 现已改由「中央元数据源」提供，应用不再本机解析 APT 索引。
+
 VS Code 现已具备完整的官方 APT 适配器：
 
 - 验证 Debian 包名为 `code`、架构为 `amd64`；
@@ -215,6 +216,8 @@ VS Code 详情页还可以从已验证的 APT 索引生成下载计划。存在�
 
 ## 微信适配
 
+> 本节描述历史行为；展示版本与 `.deb` 控制区解析现已改由「中央元数据源」在 CI 中完成，应用下载后仍按 feed 的 SHA-256 复核。
+
 微信使用官网服务器渲染的三段版本号与固定 x86_64 `.deb` 下载地址。UManager 校验 `linux.weixin.qq.com` 和 `dldir1v6.qq.com` 精确域名，通过 HTTP Range 先读取 4 KiB，解析 Debian ar 目录并精确截取 `control.tar.*` 控制归档；若控制区超出探测片段，再按解析出的准确长度补取，且硬性限制在 4 MiB 内。随后一次性获取包名 `wechat`、完整版本和 `amd64` 架构。官网与控制区并行请求，远端元数据在进程内缓存 15 分钟，本机状态只查询 `wechat` 单包。因此即使网页只显示如 `4.1.1` 的三段版本，仍会以 `.deb` 中的完整版本（如 `4.1.1.8`）执行 Debian 版本比较。检查过程不下载完整安装包。
 
 微信检查已纳入主页面“检查更新”，可信通道显示为“官网直连”而不是“本地 `.deb`”。发现严格更高版本后，详情抽屉可从固定官网地址流式下载完整安装包，实时显示进度和速度，并复核响应大小、包名 `wechat`、完整版本、网页版本前缀和 `amd64` 架构。下载后计算 SHA-256 并锁入 `InstallVerifiedWebsiteDeb` 不可变计划；helper 只接受固定的 `install-verified-website-deb` 动作，重新核对当前已安装版本、架构、缓存路径、大小、SHA-256 和包元数据后，才以固定 `dpkg --install` 执行。
@@ -222,6 +225,8 @@ VS Code 详情页还可以从已验证的 APT 索引生成下载计划。存在�
 微信官网目前未发布独立的签名 SHA-256 清单，因此该哈希用于保证“下载完成后到安装前文件未变化”，不能提供与签名 APT 索引相同的发布者哈希证明。UI 会在用户确认前明确展示这一信任边界。
 
 ## FlClash 适配
+
+> 本节描述历史行为；GitHub Releases 资产选择现已改由「中央元数据源」在 CI 中完成，应用下载后仍按 feed 的 SHA-256 复核。
 
 FlClash 通过 `https://api.github.com/repos/chen08209/FlClash/releases/latest` 读取最新稳定发布，校验精确域名 `api.github.com`，并在资产列表中精确匹配 `FlClash-<tag>-linux-amd64.deb`；发布资产同时提供大小与 `sha256:` 摘要。下载地址必须位于 `github.com`，实际读取时允许重定向到 GitHub 的 `objects.githubusercontent.com` 与 `release-assets.githubusercontent.com`。
 

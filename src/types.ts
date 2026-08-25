@@ -211,6 +211,18 @@ export interface NetworkSettings {
   proxyUrl: string;
 }
 
+export interface FeedStatus {
+  configured: boolean;
+  url: string | null;
+  signatureEnforced: boolean;
+  signatureVerified: boolean;
+  lastSuccessAtUnixSeconds: number | null;
+  generatedAtUnixSeconds: number | null;
+  applications: number;
+  developmentTools: number;
+  lastError: string | null;
+}
+
 export interface InstallationInfo {
   appVersion: string;
   installationKind: "debianPackage" | "portable" | "development";

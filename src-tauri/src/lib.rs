@@ -274,6 +274,9 @@ async fn get_network_settings() -> Result<network::NetworkSettings, String> {
 }
 
 #[tauri::command]
+async fn get_feed_status() -> Result<feed::FeedStatus, String> {
+    Ok(feed::status())
+}#[tauri::command]
 async fn set_network_settings(
     app: tauri::AppHandle,
     settings: network::NetworkSettings,
@@ -573,6 +576,7 @@ pub fn run() {
             get_installation_info,
             get_network_settings,
             set_network_settings,
+            get_feed_status,
             scan_packages,
             get_software_catalog,
             get_dev_toolchains,

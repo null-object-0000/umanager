@@ -50,6 +50,8 @@ jobs:
 
       - name: Scrape vendor metadata and build feed.json
         run: node scripts/update-feed.mjs
+        env:
+          FEED_SIGNING_KEY: ${{ secrets.FEED_SIGNING_KEY }}
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

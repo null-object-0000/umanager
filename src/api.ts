@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
+import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -83,6 +83,23 @@ export function getNetworkSettings(): Promise<NetworkSettings> {
 export function setNetworkSettings(settings: NetworkSettings): Promise<NetworkSettings> {
   if (isMock()) return Promise.resolve(settings);
   return invoke<NetworkSettings>("set_network_settings", { settings });
+}
+
+export function getFeedStatus(): Promise<FeedStatus> {
+  if (isMock()) {
+    return Promise.resolve({
+      configured: true,
+      url: "https://null-object-0000.github.io/umanager/feed.json",
+      signatureEnforced: true,
+      signatureVerified: true,
+      lastSuccessAtUnixSeconds: Math.floor(Date.now() / 1000) - 3600,
+      generatedAtUnixSeconds: Math.floor(Date.now() / 1000) - 3600,
+      applications: 5,
+      developmentTools: 4,
+      lastError: null,
+    });
+  }
+  return invoke<FeedStatus>("get_feed_status");
 }
 
 export function scanPackages(): Promise<ScanResult> {

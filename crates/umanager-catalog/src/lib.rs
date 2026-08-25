@@ -168,6 +168,11 @@ pub enum SourceSpec {
         /// Optional fallback download endpoint exposed by the vendor.
         #[serde(default)]
         fallback_download_url: Option<String>,
+        /// Optional direct URL of the Debian `Packages` index for this repository.
+        /// Used by the CI metadata-feed generator to resolve the candidate version;
+        /// the desktop app itself does not read this index.
+        #[serde(default)]
+        packages_index_url: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     StableDownloadEndpoint {
