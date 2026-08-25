@@ -1,72 +1,190 @@
-mod adapters;
+mod dev_tools;
+mod installable;
+mod installation;
 mod local_deb;
 mod operation_plan;
 mod scanner;
+mod source_engine;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use umanager_catalog::Catalog;
 
-#[tauri::command]
-async fn scan_packages() -> Result<scanner::ScanResult, String> {
-    tauri::async_runtime::spawn_blocking(scanner::scan)
-        .await
-        .map_err(|error| format!("扫描任务异常结束：{error}"))?
+fn require_application<'a>(
+    catalog: &'a Catalog,
+    application_id: &str,
+) -> Result<&'a umanager_catalog::Application, String> {
+    catalog
+        .by_application_id(application_id)
+        .ok_or_else(|| format!("软件源中不存在应用 {application_id}"))
 }
 
 #[tauri::command]
-async fn get_vscode_details() -> Result<adapters::vscode::VscodeDetails, String> {
-    tauri::async_runtime::spawn_blocking(adapters::vscode::load_details)
+async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, String> {
+    let catalog = Catalog::load()?;
+    let mut result = tauri::async_runtime::spawn_blocking(scanner::scan)
         .await
-        .map_err(|error| format!("VS Code 详情任务异常结束：{error}"))?
-}
-
-#[tauri::command]
-async fn get_wechat_details(
-    app: tauri::AppHandle,
-) -> Result<adapters::wechat::WechatDetails, String> {
+        .map_err(|error| format!("扫描任务异常结束：{error}"))??;
     let cache_dir = app
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    adapters::wechat::load_details(cache_dir).await
+
+    for application in catalog
+        .applications
+        .iter()
+        .filter(|item| item.is_website_download())
+    {
+        let installed = result
+            .packages
+            .iter()
+            .any(|item| item.package_name == application.package_name);
+        if !installed {
+            continue;
+        }
+        match source_engine::load_details(application, &cache_dir).await {
+            Ok(details) => {
+                if let Some(item) = result
+                    .packages
+                    .iter_mut()
+                    .find(|item| item.package_name == application.package_name)
+                {
+                    item.candidate_version = details.candidate_version.clone();
+                    item.update_state = details.update_state;
+                    item.source_kind = scanner::SourceKind::OfficialWebsite;
+                    item.source_url = Some(details.source_url.clone());
+                }
+            }
+            Err(error) => result
+                .warnings
+                .push(format!("{} 官网更新检查失败：{error}", application.display_name)),
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]
-async fn get_vscode_download_plan(
+async fn get_software_catalog() -> Result<Vec<umanager_catalog::Application>, String> {
+    Ok(Catalog::load()?.applications)
+}
+
+#[tauri::command]
+async fn get_dev_toolchains() -> Result<Vec<umanager_catalog::DevelopmentToolchain>, String> {
+    dev_tools::load_toolchains()
+}
+
+#[tauri::command]
+async fn get_dev_toolchain_state(
+    toolchain_id: String,
+) -> Result<dev_tools::DevToolchainState, String> {
+    dev_tools::detect_state(toolchain_id).await
+}
+
+#[tauri::command]
+async fn get_dev_releases(toolchain_id: String) -> Result<Vec<dev_tools::DevRelease>, String> {
+    dev_tools::list_remote_versions(toolchain_id).await
+}
+
+#[tauri::command]
+async fn install_dev_version(
     app: tauri::AppHandle,
-) -> Result<adapters::vscode::download::DownloadPlan, String> {
+    toolchain_id: String,
+    version: String,
+) -> Result<dev_tools::DevOperationReport, String> {
+    let event_app = app.clone();
+    let progress: dev_tools::DevProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("dev-operation-progress", payload);
+    });
+    dev_tools::install_version(toolchain_id, version, progress).await
+}
+
+#[tauri::command]
+async fn set_dev_default_version(
+    app: tauri::AppHandle,
+    toolchain_id: String,
+    version: String,
+) -> Result<dev_tools::DevOperationReport, String> {
+    let event_app = app.clone();
+    let progress: dev_tools::DevProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("dev-operation-progress", payload);
+    });
+    dev_tools::set_default_version(toolchain_id, version, progress).await
+}
+
+#[tauri::command]
+async fn uninstall_dev_version(
+    app: tauri::AppHandle,
+    toolchain_id: String,
+    version: String,
+) -> Result<dev_tools::DevOperationReport, String> {
+    let event_app = app.clone();
+    let progress: dev_tools::DevProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("dev-operation-progress", payload);
+    });
+    dev_tools::uninstall_version(toolchain_id, version, progress).await
+}
+
+#[tauri::command]
+async fn get_application_details(
+    app: tauri::AppHandle,
+    application_id: String,
+) -> Result<source_engine::ApplicationDetails, String> {
+    let catalog = Catalog::load()?;
+    let application = require_application(&catalog, &application_id)?;
     let cache_dir = app
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    tauri::async_runtime::spawn_blocking(move || adapters::vscode::download::build_plan(&cache_dir))
-        .await
-        .map_err(|error| format!("VS Code 下载计划任务异常结束：{error}"))?
+    source_engine::load_details(application, &cache_dir).await
 }
 
 #[tauri::command]
-async fn download_vscode_package(
+async fn get_download_plan(
     app: tauri::AppHandle,
-) -> Result<adapters::vscode::download::DownloadResult, String> {
+    application_id: String,
+) -> Result<source_engine::DownloadPlan, String> {
+    let catalog = Catalog::load()?;
+    let application = require_application(&catalog, &application_id)?;
     let cache_dir = app
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    adapters::vscode::download::download_and_verify(cache_dir).await
+    source_engine::build_download_plan(application, &cache_dir).await
 }
 
 #[tauri::command]
-async fn create_vscode_operation_plan(
+async fn download_package(
     app: tauri::AppHandle,
+    application_id: String,
+) -> Result<source_engine::DownloadResult, String> {
+    let catalog = Catalog::load()?;
+    let application = require_application(&catalog, &application_id)?;
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let event_app = app.clone();
+    let progress: source_engine::ProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("apt-download-progress", payload);
+    });
+    source_engine::download_and_verify(application, cache_dir, progress).await
+}
+
+#[tauri::command]
+async fn create_operation_plan(
+    app: tauri::AppHandle,
+    application_id: String,
 ) -> Result<operation_plan::PlanArtifact, String> {
+    let catalog = Catalog::load()?;
+    let application = require_application(&catalog, &application_id)?;
     let cache_dir = app
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    operation_plan::create_vscode_plan(cache_dir).await
+    operation_plan::create_install_plan(application, cache_dir).await
 }
 
 #[tauri::command]
-async fn run_vscode_operation_dry_run(
+async fn run_operation_dry_run(
     app: tauri::AppHandle,
     plan_id: String,
 ) -> Result<serde_json::Value, String> {
@@ -74,9 +192,49 @@ async fn run_vscode_operation_dry_run(
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    tauri::async_runtime::spawn_blocking(move || operation_plan::run_dry_run(&cache_dir, &plan_id))
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::run_install_dry_run(&cache_dir, &plan_id)
+    })
+    .await
+    .map_err(|error| format!("Polkit dry-run 任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn install_package(
+    app: tauri::AppHandle,
+    plan_id: String,
+) -> Result<serde_json::Value, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let event_app = app.clone();
+    let progress: operation_plan::ProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("operation-progress", payload);
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::execute_install(&cache_dir, &plan_id, progress)
+    })
+    .await
+    .map_err(|error| format!("安装任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn get_installable_applications(
+    app: tauri::AppHandle,
+) -> Result<Vec<installable::InstallableApplication>, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    installable::load_applications(&cache_dir).await
+}
+
+#[tauri::command]
+async fn get_installation_info() -> Result<installation::InstallationInfo, String> {
+    tauri::async_runtime::spawn_blocking(installation::detect)
         .await
-        .map_err(|error| format!("Polkit dry-run 任务异常结束：{error}"))?
+        .map_err(|error| format!("安装形态检测任务异常结束：{error}"))?
 }
 
 #[tauri::command]
@@ -153,11 +311,118 @@ async fn install_local_deb(
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let event_app = app.clone();
+    let progress: operation_plan::ProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("operation-progress", payload);
+    });
     tauri::async_runtime::spawn_blocking(move || {
-        operation_plan::execute_local_install(&cache_dir, &plan_id)
+        operation_plan::execute_local_install(&cache_dir, &plan_id, progress)
     })
     .await
     .map_err(|error| format!("本地安装包安装任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn create_removal_operation_plan(
+    app: tauri::AppHandle,
+    package_name: String,
+) -> Result<operation_plan::RemovalPlanArtifact, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::create_removal_plan(&cache_dir, &package_name)
+    })
+    .await
+    .map_err(|error| format!("卸载计划任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn run_removal_dry_run(
+    app: tauri::AppHandle,
+    plan_id: String,
+) -> Result<serde_json::Value, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::run_removal_dry_run(&cache_dir, &plan_id)
+    })
+    .await
+    .map_err(|error| format!("卸载前特权复核任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn remove_managed_package(
+    app: tauri::AppHandle,
+    plan_id: String,
+) -> Result<serde_json::Value, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let event_app = app.clone();
+    let progress: operation_plan::ProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("operation-progress", payload);
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::execute_removal(&cache_dir, &plan_id, progress)
+    })
+    .await
+    .map_err(|error| format!("卸载任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn create_self_removal_operation_plan(
+    app: tauri::AppHandle,
+) -> Result<operation_plan::RemovalPlanArtifact, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::create_self_removal_plan(&cache_dir)
+    })
+    .await
+    .map_err(|error| format!("UManager 卸载计划任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn run_self_removal_dry_run(
+    app: tauri::AppHandle,
+    plan_id: String,
+) -> Result<serde_json::Value, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::run_self_removal_dry_run(&cache_dir, &plan_id)
+    })
+    .await
+    .map_err(|error| format!("UManager 卸载前复核任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn remove_umanager(
+    app: tauri::AppHandle,
+    plan_id: String,
+) -> Result<serde_json::Value, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let event_app = app.clone();
+    let progress: operation_plan::ProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("operation-progress", payload);
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::execute_self_removal(&cache_dir, &plan_id, progress)
+    })
+    .await
+    .map_err(|error| format!("UManager 卸载任务异常结束：{error}"))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -165,18 +430,33 @@ pub fn run() {
     tauri::Builder::default()
         .manage(local_deb::LocalDebState::from_process_arguments())
         .invoke_handler(tauri::generate_handler![
+            get_installation_info,
             scan_packages,
-            get_vscode_details,
-            get_wechat_details,
-            get_vscode_download_plan,
-            download_vscode_package,
-            create_vscode_operation_plan,
-            run_vscode_operation_dry_run,
+            get_software_catalog,
+            get_dev_toolchains,
+            get_dev_toolchain_state,
+            get_dev_releases,
+            install_dev_version,
+            set_dev_default_version,
+            uninstall_dev_version,
+            get_application_details,
+            get_download_plan,
+            download_package,
+            create_operation_plan,
+            run_operation_dry_run,
+            install_package,
+            get_installable_applications,
             get_pending_local_deb,
             import_pending_local_deb,
             create_local_deb_operation_plan,
             run_local_deb_dry_run,
-            install_local_deb
+            install_local_deb,
+            create_removal_operation_plan,
+            run_removal_dry_run,
+            remove_managed_package,
+            create_self_removal_operation_plan,
+            run_self_removal_dry_run,
+            remove_umanager
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UManager");

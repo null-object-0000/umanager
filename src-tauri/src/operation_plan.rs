@@ -1,14 +1,22 @@
-use crate::adapters::vscode::download;
+use crate::installation;
 use crate::scanner::{self, UpdateState};
-use serde::Serialize;
+use crate::source_engine;
+use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use umanager_catalog::{Application, Catalog};
 use umanager_plan::{
     MAX_PLAN_LIFETIME_SECONDS, OperationAction, OperationPlan, PLAN_SCHEMA_VERSION, PlanPayload,
+    RemovalAction, RemovalPlan, RemovalPlanPayload,
 };
+
+const DPKG_BIN: &str = "/usr/bin/dpkg";
+const SAFE_SYSTEM_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,30 +25,64 @@ pub struct PlanArtifact {
     pub(crate) plan_path: String,
 }
 
-pub async fn create_vscode_plan(cache_dir: PathBuf) -> Result<PlanArtifact, String> {
-    let verified = download::verify_cached(cache_dir.clone()).await?;
-    let scan = tauri::async_runtime::spawn_blocking(scanner::scan)
-        .await
-        .map_err(|error| format!("生成操作计划时扫描任务失败：{error}"))??;
-    let package = scan
-        .packages
-        .iter()
-        .find(|item| item.package_name == "code")
-        .ok_or_else(|| "未检测到已安装的 Visual Studio Code".to_owned())?;
-    if !matches!(package.update_state, UpdateState::UpdateAvailable) {
-        return Err("VS Code 当前没有可安装的更高版本；拒绝生成重装或降级计划".to_owned());
-    }
-    if package.candidate_version.as_deref() != Some(&verified.plan.version) {
-        return Err("APT 候选版本在下载后发生变化，请重新检查并下载".to_owned());
-    }
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovalPlanArtifact {
+    pub(crate) plan: RemovalPlan,
+    pub(crate) plan_path: String,
+}
 
+const LOG_EVENT_PREFIX: &str = "UMANAGER_EVENT\t";
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationProgressEvent {
+    pub plan_id: String,
+    pub kind: String,
+    pub stream: String,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HelperProgressEvent {
+    kind: String,
+    stream: String,
+    message: String,
+}
+
+pub type ProgressCallback = Arc<dyn Fn(OperationProgressEvent) + Send + Sync>;
+
+pub async fn create_install_plan(
+    app: &Application,
+    cache_dir: PathBuf,
+) -> Result<PlanArtifact, String> {
+    let verified = source_engine::verify_cached(app, &cache_dir).await?;
+    let package_name = app.package_name.clone();
+    let installed_version = tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
+        let scan = scanner::scan()?;
+        Ok(scan
+            .packages
+            .into_iter()
+            .find(|item| item.package_name == package_name)
+            .map(|item| item.installed_version))
+    })
+    .await
+    .map_err(|error| format!("计划本机状态任务异常结束：{error}"))??;
+    ensure_installable_transition(app, installed_version.as_deref(), &verified.plan.version)?;
+
+    let action = if app.is_website_download() {
+        OperationAction::InstallVerifiedWebsiteDeb
+    } else {
+        OperationAction::InstallVerifiedDeb
+    };
     let created = unix_timestamp();
     let plan = OperationPlan::new(PlanPayload {
         schema_version: PLAN_SCHEMA_VERSION,
-        action: OperationAction::InstallVerifiedDeb,
-        application_id: "vscode".to_owned(),
+        action,
+        application_id: app.application_id.clone(),
         package_name: verified.plan.package_name,
-        installed_version: Some(package.installed_version.clone()),
+        installed_version,
         target_version: verified.plan.version,
         architecture: verified.plan.architecture,
         deb_path: verified.plan.target_path,
@@ -49,15 +91,105 @@ pub async fn create_vscode_plan(cache_dir: PathBuf) -> Result<PlanArtifact, Stri
         created_at_unix_seconds: created,
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
     })?;
-    let plans_dir = cache_dir.join("plans");
-    let plan_for_write = plan.clone();
-    let plan_path = tauri::async_runtime::spawn_blocking(move || {
-        persist_immutable_plan(&plans_dir, &plan_for_write)
-    })
-    .await
-    .map_err(|error| format!("操作计划写入任务失败：{error}"))??;
-
+    let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {
+        plan,
+        plan_path: path.to_string_lossy().into_owned(),
+    })
+}
+
+fn ensure_installable_transition(
+    app: &Application,
+    installed_version: Option<&str>,
+    target_version: &str,
+) -> Result<(), String> {
+    let Some(installed) = installed_version else {
+        return Ok(());
+    };
+    if app.is_website_download() {
+        if !version_is_newer(installed, target_version) {
+            return Err(format!(
+                "{} 当前已是最新版本，拒绝生成重装或降级计划",
+                app.display_name
+            ));
+        }
+        return Ok(());
+    }
+    let scan = scanner::scan()?;
+    let package = scan
+        .packages
+        .iter()
+        .find(|item| item.package_name == app.package_name)
+        .ok_or_else(|| format!("{} 已安装状态在计划期间发生变化", app.display_name))?;
+    if !matches!(package.update_state, UpdateState::UpdateAvailable) {
+        return Err(format!(
+            "{} 当前没有可安装的更高版本；拒绝生成重装或降级计划",
+            app.display_name
+        ));
+    }
+    if package.candidate_version.as_deref() != Some(target_version) {
+        return Err("APT 候选版本在下载后发生变化，请重新检查并下载".to_owned());
+    }
+    Ok(())
+}
+
+pub fn create_removal_plan(
+    cache_dir: &Path,
+    package_name: &str,
+) -> Result<RemovalPlanArtifact, String> {
+    let catalog = Catalog::load()?;
+    let application = catalog
+        .by_package_name(package_name)
+        .filter(|item| item.removable)
+        .ok_or_else(|| "该软件包不在 UManager 卸载白名单中".to_owned())?;
+    let scan = scanner::scan()?;
+    let package = scan
+        .packages
+        .iter()
+        .find(|item| item.package_name == package_name)
+        .ok_or_else(|| "软件包未安装或已不再由 UManager 管理".to_owned())?;
+    let created = unix_timestamp();
+    let plan = RemovalPlan::new(RemovalPlanPayload {
+        schema_version: PLAN_SCHEMA_VERSION,
+        action: RemovalAction::RemoveManagedPackage,
+        application_id: application.application_id.clone(),
+        package_name: package.package_name.clone(),
+        installed_version: package.installed_version.clone(),
+        architecture: package.architecture.clone(),
+        created_at_unix_seconds: created,
+        expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
+    })?;
+    let plan_path = persist_immutable_removal_plan(&cache_dir.join("plans"), &plan)?;
+    Ok(RemovalPlanArtifact {
+        plan,
+        plan_path: plan_path.to_string_lossy().into_owned(),
+    })
+}
+
+pub fn create_self_removal_plan(cache_dir: &Path) -> Result<RemovalPlanArtifact, String> {
+    let info = installation::detect()?;
+    if !info.can_self_remove {
+        return Err("当前运行的 UManager 不是由 Debian 包安装，无法通过包管理器卸载".to_owned());
+    }
+    let installed_version = info
+        .package_version
+        .ok_or_else(|| "无法确定已安装的 UManager 包版本".to_owned())?;
+    let architecture = info
+        .architecture
+        .ok_or_else(|| "无法确定已安装的 UManager 包架构".to_owned())?;
+    let created = unix_timestamp();
+    let plan = RemovalPlan::new(RemovalPlanPayload {
+        schema_version: PLAN_SCHEMA_VERSION,
+        action: RemovalAction::RemoveUmanager,
+        application_id: installation::APPLICATION_ID.to_owned(),
+        package_name: installation::PACKAGE_NAME.to_owned(),
+        installed_version,
+        architecture,
+        created_at_unix_seconds: created,
+        expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
+    })?;
+    let plan_path = persist_immutable_removal_plan(&cache_dir.join("plans"), &plan)?;
+    Ok(RemovalPlanArtifact {
         plan,
         plan_path: plan_path.to_string_lossy().into_owned(),
     })
@@ -86,13 +218,117 @@ pub(crate) fn persist_immutable_plan(
     Ok(path)
 }
 
-pub fn run_dry_run(cache_dir: &Path, plan_id: &str) -> Result<serde_json::Value, String> {
-    run_helper(
+fn persist_immutable_removal_plan(directory: &Path, plan: &RemovalPlan) -> Result<PathBuf, String> {
+    fs::create_dir_all(directory).map_err(|error| format!("无法创建操作计划目录：{error}"))?;
+    let path = directory.join(format!("{}.json", plan.plan_id));
+    let encoded =
+        serde_json::to_vec_pretty(plan).map_err(|error| format!("无法序列化卸载计划：{error}"))?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .map_err(|error| format!("无法以不可覆盖方式创建卸载计划：{error}"))?;
+    file.write_all(&encoded)
+        .map_err(|error| format!("无法写入卸载计划：{error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("无法同步卸载计划：{error}"))?;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o400))
+        .map_err(|error| format!("无法将卸载计划设为只读：{error}"))?;
+    Ok(path)
+}
+
+pub fn run_install_dry_run(cache_dir: &Path, plan_id: &str) -> Result<serde_json::Value, String> {
+    let (action, helper_action) = resolve_install_action(cache_dir, plan_id)?;
+    run_helper(cache_dir, plan_id, action, helper_action, "--dry-run", None)
+}
+
+pub fn execute_install(
+    cache_dir: &Path,
+    plan_id: &str,
+    progress: ProgressCallback,
+) -> Result<serde_json::Value, String> {
+    let (action, helper_action) = resolve_install_action(cache_dir, plan_id)?;
+    run_helper(cache_dir, plan_id, action, helper_action, "--execute", Some(progress))
+}
+
+fn resolve_install_action(
+    cache_dir: &Path,
+    plan_id: &str,
+) -> Result<(OperationAction, &'static str), String> {
+    validate_plan_id(plan_id)?;
+    let plan_path = cache_dir.join("plans").join(format!("{plan_id}.json"));
+    let plan: OperationPlan = serde_json::from_slice(
+        &fs::read(&plan_path).map_err(|error| format!("无法读取操作计划：{error}"))?,
+    )
+    .map_err(|error| format!("操作计划格式无效：{error}"))?;
+    plan.verify_integrity()?;
+    match plan.payload.action {
+        OperationAction::InstallVerifiedDeb => {
+            Ok((OperationAction::InstallVerifiedDeb, "install-verified-deb"))
+        }
+        OperationAction::InstallVerifiedWebsiteDeb => Ok((
+            OperationAction::InstallVerifiedWebsiteDeb,
+            "install-verified-website-deb",
+        )),
+        OperationAction::InstallLocalDeb => {
+            Err("本地安装包请使用本地安装命令".to_owned())
+        }
+    }
+}
+
+pub fn run_removal_dry_run(cache_dir: &Path, plan_id: &str) -> Result<serde_json::Value, String> {
+    run_removal_helper(
         cache_dir,
         plan_id,
-        OperationAction::InstallVerifiedDeb,
-        "install-verified-deb",
+        RemovalAction::RemoveManagedPackage,
+        "remove-managed-package",
         "--dry-run",
+        None,
+    )
+}
+
+pub fn execute_removal(
+    cache_dir: &Path,
+    plan_id: &str,
+    progress: ProgressCallback,
+) -> Result<serde_json::Value, String> {
+    run_removal_helper(
+        cache_dir,
+        plan_id,
+        RemovalAction::RemoveManagedPackage,
+        "remove-managed-package",
+        "--execute",
+        Some(progress),
+    )
+}
+
+pub fn run_self_removal_dry_run(
+    cache_dir: &Path,
+    plan_id: &str,
+) -> Result<serde_json::Value, String> {
+    run_removal_helper(
+        cache_dir,
+        plan_id,
+        RemovalAction::RemoveUmanager,
+        "remove-umanager",
+        "--dry-run",
+        None,
+    )
+}
+
+pub fn execute_self_removal(
+    cache_dir: &Path,
+    plan_id: &str,
+    progress: ProgressCallback,
+) -> Result<serde_json::Value, String> {
+    run_removal_helper(
+        cache_dir,
+        plan_id,
+        RemovalAction::RemoveUmanager,
+        "remove-umanager",
+        "--execute",
+        Some(progress),
     )
 }
 
@@ -103,16 +339,22 @@ pub fn run_local_dry_run(cache_dir: &Path, plan_id: &str) -> Result<serde_json::
         OperationAction::InstallLocalDeb,
         "install-local-deb",
         "--dry-run",
+        None,
     )
 }
 
-pub fn execute_local_install(cache_dir: &Path, plan_id: &str) -> Result<serde_json::Value, String> {
+pub fn execute_local_install(
+    cache_dir: &Path,
+    plan_id: &str,
+    progress: ProgressCallback,
+) -> Result<serde_json::Value, String> {
     run_helper(
         cache_dir,
         plan_id,
         OperationAction::InstallLocalDeb,
         "install-local-deb",
         "--execute",
+        Some(progress),
     )
 }
 
@@ -122,10 +364,9 @@ fn run_helper(
     expected_action: OperationAction,
     helper_action: &str,
     mode: &str,
+    progress: Option<ProgressCallback>,
 ) -> Result<serde_json::Value, String> {
-    if plan_id.len() != 64 || !plan_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("操作计划 ID 无效".to_owned());
-    }
+    validate_plan_id(plan_id)?;
     let plan_path = cache_dir.join("plans").join(format!("{plan_id}.json"));
     let plan: OperationPlan = serde_json::from_slice(
         &fs::read(&plan_path).map_err(|error| format!("无法读取操作计划：{error}"))?,
@@ -135,20 +376,137 @@ fn run_helper(
     if plan.payload.action != expected_action {
         return Err("操作计划动作与请求不一致".to_owned());
     }
-    let output = std::process::Command::new("/usr/bin/pkexec")
-        .args(["/usr/libexec/umanager-helper", helper_action, "--plan"])
-        .arg(&plan_path)
-        .arg(mode)
-        .output()
-        .map_err(|error| format!("无法启动 Polkit dry-run：{error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "特权 helper dry-run 失败：{}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+    let output = run_privileged_helper(&plan.plan_id, helper_action, &plan_path, mode, progress)?;
+    serde_json::from_slice(&output).map_err(|error| format!("特权 helper 返回了无效结果：{error}"))
+}
+
+fn run_removal_helper(
+    cache_dir: &Path,
+    plan_id: &str,
+    expected_action: RemovalAction,
+    helper_action: &str,
+    mode: &str,
+    progress: Option<ProgressCallback>,
+) -> Result<serde_json::Value, String> {
+    validate_plan_id(plan_id)?;
+    let plan_path = cache_dir.join("plans").join(format!("{plan_id}.json"));
+    let plan: RemovalPlan = serde_json::from_slice(
+        &fs::read(&plan_path).map_err(|error| format!("无法读取卸载计划：{error}"))?,
+    )
+    .map_err(|error| format!("卸载计划格式无效：{error}"))?;
+    plan.verify_integrity()?;
+    if plan.payload.action != expected_action {
+        return Err("卸载计划动作与请求不一致".to_owned());
     }
-    serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("特权 helper 返回了无效结果：{error}"))
+    let output = run_privileged_helper(&plan.plan_id, helper_action, &plan_path, mode, progress)?;
+    serde_json::from_slice(&output)
+        .map_err(|error| format!("特权 helper 返回了无效卸载结果：{error}"))
+}
+
+fn run_privileged_helper(
+    plan_id: &str,
+    helper_action: &str,
+    plan_path: &Path,
+    mode: &str,
+    progress: Option<ProgressCallback>,
+) -> Result<Vec<u8>, String> {
+    emit_progress(&progress, plan_id, "phase", "system", "等待系统授权");
+    let mut child = std::process::Command::new("/usr/bin/pkexec")
+        .args(["/usr/libexec/umanager-helper", helper_action, "--plan"])
+        .arg(plan_path)
+        .arg(mode)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("无法启动 Polkit 特权操作：{error}"))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "无法读取特权 helper 输出".to_owned())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "无法读取特权 helper 错误输出".to_owned())?;
+    let mut errors = Vec::new();
+    for line in BufReader::new(stderr).lines() {
+        let line = line.map_err(|error| format!("无法读取特权 helper 日志：{error}"))?;
+        if let Some(encoded) = line.strip_prefix(LOG_EVENT_PREFIX) {
+            if let Ok(event) = serde_json::from_str::<HelperProgressEvent>(encoded) {
+                emit_progress(
+                    &progress,
+                    plan_id,
+                    &event.kind,
+                    &event.stream,
+                    &event.message,
+                );
+                continue;
+            }
+        }
+        if !line.is_empty() {
+            emit_progress(&progress, plan_id, "log", "stderr", &line);
+            errors.push(line);
+        }
+    }
+    let mut output = Vec::new();
+    stdout
+        .read_to_end(&mut output)
+        .map_err(|error| format!("无法读取特权 helper 结果：{error}"))?;
+    let status = child
+        .wait()
+        .map_err(|error| format!("无法等待特权 helper：{error}"))?;
+    if !status.success() {
+        return Err(format!("特权 helper 操作失败：{}", errors.join("\n")));
+    }
+    emit_progress(
+        &progress,
+        plan_id,
+        "completed",
+        "system",
+        "系统包操作已成功完成",
+    );
+    Ok(output)
+}
+
+fn emit_progress(
+    progress: &Option<ProgressCallback>,
+    plan_id: &str,
+    kind: &str,
+    stream: &str,
+    message: &str,
+) {
+    if let Some(callback) = progress {
+        callback(OperationProgressEvent {
+            plan_id: plan_id.to_owned(),
+            kind: kind.to_owned(),
+            stream: stream.to_owned(),
+            message: message.to_owned(),
+        });
+    }
+}
+
+fn validate_plan_id(plan_id: &str) -> Result<(), String> {
+    if plan_id.len() != 64 || !plan_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("操作计划 ID 无效".to_owned());
+    }
+    Ok(())
+}
+
+fn version_is_newer(installed: &str, candidate: &str) -> bool {
+    clean_command(DPKG_BIN)
+        .args(["--compare-versions", installed, "lt", candidate])
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn clean_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    command
+        .env_clear()
+        .env("PATH", SAFE_SYSTEM_PATH)
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .env("LANGUAGE", "C");
+    command
 }
 
 fn unix_timestamp() -> u64 {
@@ -164,7 +522,23 @@ mod tests {
 
     #[test]
     fn rejects_untrusted_plan_identifiers_before_polkit() {
-        assert!(run_dry_run(Path::new("/tmp/cache"), "../plan").is_err());
-        assert!(run_dry_run(Path::new("/tmp/cache"), &"g".repeat(64)).is_err());
+        assert!(run_install_dry_run(Path::new("/tmp/cache"), "../plan").is_err());
+        assert!(run_install_dry_run(Path::new("/tmp/cache"), &"g".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn every_auto_installable_catalog_entry_has_a_removal_and_install_shape() {
+        let catalog = Catalog::load().unwrap();
+        for application in catalog.applications.iter().filter(|item| item.is_auto_installable()) {
+            assert!(application.removable);
+            assert!(catalog.by_application_id(&application.application_id).is_some());
+        }
+    }
+
+    #[test]
+    fn new_install_transition_does_not_require_a_previous_version() {
+        let catalog = Catalog::load().unwrap();
+        let code = catalog.by_package_name("code").unwrap();
+        assert!(ensure_installable_transition(code, None, "2.0").is_ok());
     }
 }

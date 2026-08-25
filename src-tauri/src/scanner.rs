@@ -1,38 +1,14 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
+use umanager_catalog::{Application, Catalog, SourceSpec};
 
-const CATALOG: &str = include_str!("../resources/vendors.toml");
 const DPKG_QUERY_BIN: &str = "/usr/bin/dpkg-query";
 const APT_CACHE_BIN: &str = "/usr/bin/apt-cache";
 const DPKG_BIN: &str = "/usr/bin/dpkg";
 const DPKG_FORMAT: &str =
     "${binary:Package}\t${Version}\t${Architecture}\t${Status}\t${Homepage}\n";
-
-#[derive(Clone, Debug, Deserialize)]
-struct Catalog {
-    applications: Vec<ApplicationDefinition>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct ApplicationDefinition {
-    package_name: String,
-    display_name: String,
-    vendor: String,
-    official_repository_hosts: Vec<String>,
-    #[allow(dead_code)]
-    stable_download_url: Option<String>,
-    official_homepage_url: Option<String>,
-    #[allow(dead_code)]
-    release_api_url: Option<String>,
-    #[allow(dead_code)]
-    manual_download_url: Option<String>,
-    #[allow(dead_code)]
-    allowed_download_hosts: Option<Vec<String>>,
-    #[allow(dead_code)]
-    download_strategy: Option<String>,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct InstalledPackage {
@@ -43,9 +19,9 @@ struct InstalledPackage {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct AptPolicy {
-    candidate: Option<String>,
-    repository_urls: Vec<String>,
+pub(crate) struct AptPolicy {
+    pub(crate) candidate: Option<String>,
+    pub(crate) repository_urls: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -65,14 +41,15 @@ pub struct ManagedPackage {
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum SourceKind {
+pub enum SourceKind {
     OfficialRepository,
+    OfficialWebsite,
     LocalPackage,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum UpdateState {
+pub enum UpdateState {
     UpToDate,
     UpdateAvailable,
     Unknown,
@@ -83,12 +60,11 @@ pub(crate) enum UpdateState {
 pub struct ScanResult {
     pub(crate) packages: Vec<ManagedPackage>,
     scanned_at_unix_seconds: u64,
-    warnings: Vec<String>,
+    pub(crate) warnings: Vec<String>,
 }
 
 pub fn scan() -> Result<ScanResult, String> {
-    let catalog: Catalog =
-        toml::from_str(CATALOG).map_err(|error| format!("内置厂商目录无效：{error}"))?;
+    let catalog = Catalog::load()?;
     let output = locale_stable_command(DPKG_QUERY_BIN)
         .args(["-W", "-f", DPKG_FORMAT])
         .output()
@@ -102,17 +78,17 @@ pub fn scan() -> Result<ScanResult, String> {
     let definitions: HashMap<_, _> = catalog
         .applications
         .iter()
-        .map(|definition| (definition.package_name.as_str(), definition))
+        .map(|application| (application.package_name.as_str(), application))
         .collect();
     let mut packages = Vec::new();
     let mut warnings = Vec::new();
 
     for package in installed {
-        let Some(definition) = definitions.get(package.package_name.as_str()) else {
+        let Some(application) = definitions.get(package.package_name.as_str()) else {
             continue;
         };
 
-        match inspect_package(package, definition) {
+        match inspect_package(package, application) {
             Ok(item) => {
                 if matches!(item.source_kind, SourceKind::OfficialRepository)
                     && item.candidate_version.is_none()
@@ -139,8 +115,25 @@ pub fn scan() -> Result<ScanResult, String> {
 
 fn inspect_package(
     installed: InstalledPackage,
-    definition: &ApplicationDefinition,
+    application: &Application,
 ) -> Result<ManagedPackage, String> {
+    let SourceSpec::AptRepository { .. } = application.source else {
+        // Website and browser-import sources are not resolved from the APT index here;
+        // website candidates are attached later by the source engine.
+        return Ok(ManagedPackage {
+            package_name: installed.package_name,
+            display_name: application.display_name.clone(),
+            vendor: application.vendor.clone(),
+            installed_version: installed.version,
+            candidate_version: None,
+            architecture: installed.architecture,
+            source_kind: SourceKind::LocalPackage,
+            source_url: None,
+            update_state: UpdateState::Unknown,
+            homepage: application.homepage.clone().or(installed.homepage),
+        });
+    };
+
     let output = locale_stable_command(APT_CACHE_BIN)
         .args(["policy", &installed.package_name])
         .output()
@@ -154,12 +147,15 @@ fn inspect_package(
     }
 
     let policy = parse_apt_policy(&String::from_utf8_lossy(&output.stdout));
-    let official_url = policy.repository_urls.iter().find(|url| {
-        definition
-            .official_repository_hosts
-            .iter()
-            .any(|host| url_has_host(url, host))
-    });
+    let official_url = policy
+        .repository_urls
+        .iter()
+        .find(|url| {
+            application
+                .apt_repository_hosts()
+                .iter()
+                .any(|host| url_has_host(url, host))
+        });
     let has_official_repository = official_url.is_some();
     let candidate = has_official_repository
         .then_some(policy.candidate)
@@ -178,8 +174,8 @@ fn inspect_package(
 
     Ok(ManagedPackage {
         package_name: installed.package_name,
-        display_name: definition.display_name.clone(),
-        vendor: definition.vendor.clone(),
+        display_name: application.display_name.clone(),
+        vendor: application.vendor.clone(),
         installed_version: installed.version,
         candidate_version: candidate,
         architecture: installed.architecture,
@@ -190,10 +186,7 @@ fn inspect_package(
         },
         source_url: official_url.cloned(),
         update_state,
-        homepage: definition
-            .official_homepage_url
-            .clone()
-            .or(installed.homepage),
+        homepage: application.homepage.clone().or(installed.homepage),
     })
 }
 
@@ -220,7 +213,7 @@ fn parse_dpkg_query(input: &str) -> Vec<InstalledPackage> {
         .collect()
 }
 
-fn parse_apt_policy(input: &str) -> AptPolicy {
+pub(crate) fn parse_apt_policy(input: &str) -> AptPolicy {
     let candidate = input.lines().find_map(|line| {
         line.trim()
             .strip_prefix("Candidate:")
@@ -339,26 +332,17 @@ mod tests {
     }
 
     #[test]
-    fn embedded_catalog_is_valid() {
-        let catalog: Catalog = toml::from_str(CATALOG).unwrap();
+    fn embedded_catalog_is_valid_and_covers_the_supported_applications() {
+        let catalog = Catalog::load().unwrap();
         assert_eq!(catalog.applications.len(), 6);
-        let by_package: HashMap<_, _> = catalog
+        assert!(catalog
             .applications
             .iter()
-            .map(|item| (item.package_name.as_str(), item))
-            .collect();
-        assert_eq!(
-            by_package["flclash"].release_api_url.as_deref(),
-            Some("https://api.github.com/repos/chen08209/FlClash/releases/latest")
-        );
-        assert_eq!(
-            by_package["wechat"].stable_download_url.as_deref(),
-            Some("https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb")
-        );
-        assert_eq!(
-            by_package["wemeet"].manual_download_url.as_deref(),
-            Some("https://meeting.tencent.com/download/")
-        );
+            .all(|item| !item.package_name.is_empty() && !item.display_name.is_empty()));
+        assert!(catalog.by_application_id("vscode").is_some());
+        assert!(catalog.by_application_id("wechat").is_some());
+        assert!(catalog.by_application_id("flclash").is_some());
+        assert!(catalog.by_application_id("wemeet").is_some());
     }
 
     #[test]
