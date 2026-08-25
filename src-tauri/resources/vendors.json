@@ -107,6 +107,18 @@
       }
     }
   ],
+  "selfUpdate": {
+    "applicationId": "umanager",
+    "packageName": "u-manager",
+    "displayName": "UManager",
+    "vendor": "UManager contributors",
+    "architecture": "amd64",
+    "releaseApiUrl": "https://api.github.com/repos/null-object-0000/umanager/releases/latest",
+    "releaseApiHosts": ["api.github.com"],
+    "assetNamePattern": "UManager_{tagVersion}_amd64.deb",
+    "stripTagPrefix": "v",
+    "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"]
+  },
   "developmentToolchains": [
     {
       "toolchainId": "nodejs",

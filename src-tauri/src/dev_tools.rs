@@ -529,6 +529,7 @@ fn manager_command(
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .env("LANGUAGE", "C");
+            apply_proxy_environment(&mut command);
             Ok(command)
         }
         ManagerKind::Binary => {
@@ -543,8 +544,15 @@ fn manager_command(
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .env("LANGUAGE", "C");
+            apply_proxy_environment(&mut command);
             Ok(command)
         }
+    }
+}
+
+fn apply_proxy_environment(command: &mut Command) {
+    for (key, value) in crate::network::proxy_environment() {
+        command.env(key, value);
     }
 }
 

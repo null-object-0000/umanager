@@ -238,6 +238,9 @@ fn run_install(
             validate_website_constraints(&plan, catalog)?;
         }
         OperationAction::InstallLocalDeb => validate_local_constraints(&plan)?,
+        OperationAction::InstallSelfUpdate => {
+            validate_self_update_constraints(&plan, catalog)?;
+        }
     }
 
     let staged_path = stage_verified_deb(&plan, &cache_root, caller.uid)?;
@@ -345,6 +348,14 @@ where
         ),
         ("install-local-deb", "--execute") => (
             HelperAction::Install(OperationAction::InstallLocalDeb),
+            ExecutionMode::Execute,
+        ),
+        ("install-umanager", "--dry-run") => (
+            HelperAction::Install(OperationAction::InstallSelfUpdate),
+            ExecutionMode::DryRun,
+        ),
+        ("install-umanager", "--execute") => (
+            HelperAction::Install(OperationAction::InstallSelfUpdate),
             ExecutionMode::Execute,
         ),
         ("remove-managed-package", "--dry-run") => (
@@ -688,6 +699,60 @@ fn validate_local_constraints(plan: &OperationPlan) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_self_update_constraints(plan: &OperationPlan, catalog: &Catalog) -> Result<(), String> {
+    let source = catalog
+        .self_update_source()
+        .ok_or_else(|| "UManager self-update source is not configured".to_owned())?;
+    if !self_update_plan_matches(plan, source) {
+        return Err("operation plan is not an allowed UManager self-update".to_owned());
+    }
+    let installed = query_official_installed_state(source.package_name.as_str())?;
+    match (&plan.payload.installed_version, installed) {
+        (
+            Some(expected_version),
+            OfficialInstalledState::Installed {
+                version,
+                architecture,
+            },
+        ) => {
+            if expected_version != &version || architecture != source.architecture {
+                return Err("installed UManager state changed after plan creation".to_owned());
+            }
+            let status = clean_command(DPKG_BIN)
+                .args([
+                    "--compare-versions",
+                    &version,
+                    "lt",
+                    &plan.payload.target_version,
+                ])
+                .status()
+                .map_err(|error| format!("cannot compare UManager versions: {error}"))?;
+            if !status.success() {
+                return Err(
+                    "self-update target is not newer; reinstall or downgrade is refused"
+                        .to_owned(),
+                );
+            }
+            Ok(())
+        }
+        (Some(_), _) => {
+            Err("UManager is not installed as a Debian package; self-update is refused".to_owned())
+        }
+        (None, _) => Err("UManager self-update requires a currently installed Debian package"
+            .to_owned()),
+    }
+}
+
+fn self_update_plan_matches(
+    plan: &OperationPlan,
+    source: &umanager_catalog::SelfUpdateSource,
+) -> bool {
+    plan.payload.action == OperationAction::InstallSelfUpdate
+        && plan.payload.application_id == source.application_id
+        && plan.payload.package_name == source.package_name
+        && plan.payload.architecture == source.architecture
+}
+
 fn validate_website_constraints(
     plan: &OperationPlan,
     catalog: &Catalog,
@@ -829,9 +894,9 @@ fn stage_verified_deb(
     caller_uid: u32,
 ) -> Result<PathBuf, String> {
     let cache_subdirectory = match plan.payload.action {
-        OperationAction::InstallVerifiedDeb | OperationAction::InstallVerifiedWebsiteDeb => {
-            "downloads"
-        }
+        OperationAction::InstallVerifiedDeb
+        | OperationAction::InstallVerifiedWebsiteDeb
+        | OperationAction::InstallSelfUpdate => "downloads",
         OperationAction::InstallLocalDeb => "imports",
     };
     let canonical_downloads = fs::canonicalize(cache_root.join(cache_subdirectory))
@@ -1367,6 +1432,36 @@ mod tests {
         ));
         plan.payload.package_name = "dpkg".to_owned();
         assert!(validate_removal_constraints(&plan, &catalog).is_err());
+    }
+
+    #[test]
+    fn self_update_plan_is_locked_to_the_configured_umanager_source() {
+        let catalog = load_catalog().unwrap();
+        let source = catalog.self_update_source().unwrap();
+        let payload = umanager_plan::PlanPayload {
+            schema_version: umanager_plan::PLAN_SCHEMA_VERSION,
+            action: OperationAction::InstallSelfUpdate,
+            application_id: source.application_id.clone(),
+            package_name: source.package_name.clone(),
+            installed_version: Some("0.1.0".to_owned()),
+            target_version: "0.1.1".to_owned(),
+            architecture: source.architecture.clone(),
+            deb_path: "/cache/downloads/u-manager.deb".to_owned(),
+            sha256: "a".repeat(64),
+            size: 1,
+            created_at_unix_seconds: 1,
+            expires_at_unix_seconds: 2,
+        };
+        let mut plan = OperationPlan::new(payload).unwrap();
+        assert!(self_update_plan_matches(&plan, source));
+        plan.payload.package_name = "flclash".to_owned();
+        assert!(!self_update_plan_matches(&plan, source));
+        plan.payload.package_name = source.package_name.clone();
+        plan.payload.architecture = "arm64".to_owned();
+        assert!(!self_update_plan_matches(&plan, source));
+        plan.payload.architecture = source.architecture.clone();
+        plan.payload.action = OperationAction::InstallVerifiedWebsiteDeb;
+        assert!(!self_update_plan_matches(&plan, source));
     }
 
     #[test]

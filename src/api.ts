@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevToolchain, DevToolchainState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
+import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevToolchain, DevToolchainState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -73,6 +73,16 @@ export function getInstallationInfo(): Promise<InstallationInfo> {
     return Promise.resolve({ appVersion: "0.1.0", installationKind: "development", packageName: null, packageVersion: null, architecture: null, executablePath: "/path/to/umanager/src-tauri/target/debug/umanager", canSelfRemove: false });
   }
   return invoke<InstallationInfo>("get_installation_info");
+}
+
+export function getNetworkSettings(): Promise<NetworkSettings> {
+  if (isMock()) return Promise.resolve({ proxyEnabled: false, proxyUrl: "" });
+  return invoke<NetworkSettings>("get_network_settings");
+}
+
+export function setNetworkSettings(settings: NetworkSettings): Promise<NetworkSettings> {
+  if (isMock()) return Promise.resolve(settings);
+  return invoke<NetworkSettings>("set_network_settings", { settings });
 }
 
 export function scanPackages(): Promise<ScanResult> {
@@ -194,6 +204,79 @@ export function runSelfRemovalDryRun(planId: string): Promise<RemovalExecutionRe
 
 export function removeUmanager(planId: string, onProgress?: (event: OperationProgressEvent) => void): Promise<RemovalExecutionReport> {
   return invokeWithOperationProgress<RemovalExecutionReport>("remove_umanager", planId, onProgress);
+}
+
+const mockSelfUpdatePlan: DownloadPlan = {
+  applicationId: "umanager",
+  packageName: "u-manager",
+  version: "0.1.1",
+  architecture: "amd64",
+  sourceKind: "officialWebsite",
+  repositoryUrl: null,
+  downloadUrl: "https://github.com/null-object-0000/umanager/releases/download/v0.1.1/UManager_0.1.1_amd64.deb",
+  fileName: "u-manager-0.1.1.deb",
+  expectedSize: 6172448,
+  expectedSha256: "9".repeat(64),
+  targetPath: "/home/user/.cache/io.github.umanager.app/downloads/u-manager-0.1.1.deb",
+  releaseTag: "v0.1.1",
+  assetName: "UManager_0.1.1_amd64.deb",
+  websiteVersion: "0.1.1",
+};
+
+export function getSelfUpdateStatus(): Promise<ApplicationDetails> {
+  if (isMock()) {
+    return Promise.resolve({
+      applicationId: "umanager",
+      displayName: "UManager",
+      packageName: "u-manager",
+      vendor: "UManager contributors",
+      architecture: "amd64",
+      sourceKind: "officialWebsite",
+      sourceUrl: mockSelfUpdatePlan.downloadUrl,
+      installedVersion: "0.1.0",
+      candidateVersion: "0.1.1",
+      updateState: "updateAvailable",
+      websiteVersion: "0.1.1",
+      expectedSize: mockSelfUpdatePlan.expectedSize,
+      sha256: mockSelfUpdatePlan.expectedSha256,
+      metadataBytes: 592,
+      releaseTag: "v0.1.1",
+      assetName: "UManager_0.1.1_amd64.deb",
+      trusted: true,
+      evidence: [
+        { label: "发布 API 域名", actual: "api.github.com", expected: "api.github.com", passed: true },
+        { label: "Debian 软件包名", actual: "u-manager", expected: "u-manager", passed: true },
+        { label: "软件包架构", actual: "amd64", expected: "amd64", passed: true },
+      ],
+    });
+  }
+  return invoke<ApplicationDetails>("get_self_update_status");
+}
+
+export async function downloadSelfUpdate(onProgress?: (progress: DownloadProgress) => void): Promise<DownloadResult> {
+  if (isMock()) {
+    onProgress?.({ packageName: "u-manager", phase: "downloading", transferredBytes: mockSelfUpdatePlan.expectedSize, totalBytes: mockSelfUpdatePlan.expectedSize, bytesPerSecond: 24 * 1024 * 1024 });
+    onProgress?.({ packageName: "u-manager", phase: "verifying", transferredBytes: mockSelfUpdatePlan.expectedSize, totalBytes: mockSelfUpdatePlan.expectedSize, bytesPerSecond: 0 });
+    return { plan: mockSelfUpdatePlan, actualSize: mockSelfUpdatePlan.expectedSize, actualSha256: mockSelfUpdatePlan.expectedSha256 ?? "0".repeat(64), packageName: "u-manager", version: "0.1.1", architecture: "amd64", reusedExistingFile: false, verified: true };
+  }
+  const unlisten = await listen<DownloadProgress>("self-update-download-progress", ({ payload }) => onProgress?.(payload));
+  try {
+    return await invoke<DownloadResult>("download_self_update");
+  } finally {
+    unlisten();
+  }
+}
+
+export function createSelfUpdateOperationPlan(): Promise<OperationPlanArtifact> {
+  return invoke<OperationPlanArtifact>("create_self_update_operation_plan");
+}
+
+export function runSelfUpdateDryRun(planId: string): Promise<OperationExecutionReport> {
+  return invoke<OperationExecutionReport>("run_self_update_dry_run", { planId });
+}
+
+export function installSelfUpdate(planId: string, onProgress?: (event: OperationProgressEvent) => void): Promise<OperationExecutionReport> {
+  return invokeWithOperationProgress<OperationExecutionReport>("install_self_update", planId, onProgress);
 }
 
 async function invokeWithDevProgress<T>(command: string, toolchainId: string, version: string, onProgress?: (event: DevOperationProgress) => void): Promise<T> {

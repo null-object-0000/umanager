@@ -1678,7 +1678,7 @@ fn host_allowed(host: Option<&str>, allowed_hosts: &[String]) -> bool {
 
 fn restricted_client(allowed_hosts: &[String], timeout: Duration) -> Result<reqwest::Client, String> {
     let hosts = allowed_hosts.to_vec();
-    reqwest::Client::builder()
+    crate::network::apply_proxy(reqwest::Client::builder())
         .https_only(true)
         .connect_timeout(Duration::from_secs(5))
         .timeout(timeout)

@@ -360,6 +360,13 @@ nav { display:grid; gap:3px; }
 .self-remove-button { min-width:116px; height:36px; padding:0 13px; color:#9a3e34; border:1px solid #dcbeb9; border-radius:7px; background:#fff; cursor:pointer; font-size:13px; font-weight:700; }
 .self-remove-button:hover:not(:disabled) { color:#fff; border-color:#a9473b; background:#a9473b; }
 .self-remove-button:disabled { color:#aaa2a1; border-color:#e3dedd; background:#f5f3f3; cursor:not-allowed; }
+.self-update-zone { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-top:16px; padding:18px; border:1px solid #d6e0e8; border-radius:9px; background:#f8fbfd; }
+.self-update-zone>div { display:flex; min-width:0; flex-direction:column; gap:5px; }
+.self-update-zone strong { color:#28536e; font-size:14px; }
+.self-update-zone span { color:#667783; font-size:12px; line-height:1.5; }
+.self-update-button { min-width:116px; height:36px; padding:0 13px; color:#28628c; border:1px solid #b9d1e2; border-radius:7px; background:#fff; cursor:pointer; font-size:13px; font-weight:700; }
+.self-update-button:hover:not(:disabled) { color:#fff; border-color:#2e6b96; background:#2e6b96; }
+.self-update-button:disabled { color:#aaa2a1; border-color:#e3dedd; background:#f5f3f3; cursor:not-allowed; }
 .self-removal-dialog code { font:600 12px ui-monospace,SFMono-Regular,Consolas,monospace; }
 .operation-progress-panel { margin-top:14px; overflow:hidden; border:1px solid #d9d5d8; border-radius:9px; background:#faf9fa; }
 .operation-progress-panel>header { padding:12px 14px; border-bottom:1px solid #e6e2e4; background:#f5f2f4; }
@@ -417,3 +424,20 @@ nav { display:grid; gap:3px; }
 .dev-action-button.danger { background:#a33d33; }
 .dev-action-button.danger:hover:not(:disabled) { background:#b84a3e; }
 .dev-action-button:disabled { color:#9a9098; background:#e6e3e5; cursor:not-allowed; }
+
+/* Network proxy settings. */
+.network-panel { margin-top:18px; }
+.network-panel .settings-loading { min-height:150px; }
+.network-proxy-form { display:grid; gap:12px; margin-top:18px; }
+.proxy-toggle { margin-top:0; }
+.proxy-url-field { display:flex; flex-direction:column; gap:7px; }
+.proxy-url-field>span { color:#686267; font-size:13px; font-weight:600; }
+.proxy-url-field input { width:100%; height:42px; padding:0 13px; color:#2f2b2e; border:1px solid #d8d3d6; border-radius:7px; outline:0; background:#fff; font:13px ui-monospace,SFMono-Regular,Consolas,monospace; }
+.proxy-url-field input:focus { border-color:#8c5f80; box-shadow:0 0 0 3px #8c5f801c; }
+.proxy-url-field input:disabled { color:#a29ba1; background:#f2f0f1; cursor:not-allowed; }
+.proxy-hint { margin:0; color:#777177; font-size:12px; line-height:1.6; }
+.proxy-hint code { padding:2px 6px; border-radius:5px; background:#efedef; font:11px ui-monospace,SFMono-Regular,Consolas,monospace; }
+.proxy-actions { display:flex; align-items:center; gap:13px; }
+.proxy-saved { color:#3f7249; font-size:12px; font-weight:600; }
+.network-facts { margin-top:18px; }
+

@@ -195,6 +195,45 @@ pub fn create_self_removal_plan(cache_dir: &Path) -> Result<RemovalPlanArtifact,
     })
 }
 
+pub async fn create_self_update_plan(cache_dir: &Path) -> Result<PlanArtifact, String> {
+    let catalog = Catalog::load()?;
+    let source = catalog
+        .self_update_source()
+        .ok_or_else(|| "软件源未配置 UManager 自更新".to_owned())?;
+    let application = source.to_application();
+    let info = installation::detect()?;
+    if !info.can_self_remove {
+        return Err("当前运行的 UManager 不是由 Debian 包安装，无法自更新".to_owned());
+    }
+    let installed_version = info
+        .package_version
+        .ok_or_else(|| "无法确定已安装的 UManager 包版本".to_owned())?;
+    let verified = source_engine::verify_cached(&application, cache_dir).await?;
+    if !version_is_newer(&installed_version, &verified.plan.version) {
+        return Err("UManager 已是最新版本，拒绝生成重装或降级计划".to_owned());
+    }
+    let created = unix_timestamp();
+    let plan = OperationPlan::new(PlanPayload {
+        schema_version: PLAN_SCHEMA_VERSION,
+        action: OperationAction::InstallSelfUpdate,
+        application_id: application.application_id.clone(),
+        package_name: verified.plan.package_name,
+        installed_version: Some(installed_version),
+        target_version: verified.plan.version,
+        architecture: verified.plan.architecture,
+        deb_path: verified.plan.target_path,
+        sha256: verified.actual_sha256,
+        size: verified.actual_size,
+        created_at_unix_seconds: created,
+        expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
+    })?;
+    let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
+    Ok(PlanArtifact {
+        plan,
+        plan_path: path.to_string_lossy().into_owned(),
+    })
+}
+
 pub(crate) fn persist_immutable_plan(
     directory: &Path,
     plan: &OperationPlan,
@@ -274,6 +313,9 @@ fn resolve_install_action(
         OperationAction::InstallLocalDeb => {
             Err("本地安装包请使用本地安装命令".to_owned())
         }
+        OperationAction::InstallSelfUpdate => {
+            Err("UManager 自更新请使用自更新命令".to_owned())
+        }
     }
 }
 
@@ -327,6 +369,32 @@ pub fn execute_self_removal(
         plan_id,
         RemovalAction::RemoveUmanager,
         "remove-umanager",
+        "--execute",
+        Some(progress),
+    )
+}
+
+pub fn run_self_update_dry_run(cache_dir: &Path, plan_id: &str) -> Result<serde_json::Value, String> {
+    run_helper(
+        cache_dir,
+        plan_id,
+        OperationAction::InstallSelfUpdate,
+        "install-umanager",
+        "--dry-run",
+        None,
+    )
+}
+
+pub fn execute_self_update(
+    cache_dir: &Path,
+    plan_id: &str,
+    progress: ProgressCallback,
+) -> Result<serde_json::Value, String> {
+    run_helper(
+        cache_dir,
+        plan_id,
+        OperationAction::InstallSelfUpdate,
+        "install-umanager",
         "--execute",
         Some(progress),
     )

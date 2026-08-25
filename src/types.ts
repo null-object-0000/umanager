@@ -118,7 +118,7 @@ export interface InstallableApplication {
 
 export interface OperationPlanPayload {
   schemaVersion: number;
-  action: "installVerifiedDeb" | "installVerifiedWebsiteDeb" | "installLocalDeb";
+  action: "installVerifiedDeb" | "installVerifiedWebsiteDeb" | "installLocalDeb" | "installSelfUpdate";
   applicationId: string;
   packageName: string;
   installedVersion: string | null;
@@ -139,7 +139,7 @@ export interface OperationPlanArtifact {
 export interface DryRunReport {
   dryRun: true;
   planId: string;
-  action: "installVerifiedDeb" | "installVerifiedWebsiteDeb" | "installLocalDeb";
+  action: "installVerifiedDeb" | "installVerifiedWebsiteDeb" | "installLocalDeb" | "installSelfUpdate";
   packageName: string;
   installedVersion: string | null;
   targetVersion: string;
@@ -169,7 +169,7 @@ export interface LocalDebInspection {
 export interface OperationExecutionReport {
   dryRun: boolean;
   planId: string;
-  action: "installVerifiedDeb" | "installVerifiedWebsiteDeb" | "installLocalDeb";
+  action: "installVerifiedDeb" | "installVerifiedWebsiteDeb" | "installLocalDeb" | "installSelfUpdate";
   packageName: string;
   installedVersion: string | null;
   targetVersion: string;
@@ -204,6 +204,11 @@ export interface RemovalExecutionReport {
   architecture: string;
   verified: boolean;
   systemModified: boolean;
+}
+
+export interface NetworkSettings {
+  proxyEnabled: boolean;
+  proxyUrl: string;
 }
 
 export interface InstallationInfo {

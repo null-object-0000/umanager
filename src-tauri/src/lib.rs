@@ -2,6 +2,7 @@ mod dev_tools;
 mod installable;
 mod installation;
 mod local_deb;
+mod network;
 mod operation_plan;
 mod scanner;
 mod source_engine;
@@ -231,6 +232,21 @@ async fn get_installable_applications(
 }
 
 #[tauri::command]
+async fn get_network_settings() -> Result<network::NetworkSettings, String> {
+    Ok(network::current())
+}
+
+#[tauri::command]
+async fn set_network_settings(
+    app: tauri::AppHandle,
+    settings: network::NetworkSettings,
+) -> Result<network::NetworkSettings, String> {
+    tauri::async_runtime::spawn_blocking(move || network::update(&app, settings))
+        .await
+        .map_err(|error| format!("保存网络设置任务异常结束：{error}"))?
+}
+
+#[tauri::command]
 async fn get_installation_info() -> Result<installation::InstallationInfo, String> {
     tauri::async_runtime::spawn_blocking(installation::detect)
         .await
@@ -425,12 +441,101 @@ async fn remove_umanager(
     .map_err(|error| format!("UManager 卸载任务异常结束：{error}"))?
 }
 
+fn self_update_application() -> Result<umanager_catalog::Application, String> {
+    let catalog = Catalog::load()?;
+    catalog
+        .self_update_source()
+        .map(umanager_catalog::SelfUpdateSource::to_application)
+        .ok_or_else(|| "软件源未配置 UManager 自更新".to_owned())
+}
+
+#[tauri::command]
+async fn get_self_update_status(
+    app: tauri::AppHandle,
+) -> Result<source_engine::ApplicationDetails, String> {
+    let application = self_update_application()?;
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    source_engine::load_details(&application, &cache_dir).await
+}
+
+#[tauri::command]
+async fn download_self_update(
+    app: tauri::AppHandle,
+) -> Result<source_engine::DownloadResult, String> {
+    let application = self_update_application()?;
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let event_app = app.clone();
+    let progress: source_engine::ProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("self-update-download-progress", payload);
+    });
+    source_engine::download_and_verify(&application, cache_dir, progress).await
+}
+
+#[tauri::command]
+async fn create_self_update_operation_plan(
+    app: tauri::AppHandle,
+) -> Result<operation_plan::PlanArtifact, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    operation_plan::create_self_update_plan(&cache_dir).await
+}
+
+#[tauri::command]
+async fn run_self_update_dry_run(
+    app: tauri::AppHandle,
+    plan_id: String,
+) -> Result<serde_json::Value, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::run_self_update_dry_run(&cache_dir, &plan_id)
+    })
+    .await
+    .map_err(|error| format!("UManager 自更新 dry-run 任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn install_self_update(
+    app: tauri::AppHandle,
+    plan_id: String,
+) -> Result<serde_json::Value, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let event_app = app.clone();
+    let progress: operation_plan::ProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("operation-progress", payload);
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        operation_plan::execute_self_update(&cache_dir, &plan_id, progress)
+    })
+    .await
+    .map_err(|error| format!("UManager 自更新任务异常结束：{error}"))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(local_deb::LocalDebState::from_process_arguments())
+        .setup(|app| {
+            network::initialize(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_installation_info,
+            get_network_settings,
+            set_network_settings,
             scan_packages,
             get_software_catalog,
             get_dev_toolchains,
@@ -456,7 +561,12 @@ pub fn run() {
             remove_managed_package,
             create_self_removal_operation_plan,
             run_self_removal_dry_run,
-            remove_umanager
+            remove_umanager,
+            get_self_update_status,
+            download_self_update,
+            create_self_update_operation_plan,
+            run_self_update_dry_run,
+            install_self_update
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UManager");

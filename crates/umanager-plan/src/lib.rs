@@ -34,6 +34,7 @@ pub enum OperationAction {
     InstallVerifiedDeb,
     InstallVerifiedWebsiteDeb,
     InstallLocalDeb,
+    InstallSelfUpdate,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

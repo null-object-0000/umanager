@@ -12,6 +12,7 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - FlClash 通过 GitHub Releases API 读取最新稳定发布，以 GitHub 资产 SHA-256 与 HTTP Range 读出的 `.deb` 控制归档锁定版本，并走完整的下载校验、不可变计划、特权 dry-run 和安装链路。
 - 受管软件卸载使用独立不可变计划、特权 dry-run 和二次授权，仅执行白名单中固定的 `dpkg --remove` 动作。
 - 设置页会核对当前可执行文件与 `dpkg` 安装清单，区分 `.deb` 安装版、便携版和开发版；`.deb` 安装版可通过独立的 `remove-umanager` 计划安全卸载自身。
+- “设置”页支持对 `.deb` 安装版进行自更新：从 UManager 官方 GitHub Release 检查、下载并校验 SHA-256，生成不可变计划，经特权 dry-run 与二次授权后以固定 `dpkg --install` 升级自身。
 - 最终安装、更新和卸载会显示结构化进度与可展开的实时 `dpkg` 详细日志；日志只读，终端控制序列会被清理，单行与总量均有限制。
 - “开发环境”页通过用户级版本管理器（nvm 用于 Node.js，rustup 用于 Rust）检测、安装、切换和卸载运行时版本，全程无 root。
 

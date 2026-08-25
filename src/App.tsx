@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, downloadPackage, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDownloadPlan, getInstallableApplications, getInstallationInfo, getPendingLocalDeb, getSoftwareCatalog, importPendingLocalDeb, installDevVersion, installLocalDeb, installPackage, removeManagedPackage, removeUmanager, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, scanPackages, setDevDefaultVersion, uninstallDevVersion } from "./api";
+import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDownloadPlan, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevVersion } from "./api";
 import { summarizePackages } from "./model";
-import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevToolchain, DevToolchainState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
+import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevToolchain, DevToolchainState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
 import chromeIcon from "./assets/app-icons/google-chrome.png";
@@ -214,7 +214,119 @@ function SelfRemovalDialog({ info, onClose }: { info: InstallationInfo; onClose:
   </div>;
 }
 
-function SettingsPage({ info, loading, error, onRefresh, onRemove }: { info: InstallationInfo | null; loading: boolean; error: string | null; onRefresh: () => void; onRemove: () => void }) {
+function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo; onClose: () => void; onUpdated: () => void }) {
+  const [status, setStatus] = useState<ApplicationDetails | null>(null);
+  const [downloaded, setDownloaded] = useState<DownloadResult | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [plan, setPlan] = useState<OperationPlanArtifact | null>(null);
+  const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
+  const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
+  const [busy, setBusy] = useState<"check" | "download" | "plan" | "dry-run" | "install" | null>("check");
+  const [error, setError] = useState<string | null>(null);
+  const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
+
+  const run = async <T,>(kind: typeof busy, action: () => Promise<T>, complete: (value: T) => void) => {
+    setBusy(kind); setError(null);
+    try { complete(await action()); } catch (reason) { setError(String(reason)); } finally { setBusy(null); }
+  };
+  const check = () => {
+    setDownloaded(null); setDownloadProgress(null); setConfirmed(false); setPlan(null); setDryRun(null); setInstalled(null); setProgressEvents([]);
+    void run("check", getSelfUpdateStatus, setStatus);
+  };
+  useEffect(() => { void check(); }, []);
+
+  const updateAvailable = status?.updateState === "updateAvailable";
+  return <div className="local-deb-layer">
+    <section className="local-deb-dialog removal-dialog self-update-dialog" role="dialog" aria-modal="true" aria-label="更新 UManager">
+      <header><div><span className="brand-mark">U</span><div><h2>更新 UManager</h2><p>{info.packageName} · {info.packageVersion}{status?.candidateVersion ? ` → ${status.candidateVersion}` : ""}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+      <div className="local-deb-content">
+        <div className="removal-warning"><strong>自更新会用新 `.deb` 替换当前程序</strong><span>安装包来自 UManager 官方 GitHub Release；SHA-256 与发布摘要一致后，走与受管软件相同的不可变计划 + 双重授权链路。</span></div>
+        {error && <div className="inline-error removal-error">{error}</div>}
+        {busy === "check" && !status && <div className="settings-loading"><span className="loader"/><span>正在读取最新发布…</span></div>}
+        {status && <dl className="local-deb-facts">
+          <div><dt>当前版本</dt><dd>{status.installedVersion ?? "未安装"}</dd></div><div><dt>最新版本</dt><dd>{status.candidateVersion ?? "—"}</dd></div>
+          <div><dt>发布标签</dt><dd>{status.releaseTag ?? "—"}</dd></div><div><dt>资产</dt><dd>{status.assetName ?? "—"}</dd></div>
+          <div><dt>大小</dt><dd>{status.expectedSize != null ? formatBytes(status.expectedSize) : "—"}</dd></div>
+          <div className="wide"><dt>SHA-256</dt><dd title={status.sha256 ?? undefined}>{status.sha256 ?? "—"}</dd></div>
+        </dl>}
+        {status && !updateAvailable && <div className="dry-run-success"><strong>✓ 已是最新版本</strong><span>当前 `.deb` 安装的 UManager 与最新发布一致，无需更新。</span></div>}
+        {status && updateAvailable && !downloaded && <>
+          <button className="download-button" disabled={busy !== null} onClick={() => { setDownloadProgress(null); void run("download", () => downloadSelfUpdate(setDownloadProgress), setDownloaded); }}>{busy === "download" ? "正在下载并校验…" : "下载并校验更新包"}</button>
+          <button className="secondary-button" style={{ marginTop: 10 }} disabled={busy !== null} onClick={check}>重新检查</button>
+        </>}
+        {downloadProgress && !downloaded && <DownloadProgressCard progress={downloadProgress} displayName="UManager"/>}
+        {downloaded && !plan && <>
+          <div className="dry-run-success"><strong>✓ 下载校验通过</strong><span>版本 {downloaded.version} · SHA-256 与 GitHub 发布摘要一致。</span></div>
+          <label className="plan-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}/><span>我确认要把 UManager 从 {info.packageVersion} 更新到 {downloaded.version}，并理解 `.deb` 安装脚本将以 root 权限运行。</span></label>
+          <button className="download-button" disabled={!confirmed || busy !== null} onClick={() => void run("plan", createSelfUpdateOperationPlan, setPlan)}>{busy === "plan" ? "正在锁定计划…" : "确认并锁定自更新计划"}</button>
+        </>}
+        {plan && <div className="immutable-plan"><strong>自更新计划已锁定</strong><span>ID：{plan.plan.planId}</span><span>有效至：{new Date(plan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
+        {plan && !dryRun && <button className="dry-run-button" disabled={busy !== null} onClick={() => void run("dry-run", () => runSelfUpdateDryRun(plan!.plan.planId), setDryRun)}>{busy === "dry-run" ? "正在特权环境复核…" : "授权并执行更新前 dry-run"}</button>}
+        {plan && dryRun && !installed && <><div className="dry-run-success"><strong>✓ 自更新前复核通过</strong><span>helper 已重新核对动作、固定包名、版本、架构和不可变计划；本次未修改系统。</span></div><button className="remove-confirm-button" disabled={busy !== null} onClick={() => void run("install", () => { setProgressEvents([]); return installSelfUpdate(plan!.plan.planId, (event) => appendProgress(setProgressEvents, event)); }, (value) => { setInstalled(value); onUpdated(); })}>{busy === "install" ? "正在更新 UManager…" : "再次授权并安装更新"}</button></>}
+        <OperationLogPanel events={progressEvents} running={busy === "install"}/>
+        {installed && <div className="dry-run-success"><strong>✓ 更新命令已成功完成</strong><span>新的 UManager 已通过 dpkg 安装；重新打开 UManager 后生效。</span></div>}
+      </div>
+    </section>
+  </div>;
+}
+
+function NetworkSettingsPanel() {
+  const [settings, setSettings] = useState<NetworkSettings | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [proxyUrl, setProxyUrl] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true); setError(null);
+    getNetworkSettings()
+      .then((value) => {
+        setSettings(value);
+        setEnabled(value.proxyEnabled);
+        setProxyUrl(value.proxyUrl);
+      })
+      .catch((reason) => setError(String(reason)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    setSaving(true); setError(null); setSaved(false);
+    try {
+      const value = await setNetworkSettings({ proxyEnabled: enabled, proxyUrl });
+      setSettings(value);
+      setEnabled(value.proxyEnabled);
+      setProxyUrl(value.proxyUrl);
+      setSaved(true);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <section className="settings-panel network-panel">
+    <div className="settings-section-heading"><div><div><h2>网络代理</h2><p>让官网更新检查与安装包下载经本地代理访问网络</p></div></div><span className={`install-kind-badge ${enabled ? "" : "unknown"}`}>{enabled ? "已启用" : "未启用"}</span></div>
+    {loading && <div className="settings-loading"><span className="loader"/><span>正在读取网络代理设置…</span></div>}
+    {!loading && <>
+      <div className="network-proxy-form">
+        <label className="plan-confirmation proxy-toggle"><input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false); }} /><span>启用代理（如 FlClash 的本地代理服务）</span></label>
+        <label className="proxy-url-field"><span>代理地址</span><input value={proxyUrl} onChange={(event) => { setProxyUrl(event.target.value); setSaved(false); }} placeholder="http://127.0.0.1:7890" disabled={!enabled} spellCheck={false} aria-label="代理地址"/></label>
+        <p className="proxy-hint">FlClash 等本地代理通常监听 <code>http://127.0.0.1:7890</code>，代理地址支持 <code>http://</code>、<code>https://</code>、<code>socks5://</code> 或 <code>socks5h://</code>。</p>
+        {error && <div className="inline-error">{error}</div>}
+        <div className="proxy-actions"><button className="primary-button" onClick={() => void save()} disabled={saving}>{saving ? "保存中…" : "保存代理设置"}</button>{saved && !error && <span className="proxy-saved">✓ 已保存，后续检查更新与下载将使用该代理</span>}</div>
+      </div>
+      <dl className="installation-facts network-facts">
+        <div><dt>当前状态</dt><dd>{enabled ? "代理已启用" : "未使用代理"}</dd></div>
+        <div><dt>代理地址</dt><dd title={settings?.proxyUrl ?? ""}>{settings?.proxyUrl && settings.proxyUrl.trim() ? settings.proxyUrl : "未设置"}</dd></div>
+      </dl>
+    </>}
+  </section>;
+}
+
+function SettingsPage({ info, loading, error, onRefresh, onRemove, onUpdate }: { info: InstallationInfo | null; loading: boolean; error: string | null; onRefresh: () => void; onRemove: () => void; onUpdate: () => void }) {
   const kindLabel = info ? { debianPackage: ".deb 安装版", portable: "便携版", development: "开发版" }[info.installationKind] : "检测中";
   const kindDescription = info?.installationKind === "debianPackage"
     ? "当前可执行文件属于系统中已安装的 Debian 软件包，可通过 UManager 安全卸载。"
@@ -236,9 +348,11 @@ function SettingsPage({ info, loading, error, onRefresh, onRemove }: { info: Ins
           <div className="wide"><dt>运行位置</dt><dd title={info.executablePath}>{info.executablePath}</dd></div>
         </dl>
         <p className="installation-description"><Icon name="shield"/>{kindDescription}</p>
+        <div className="self-update-zone"><div><strong>更新 UManager</strong><span>{info.canSelfRemove ? "从官方 GitHub Release 检查并安装新版本；下载、SHA-256 校验、不可变计划与双重授权。仅 `.deb` 安装版可用。" : "便携版 / 开发版不通过 dpkg 更新；请重新下载或重新构建。"}</span></div><button className="self-update-button" disabled={!info.canSelfRemove} onClick={onUpdate}>检查更新</button></div>
         <div className="danger-zone"><div><strong>卸载 UManager</strong><span>{info.canSelfRemove ? "移除程序本身，保留缓存和个人数据。操作前会展示不可变计划并请求系统授权。" : "此运行形态不能通过 dpkg 卸载。"}</span></div><button className="self-remove-button" disabled={!info.canSelfRemove} onClick={onRemove}>卸载 UManager</button></div>
       </>}
     </section>
+    <NetworkSettingsPanel/>
   </main>;
 }
 
@@ -545,6 +659,7 @@ export default function App() {
   const [installationInfoLoading, setInstallationInfoLoading] = useState(false);
   const [installationInfoError, setInstallationInfoError] = useState<string | null>(null);
   const [selfRemovalOpen, setSelfRemovalOpen] = useState(false);
+  const [selfUpdateOpen, setSelfUpdateOpen] = useState(false);
   const [pendingLocalDeb, setPendingLocalDeb] = useState<LocalDebInspection | null>(null);
   const [pendingLocalDebError, setPendingLocalDebError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogApplication[] | null>(null);
@@ -626,7 +741,7 @@ export default function App() {
         {result && visible.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
         <div className="package-list">{visible.map((item) => <PackageRow item={item} onRemove={() => setRemovalPackage(item)} onOpen={isAutoInstallable(item.packageName) ? () => setUpdatePackage(item) : undefined} key={item.packageName}/>)}</div>
       </section>
-    </main> : page === "installable" ? <InstallableSoftwarePage offers={installableOffers} loading={installableLoading} error={installableError} onRefresh={() => void refreshInstallable()} onInstall={(offer) => setInstallOffer(offer)}/> : page === "dev" ? <DevToolsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)}/>}
+    </main> : page === "installable" ? <InstallableSoftwarePage offers={installableOffers} loading={installableLoading} error={installableError} onRefresh={() => void refreshInstallable()} onInstall={(offer) => setInstallOffer(offer)}/> : page === "dev" ? <DevToolsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
@@ -635,6 +750,9 @@ export default function App() {
     )}
     {selfRemovalOpen && installationInfo && (
       <SelfRemovalDialog info={installationInfo} onClose={() => setSelfRemovalOpen(false)}/>
+    )}
+    {selfUpdateOpen && installationInfo && (
+      <SelfUpdateDialog info={installationInfo} onClose={() => setSelfUpdateOpen(false)} onUpdated={() => void refreshInstallationInfo()}/>
     )}
   </div>;
 }

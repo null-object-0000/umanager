@@ -14,6 +14,26 @@ pub struct Catalog {
     pub applications: Vec<Application>,
     #[serde(default)]
     pub development_toolchains: Vec<DevelopmentToolchain>,
+    /// Optional source that UManager itself checks for self-updates. Kept separate
+    /// from `applications` so UManager never shows up in the managed software list.
+    #[serde(default)]
+    pub self_update: Option<SelfUpdateSource>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfUpdateSource {
+    pub application_id: String,
+    pub package_name: String,
+    pub display_name: String,
+    pub vendor: String,
+    pub architecture: String,
+    pub release_api_url: String,
+    pub release_api_hosts: Vec<String>,
+    pub asset_name_pattern: String,
+    #[serde(default)]
+    pub strip_tag_prefix: Option<String>,
+    pub asset_download_hosts: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -150,6 +170,10 @@ impl Catalog {
             .iter()
             .find(|toolchain| toolchain.toolchain_id == toolchain_id)
     }
+
+    pub fn self_update_source(&self) -> Option<&SelfUpdateSource> {
+        self.self_update.as_ref()
+    }
 }
 
 impl Application {
@@ -187,6 +211,33 @@ impl Application {
         match &self.source {
             SourceSpec::AptRepository { repository_url, .. } => Some(repository_url),
             _ => None,
+        }
+    }
+}
+
+impl SelfUpdateSource {
+    /// Renders the self-update source as a regular `releaseApi` application so the
+    /// main program can reuse the exact same release fetch / download / verify engine
+    /// used for FlClash.
+    pub fn to_application(&self) -> Application {
+        Application {
+            application_id: self.application_id.clone(),
+            package_name: self.package_name.clone(),
+            display_name: self.display_name.clone(),
+            vendor: self.vendor.clone(),
+            architecture: self.architecture.clone(),
+            homepage: None,
+            icon: None,
+            accent_color: None,
+            removable: false,
+            source: SourceSpec::ReleaseApi {
+                release_api_url: self.release_api_url.clone(),
+                release_api_hosts: self.release_api_hosts.clone(),
+                asset_name_pattern: self.asset_name_pattern.clone(),
+                strip_tag_prefix: self.strip_tag_prefix.clone(),
+                asset_download_hosts: self.asset_download_hosts.clone(),
+                allow_prerelease: false,
+            },
         }
     }
 }
@@ -239,5 +290,17 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), 5);
+    }
+
+    #[test]
+    fn self_update_source_is_configured_as_a_release_api() {
+        let catalog = Catalog::load().unwrap();
+        let source = catalog.self_update_source().expect("self-update source");
+        assert_eq!(source.package_name, "u-manager");
+        assert_eq!(source.architecture, "amd64");
+        let application = source.to_application();
+        assert!(application.is_website_download());
+        assert!(!application.removable);
+        assert!(matches!(application.source, SourceSpec::ReleaseApi { .. }));
     }
 }
