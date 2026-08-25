@@ -7,7 +7,7 @@
 
 ## 项目速览
 
-UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + React 前端）**，管理从厂商官网/官方仓库安装的 `.deb` 应用。系统级安装/卸载全部经**特权 helper**（Polkit，`crates/umanager-helper`）执行，采用「不可变计划 + dry-run + 二次授权」。
+UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + React 前端）**，管理从厂商官网/官方仓库安装的 `.deb` 应用。系统级安装/卸载全部经**特权 helper**（Polkit，`crates/umanager-helper`）执行，采用「不可变计划 + 特权 dry-run + 再次确认」（Polkit 用 `auth_admin_keep`，一次会话只弹一次管理员授权）。
 
 ## 必须遵守的安全不变量（改动前先读）
 

@@ -4,7 +4,7 @@
 
 ## 1. 项目是什么
 
-UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），管理从厂商官网/官方仓库安装的 `.deb` 应用及其版本更新、安装、卸载。所有系统级操作都经过一个独立的特权 helper（Polkit），并遵循「不可变计划 + dry-run + 二次授权」的安全模型。
+UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），管理从厂商官网/官方仓库安装的 `.deb` 应用及其版本更新、安装、卸载。所有系统级操作都经过一个独立的特权 helper（Polkit），并遵循「不可变计划 + 特权 dry-run + 再次确认」的安全模型（Polkit 用 `auth_admin_keep`：一次会话只弹一次管理员授权，之后该会话内的后续特权操作不再重复弹窗）。
 
 ## 2. 核心架构：软件信息只依赖签名 feed
 

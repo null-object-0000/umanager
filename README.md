@@ -7,12 +7,12 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - 读取 `dpkg-query` 中已安装且被内置软件源明确支持的软件；
 - 读取本机 `apt-cache policy`，识别候选版本和官方仓库来源；
 - 使用 Debian 自身的版本比较规则判断是否有更新；
-- VS Code、Google Chrome 和 ChatGPT Desktop 可从固定白名单中的官方 APT 仓库下载候选版本，实时展示进度与下载速度，校验并生成不可变计划；只有用户完成确认、特权 dry-run 和二次授权后才执行更新。
+- VS Code、Google Chrome 和 ChatGPT Desktop 可从固定白名单中的官方 APT 仓库下载候选版本，实时展示进度与下载速度，校验并生成不可变计划；只有用户完成确认、特权 dry-run 和再次确认后才执行更新（同一登录会话内只弹一次管理员授权）。
 - “软件商店”页支持对 VS Code、Google Chrome、ChatGPT Desktop、微信和 FlClash 的新安装：未安装时从官方源锁定版本、大小与 SHA-256（微信为下载后计算），生成 `installedVersion: null` 的不可变计划。
 - FlClash 通过 GitHub Releases API 读取最新稳定发布，以 GitHub 资产 SHA-256 与 HTTP Range 读出的 `.deb` 控制归档锁定版本，并走完整的下载校验、不可变计划、特权 dry-run 和安装链路。
-- 受管软件卸载使用独立不可变计划、特权 dry-run 和二次授权，仅执行白名单中固定的 `dpkg --remove` 动作。
+- 受管软件卸载使用独立不可变计划、特权 dry-run 和再次确认，仅执行白名单中固定的 `dpkg --remove` 动作。
 - 设置页会核对当前可执行文件与 `dpkg` 安装清单，区分 `.deb` 安装版、便携版和开发版；`.deb` 安装版可通过独立的 `remove-umanager` 计划安全卸载自身。
-- “设置”页支持对 `.deb` 安装版进行自更新：从 UManager 官方 GitHub Release 检查、下载并校验 SHA-256，生成不可变计划，经特权 dry-run 与二次授权后以固定 `dpkg --install` 升级自身。
+- “设置”页支持对 `.deb` 安装版进行自更新：从 UManager 官方 GitHub Release 检查、下载并校验 SHA-256，生成不可变计划，经特权 dry-run 与再次确认后以固定 `dpkg --install` 升级自身。
 - 最终安装、更新和卸载会显示结构化进度与可展开的实时 `dpkg` 详细日志；日志只读，终端控制序列会被清理，单行与总量均有限制。
 - “开发环境”页通过用户级版本管理器（nvm 用于 Node.js，rustup 用于 Rust）检测、安装、切换和卸载运行时版本，全程无 root。
 - “开发环境”页同时管理单版本的命令行 AI 编程工具（Claude Code、OpenCode、Pi、Codex CLI）：识别 npm / 官方安装器 / PATH 三种安装来源，并通过各工具的官方安装方式安装、更新与卸载，全程无 root。
@@ -266,7 +266,7 @@ Linux `.deb` 包会关联到 UManager。用户在文件管理器中选择“使�
 
 ## 卸载
 
-UManager 列表中的六个白名单软件可以卸载。用户核对包名、已安装版本和架构后，应用会生成 15 分钟内有效的独立不可变卸载计划。helper 先在 dry-run 中重新核对计划、白名单和当前 dpkg 状态，只有用户再次授权后才以固定 `/usr/bin/dpkg --remove <package>` 参数执行。
+UManager 列表中的六个白名单软件可以卸载。用户核对包名、已安装版本和架构后，应用会生成 15 分钟内有效的独立不可变卸载计划。helper 先在 dry-run 中重新核对计划、白名单和当前 dpkg 状态，只有用户再次确认后才以固定 `/usr/bin/dpkg --remove <package>` 参数执行。
 
 卸载不请求 `purge`，不自动移除依赖，也不由 UManager 直接删除用户主目录数据。Debian 包自带的维护脚本仍会以 root 权限运行，反向依赖不允许卸载时会原样报错，UManager 不使用强制参数绕过。
 
@@ -277,3 +277,5 @@ UManager 自身的卸载入口位于“设置”。只有当前运行的可执�
 ## 安全边界
 
 React 只调用类型明确的 Tauri commands。Rust 端仅以固定参数调用 `dpkg-query`、`apt-cache`、`dpkg-deb` 和 `dpkg --compare-versions`，不经过 shell，也不接受前端传入的命令或包名。`.deb` 打包配置会将 helper 安装到 `/usr/libexec/umanager-helper`，并将 Polkit policy 安装到 `/usr/share/polkit-1/actions/`。
+
+Polkit 授权使用 `auth_admin_keep`：一次「dry-run」特权复核会在当前登录会话内缓存管理员授权，因此紧随其后的「确认并安装/卸载」不会再次弹密码——一次操作只输入一次密码，后续操作在同一会话内也不再重复弹窗；但任何特权动作仍必须经由 `pkexec` 触发 helper、仍受固定白名单与计划复核约束。
