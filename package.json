@@ -12,6 +12,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:helper": "cargo build --release --manifest-path crates/umanager-helper/Cargo.toml",
+    "update-feed": "node scripts/update-feed.mjs",
     "test": "vitest run",
     "tauri": "tauri"
   },

@@ -22,6 +22,22 @@ pub struct Catalog {
     /// from `applications` so UManager never shows up in the managed software list.
     #[serde(default)]
     pub self_update: Option<SelfUpdateSource>,
+    /// Optional central metadata feed published by the UManager project (e.g. on
+    /// GitHub Pages). When configured, UManager prefers this feed for candidate
+    /// versions, sizes, SHA-256 digests and download URLs instead of scraping the
+    /// vendor websites / APT indexes on the user's machine.
+    #[serde(default)]
+    pub metadata_feed: Option<MetadataFeed>,
+}
+
+/// Where the UManager metadata feed is published and which exact hosts are trusted.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataFeed {
+    /// Absolute HTTPS URL of the feed JSON (e.g. GitHub Pages).
+    pub url: String,
+    /// Exact host names accepted while fetching the feed and following redirects.
+    pub hosts: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -266,6 +282,24 @@ impl Application {
         match &self.source {
             SourceSpec::AptRepository { repository_url, .. } => Some(repository_url),
             _ => None,
+        }
+    }
+
+    /// Hosts that are allowed to serve the actual `.deb` download for this entry.
+    /// This is the host allowlist the download engine still enforces even when the
+    /// candidate metadata comes from the central feed.
+    pub fn download_hosts(&self) -> Vec<&str> {
+        match &self.source {
+            SourceSpec::AptRepository { repository_hosts, .. } => {
+                repository_hosts.iter().map(String::as_str).collect()
+            }
+            SourceSpec::StableDownloadEndpoint { download_hosts, .. } => {
+                download_hosts.iter().map(String::as_str).collect()
+            }
+            SourceSpec::ReleaseApi {
+                asset_download_hosts, ..
+            } => asset_download_hosts.iter().map(String::as_str).collect(),
+            SourceSpec::BrowserImport { .. } => Vec::new(),
         }
     }
 }

@@ -82,7 +82,7 @@ fn website_applications(catalog: &Catalog) -> Vec<WebsiteApplication> {
     catalog
         .applications
         .iter()
-        .filter(|application| application.is_website_download())
+        .filter(|application| application.is_auto_installable())
         .map(|application| WebsiteApplication {
             application_id: application.application_id.clone(),
             package_name: application.package_name.clone(),

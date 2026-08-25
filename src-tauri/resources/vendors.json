@@ -1,5 +1,9 @@
 {
   "schemaVersion": 1,
+  "metadataFeed": {
+    "url": "https://null-object-0000.github.io/umanager/feed.json",
+    "hosts": ["null-object-0000.github.io"]
+  },
   "applications": [
     {
       "applicationId": "vscode",
@@ -15,6 +19,7 @@
         "kind": "aptRepository",
         "repositoryUrl": "https://packages.microsoft.com/repos/code",
         "repositoryHosts": ["packages.microsoft.com"],
+        "packagesIndexUrl": "https://packages.microsoft.com/repos/code/dists/stable/main/binary-amd64/Packages.gz",
         "fallbackDownloadUrl": "https://update.code.visualstudio.com/latest/linux-deb-x64/stable"
       }
     },
@@ -31,7 +36,8 @@
       "source": {
         "kind": "aptRepository",
         "repositoryUrl": "https://dl.google.com/linux/chrome-stable/deb",
-        "repositoryHosts": ["dl.google.com"]
+        "repositoryHosts": ["dl.google.com"],
+        "packagesIndexUrl": "https://dl.google.com/linux/chrome-stable/deb/dists/stable/main/binary-amd64/Packages.gz"
       }
     },
     {
@@ -47,7 +53,8 @@
       "source": {
         "kind": "aptRepository",
         "repositoryUrl": "https://persistent.oaistatic.com/codex-app-prod/linux/deb",
-        "repositoryHosts": ["persistent.oaistatic.com"]
+        "repositoryHosts": ["persistent.oaistatic.com"],
+        "packagesIndexUrl": "https://persistent.oaistatic.com/codex-app-prod/linux/deb/dists/stable/main/binary-amd64/Packages.gz"
       }
     },
     {

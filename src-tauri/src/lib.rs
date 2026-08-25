@@ -1,5 +1,6 @@
 mod dev_cli_tools;
 mod dev_tools;
+mod feed;
 mod installable;
 mod installation;
 mod local_deb;
@@ -34,7 +35,7 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
     for application in catalog
         .applications
         .iter()
-        .filter(|item| item.is_website_download())
+        .filter(|item| item.is_auto_installable())
     {
         let installed = result
             .packages
@@ -52,12 +53,12 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
                 {
                     item.candidate_version = details.candidate_version.clone();
                     item.update_state = details.update_state;
-                    item.source_kind = scanner::SourceKind::OfficialWebsite;
+                    item.source_kind = details.source_kind;
                     item.source_url = Some(details.source_url.clone());
                 }
             }
             Err(error) => result.warnings.push(format!(
-                "{} 官网更新检查失败：{error}",
+                "{} 更新检查失败：{error}",
                 application.display_name
             )),
         }

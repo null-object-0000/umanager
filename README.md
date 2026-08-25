@@ -114,6 +114,42 @@ UManager 不再为每个软件写死适配器。新增一个软件只需要在 `
 
 `source` 中声明的所有 `*Hosts` 都是精确域名白名单：下载、HTTP 重定向和 `apt-cache policy` 匹配都只接受这些域名，拒绝相似域名。主程序的通用下载引擎（`src-tauri/src/source_engine.rs`）与 helper 的白名单校验都从同一份内置 JSON 生成，因此新增软件不需要改动 Rust 代码，也不需要新增 Tauri command。
 
+`aptRepository` 类来源还可选声明 `packagesIndexUrl`，指向该仓库的 Debian `Packages` 索引；它仅供下面的中央元数据源在 CI 中解析候选版本，应用本身不依赖该字段。
+
+## 中央元数据源（GitHub Actions + GitHub Pages）
+
+默认情况下，UManager 在用户机器上直接抓取官网 / 调用发布 API / 读本机 `apt-cache policy` 来获知候选版本。这会把最脆弱的 HTML 抓取和 GitHub API 限流带到每台用户机器上。
+
+项目现在提供一个集中式做法：GitHub Actions 定时爬取这些厂商来源，把「最新版本 + 大小 + SHA-256 + 下载地址」整理成单个 `feed.json`，发布到 GitHub Pages；应用只拉取这个文件，并把校验后的候选版本交给下载与安装链路。`vendors.json` 顶层的 `metadataFeed` 声明了 feed 的 URL 与精确域名白名单（加入白名单的域名会经过 HTTPS 精确匹配才能被接受）。
+
+- 触发：`.github/workflows/update-feed.yml` 定时（每 6 小时）、手动触发，以及 `vendors.json` 变更时；
+- 生成：`scripts/update-feed.mjs` 读取 `vendors.json`，逐个解析 `aptRepository` 的 `Packages` 索引、官网固定地址、GitHub Releases 资产和 npm registry，产出 `feed.json`；
+- 发布：用 `actions/configure-pages` + `actions/upload-pages-artifact` + `actions/deploy-pages` 部署到 GitHub Pages，无需维护专用分支，托管地址为 `https://<owner>.github.io/<repo>/feed.json`。
+
+要让该地址生效，需要在仓库 Settings → Pages 的 Build and deployment → Source 选择「GitHub Actions」；也可以直接运行一次 `update-feed` workflow（`configure-pages` 会自动启用 Pages）。之后 UManager 会优先使用 feed：「软件」页与「软件商店」的候选版本、大小、SHA-256 和下载地址都来自 feed，只有 feed 中缺失或抓取失败时才回退到本机抓取。
+
+`feed.json` 只影响「展示哪个是最新版本 / 候选版本」；真正的安装路径不变——应用仍按 feed 里的下载地址下载 `.deb`，核对 HTTPS 精确域名、响应大小、SHA-256 与 `.deb` 的包名/版本/架构，再生成不可变计划并经特权 helper 复核后才 `dpkg --install`。
+
+> **信任边界**：feed 成为元数据来源后，候选版本、大小和 SHA-256 的锚点从「厂商签名 APT 索引 / GitHub 发布摘要 / 官网页面」转移到「UManager 官方 Pages 上的 HTTPS JSON」。APT 类软件因此从「厂商 GPG 签名索引」降级为「HTTPS + 哈希」（应用仍校验 `.deb` 的包名、版本、架构与 SHA-256，且下载地址仍被限制在厂商允许域名内）。UI 会在「官方证据」中标注「元数据来源：UManager 官方采集镜像」以披露这一边界。微信在抓取时即被钉死 SHA-256，比之前「下载后计算哈希」更稳。
+
+### feed.json 结构
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "generatedAtUnixSeconds": 1750000000,
+  "applications": {
+    "wechat": { "packageName": "wechat", "version": "4.1.1.8", "architecture": "amd64",
+                "size": 212419528, "sha256": "…", "downloadUrl": "…", "websiteVersion": "4.1.1" }
+  },
+  "selfUpdate": { "packageName": "u-manager", "version": "…", "architecture": "amd64",
+                  "size": …, "sha256": "…", "downloadUrl": "…", "releaseTag": "v0.1.1", "assetName": "…" },
+  "developmentTools": { "claude-code": { "npmPackage": "@anthropic-ai/claude-code", "version": "2.1.245" } }
+}
+```
+
+应用侧 `src-tauri/src/feed.rs` 负责解析与校验（HTTPS、精确域名、大小上限、SHA-256 格式），`src-tauri/src/source_engine.rs` 负责把它转换成现有的 `ApplicationDetails` / `DownloadPlan`，从而完全复用既有的下载校验与不可变计划链路。
+
 ## 开发环境（用户级版本管理器）
 
 除了 `.deb` 桌面软件，UManager 也支持通过**用户级版本管理器**安装的开发工具。这类工具不经过 dpkg、不需要 root，因此走一条独立的无特权链路（`src-tauri/src/dev_tools.rs`）。

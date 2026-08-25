@@ -72,7 +72,15 @@ pub fn load_tools() -> Result<Vec<DevelopmentTool>, String> {
 
 pub async fn detect_state(tool_id: String) -> Result<DevToolState, String> {
     let tool = tool_by_id(&tool_id)?;
-    tauri::async_runtime::spawn_blocking(move || detect_state_sync(&tool))
+    let lookup_id = tool.tool_id.clone();
+    let lookup_package = tool.npm_package.clone();
+    let feed_version = crate::feed::tool_entry(&lookup_id)
+        .await
+        .ok()
+        .flatten()
+        .filter(|entry| entry.npm_package == lookup_package)
+        .map(|entry| entry.version);
+    tauri::async_runtime::spawn_blocking(move || detect_state_sync(&tool, feed_version))
         .await
         .map_err(|error| format!("命令行工具检测任务异常结束：{error}"))?
 }
@@ -104,7 +112,7 @@ pub async fn uninstall(
     let tool = tool_by_id(&tool_id)?;
     tauri::async_runtime::spawn_blocking(move || {
         let home = user_home()?;
-        let state = detect_state_sync(&tool)?;
+        let state = detect_state_sync(&tool, None)?;
         let install_kind = state
             .install_kind
             .ok_or_else(|| format!("未检测到已安装的 {}", tool.display_name))?;
@@ -128,23 +136,25 @@ fn tool_by_id(tool_id: &str) -> Result<DevelopmentTool, String> {
         .ok_or_else(|| format!("软件源中不存在命令行工具 {tool_id}"))
 }
 
-fn detect_state_sync(tool: &DevelopmentTool) -> Result<DevToolState, String> {
+fn detect_state_sync(tool: &DevelopmentTool, feed_version: Option<String>) -> Result<DevToolState, String> {
     let home = user_home()?;
     let npm_available = npm_available(&home);
-    let latest_version = if npm_available {
-        npm_capture(
-            &home,
-            &[
-                "view".to_owned(),
-                tool.npm_package.clone(),
-                "version".to_owned(),
-            ],
-        )
-        .ok()
-        .map(|value| extract_version(&value).unwrap_or_else(|| value))
-    } else {
-        None
-    };
+    let latest_version = feed_version.or_else(|| {
+        if npm_available {
+            npm_capture(
+                &home,
+                &[
+                    "view".to_owned(),
+                    tool.npm_package.clone(),
+                    "version".to_owned(),
+                ],
+            )
+            .ok()
+            .map(|value| extract_version(&value).unwrap_or_else(|| value))
+        } else {
+            None
+        }
+    });
 
     let binary = find_binary(&tool.binary_name, &home);
     let install_kind = binary

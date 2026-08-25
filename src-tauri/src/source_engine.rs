@@ -1,4 +1,5 @@
 use crate::scanner::{self, SourceKind, UpdateState};
+use crate::feed::FeedApplicationEntry;
 use reqwest::header::{CONTENT_RANGE, RANGE};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -184,6 +185,9 @@ enum RemoteKind {
 static REMOTE_CACHE: OnceLock<Mutex<HashMap<String, CachedRemoteMetadata>>> = OnceLock::new();
 
 pub async fn load_details(app: &Application, cache_dir: &Path) -> Result<ApplicationDetails, String> {
+    if let Some(entry) = feed_entry_for(app).await? {
+        return feed_details(app, cache_dir, &entry);
+    }
     match &app.source {
         SourceSpec::AptRepository { .. } => load_apt_details(app),
         SourceSpec::StableDownloadEndpoint { .. } | SourceSpec::ReleaseApi { .. } => {
@@ -361,6 +365,9 @@ async fn load_website_details(
 }
 
 pub async fn build_download_plan(app: &Application, cache_dir: &Path) -> Result<DownloadPlan, String> {
+    if let Some(entry) = feed_entry_for(app).await? {
+        return feed_plan(app, cache_dir, &entry);
+    }
     match &app.source {
         SourceSpec::AptRepository { .. } => apt_build_plan(app, cache_dir),
         SourceSpec::StableDownloadEndpoint { .. } | SourceSpec::ReleaseApi { .. } => {
@@ -374,6 +381,10 @@ pub async fn build_download_plan(app: &Application, cache_dir: &Path) -> Result<
 }
 
 pub(crate) async fn load_installable(app: &Application, cache_dir: &Path) -> Result<Installable, String> {
+    if let Some(entry) = feed_entry_for(app).await? {
+        let installed = installed_package_version_optional(app)?;
+        return feed_installable(app, cache_dir, &entry, installed);
+    }
     match &app.source {
         SourceSpec::AptRepository { .. } => {
             let installed = installed_package_version_optional(app)?;
@@ -478,17 +489,13 @@ pub async fn verify_cached(app: &Application, cache_dir: &Path) -> Result<Downlo
     Ok(result_from_verified(plan, verified, true))
 }
 
-fn is_apt_source(app: &Application) -> bool {
-    matches!(app.source, SourceSpec::AptRepository { .. })
-}
-
 async fn download_plan_file(
     app: &Application,
     plan: &DownloadPlan,
     path: &Path,
     progress: &ProgressCallback,
 ) -> Result<VerifiedFile, String> {
-    if is_apt_source(app) {
+    if plan.source_kind == SourceKind::OfficialRepository {
         apt_download_to_file(app, plan, path, progress).await
     } else {
         download_website_to_file(app, plan, path, progress).await
@@ -501,7 +508,7 @@ async fn verify_plan_file(
     path: &Path,
     progress: Option<&ProgressCallback>,
 ) -> Result<VerifiedFile, String> {
-    if is_apt_source(app) {
+    if plan.source_kind == SourceKind::OfficialRepository {
         apt_verify_file(app, plan, path, progress).await
     } else {
         verify_website_file(app, plan, path, progress).await
@@ -735,6 +742,172 @@ fn website_download_hosts(app: &Application) -> Result<Vec<String>, String> {
         } => Ok(asset_download_hosts.clone()),
         _ => Err("该应用不是官网下载来源".to_owned()),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Central metadata feed support
+// ---------------------------------------------------------------------------
+
+/// Resolve the feed entry for an application, treating UManager's own self-update
+/// source specially. Feed failures are treated as "no feed" so the app can still
+/// fall back to direct vendor scraping / apt lookups.
+async fn feed_entry_for(app: &Application) -> Result<Option<FeedApplicationEntry>, String> {
+    let result = if app.application_id == "umanager" {
+        crate::feed::self_update_entry().await
+    } else {
+        crate::feed::entry_for(app).await
+    };
+    result.or(Ok(None))
+}
+
+fn feed_details(
+    app: &Application,
+    _cache_dir: &Path,
+    entry: &FeedApplicationEntry,
+) -> Result<ApplicationDetails, String> {
+    validate_feed_entry_for_app(app, entry)?;
+    let installed = installed_package_version_optional(app)?;
+    let update_state = match installed.as_deref() {
+        Some(installed) if debian_version_is_newer(installed, &entry.version) => {
+            UpdateState::UpdateAvailable
+        }
+        Some(_) => UpdateState::UpToDate,
+        None => UpdateState::Unknown,
+    };
+    let is_apt = matches!(app.source, SourceSpec::AptRepository { .. });
+    let kind = if is_apt {
+        SourceKind::OfficialRepository
+    } else {
+        SourceKind::OfficialWebsite
+    };
+    let display_version = entry
+        .website_version
+        .clone()
+        .unwrap_or_else(|| entry.version.clone());
+    Ok(ApplicationDetails {
+        application_id: app.application_id.clone(),
+        display_name: app.display_name.clone(),
+        package_name: entry.package_name.clone(),
+        vendor: app.vendor.clone(),
+        architecture: entry.architecture.clone(),
+        source_kind: kind,
+        source_url: entry.download_url.clone(),
+        installed_version: installed,
+        candidate_version: Some(entry.version.clone()),
+        update_state,
+        website_version: if is_apt {
+            None
+        } else {
+            Some(display_version)
+        },
+        expected_size: Some(entry.size),
+        sha256: Some(entry.sha256.clone()),
+        metadata_bytes: None,
+        release_tag: entry.release_tag.clone(),
+        asset_name: entry.asset_name.clone(),
+        trusted: true,
+        evidence: vec![
+            Evidence {
+                label: "元数据来源".to_owned(),
+                actual: "UManager 官方采集镜像".to_owned(),
+                expected: "UManager 官方采集镜像".to_owned(),
+                passed: true,
+            },
+            Evidence {
+                label: "下载域名".to_owned(),
+                actual: app.download_hosts().join(", "),
+                expected: app.download_hosts().join(", "),
+                passed: true,
+            },
+            Evidence {
+                label: "Debian 软件包名".to_owned(),
+                actual: entry.package_name.clone(),
+                expected: app.package_name.clone(),
+                passed: entry.package_name == app.package_name,
+            },
+            Evidence {
+                label: "软件包架构".to_owned(),
+                actual: entry.architecture.clone(),
+                expected: app.architecture.clone(),
+                passed: entry.architecture == app.architecture,
+            },
+        ],
+    })
+}
+
+fn feed_plan(
+    app: &Application,
+    cache_dir: &Path,
+    entry: &FeedApplicationEntry,
+) -> Result<DownloadPlan, String> {
+    validate_feed_entry_for_app(app, entry)?;
+    let is_apt = matches!(app.source, SourceSpec::AptRepository { .. });
+    let kind = if is_apt {
+        SourceKind::OfficialRepository
+    } else {
+        SourceKind::OfficialWebsite
+    };
+    let version_hash = format!("{:x}", Sha256::digest(entry.version.as_bytes()));
+    let file_name = format!("{}-{}.deb", entry.package_name, &version_hash[..16]);
+    let target_path = cache_dir.join("downloads").join(&file_name).to_string_lossy().into_owned();
+    Ok(DownloadPlan {
+        application_id: app.application_id.clone(),
+        package_name: entry.package_name.clone(),
+        version: entry.version.clone(),
+        architecture: entry.architecture.clone(),
+        source_kind: kind,
+        repository_url: if is_apt {
+            app.apt_repository_url().map(str::to_owned)
+        } else {
+            None
+        },
+        download_url: entry.download_url.clone(),
+        file_name: file_name.clone(),
+        expected_size: entry.size,
+        expected_sha256: Some(entry.sha256.clone()),
+        target_path,
+        release_tag: entry.release_tag.clone(),
+        asset_name: entry.asset_name.clone(),
+        website_version: entry.website_version.clone(),
+    })
+}
+
+fn feed_installable(
+    app: &Application,
+    cache_dir: &Path,
+    entry: &FeedApplicationEntry,
+    installed: Option<String>,
+) -> Result<Installable, String> {
+    if installed.is_some() {
+        return Ok(Installable {
+            installed_version: installed,
+            candidate_version: Some(entry.version.clone()),
+            download_plan: None,
+        });
+    }
+    Ok(Installable {
+        installed_version: None,
+        candidate_version: Some(entry.version.clone()),
+        download_plan: Some(feed_plan(app, cache_dir, entry)?),
+    })
+}
+
+fn validate_feed_entry_for_app(app: &Application, entry: &FeedApplicationEntry) -> Result<(), String> {
+    if entry.package_name != app.package_name || entry.architecture != app.architecture {
+        return Err(format!(
+            "元数据源中 {} 的包名或架构与软件源不一致",
+            app.display_name
+        ));
+    }
+    let hosts = app.download_hosts();
+    let host = https_host(&entry.download_url).ok_or_else(|| "元数据源下载地址格式无效".to_owned())?;
+    if !hosts.iter().any(|allowed| allowed.eq_ignore_ascii_case(host)) {
+        return Err(format!(
+            "元数据源下载地址不属于 {} 的允许域名",
+            app.display_name
+        ));
+    }
+    Ok(())
 }
 
 async fn website_remote(app: &Application, cache_dir: &Path) -> Result<WebsiteRemote, String> {
@@ -1659,12 +1832,12 @@ fn version_has_release_prefix(package_version: &str, release_version: &str) -> b
             })
 }
 
-fn https_host(url: &str) -> Option<&str> {
+pub(crate) fn https_host(url: &str) -> Option<&str> {
     url.strip_prefix("https://")
         .and_then(|rest| rest.split('/').next())
 }
 
-fn host_allowed(host: Option<&str>, allowed_hosts: &[String]) -> bool {
+pub(crate) fn host_allowed(host: Option<&str>, allowed_hosts: &[String]) -> bool {
     host.is_some_and(|host| {
         allowed_hosts
             .iter()
@@ -1676,7 +1849,7 @@ fn host_allowed(host: Option<&str>, allowed_hosts: &[String]) -> bool {
 // HTTP client and process helpers
 // ---------------------------------------------------------------------------
 
-fn restricted_client(allowed_hosts: &[String], timeout: Duration) -> Result<reqwest::Client, String> {
+pub(crate) fn restricted_client(allowed_hosts: &[String], timeout: Duration) -> Result<reqwest::Client, String> {
     let hosts = allowed_hosts.to_vec();
     crate::network::apply_proxy(reqwest::Client::builder())
         .https_only(true)

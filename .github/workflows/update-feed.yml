@@ -1,0 +1,62 @@
+name: update-feed
+
+# Re-scrape the vendor software/version metadata and publish a single feed.json to
+# GitHub Pages. The UManager desktop app prefers this feed for candidate versions,
+# sizes, SHA-256 digests and download URLs, and only falls back to on-device
+# scraping when a vend source cannot be resolved here.
+#
+# This workflow uses the modern GitHub Pages deployment (no branch to select). The
+# only manual step is to make sure Settings → Pages → Build and deployment →
+# Source is set to "GitHub Actions" (or just run this workflow once: configure-pages
+# enables it). The published feed is:
+#   https://<owner>.github.io/<repo>/feed.json
+
+on:
+  schedule:
+    # Every 6 hours is more than enough for vendor version checks.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "src-tauri/resources/vendors.json"
+
+concurrency:
+  group: update-feed
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Scrape vendor metadata and build feed.json
+        run: node scripts/update-feed.mjs
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload feed.json artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

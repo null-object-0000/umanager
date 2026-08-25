@@ -39,7 +39,7 @@ pub struct ManagedPackage {
     pub(crate) homepage: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SourceKind {
     OfficialRepository,

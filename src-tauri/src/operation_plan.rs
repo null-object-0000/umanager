@@ -1,5 +1,5 @@
 use crate::installation;
-use crate::scanner::{self, UpdateState};
+use crate::scanner;
 use crate::source_engine;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -71,11 +71,10 @@ pub async fn create_install_plan(
     .map_err(|error| format!("计划本机状态任务异常结束：{error}"))??;
     ensure_installable_transition(app, installed_version.as_deref(), &verified.plan.version)?;
 
-    let action = if app.is_website_download() {
-        OperationAction::InstallVerifiedWebsiteDeb
-    } else {
-        OperationAction::InstallVerifiedDeb
-    };
+    // Under the central metadata feed model every managed application is downloaded
+    // from a pinned official URL and installed with a fixed `dpkg --install`, so the
+    // website (feed-verified) helper action is used for all of them.
+    let action = OperationAction::InstallVerifiedWebsiteDeb;
     let created = unix_timestamp();
     let plan = OperationPlan::new(PlanPayload {
         schema_version: PLAN_SCHEMA_VERSION,
@@ -106,29 +105,11 @@ fn ensure_installable_transition(
     let Some(installed) = installed_version else {
         return Ok(());
     };
-    if app.is_website_download() {
-        if !version_is_newer(installed, target_version) {
-            return Err(format!(
-                "{} 当前已是最新版本，拒绝生成重装或降级计划",
-                app.display_name
-            ));
-        }
-        return Ok(());
-    }
-    let scan = scanner::scan()?;
-    let package = scan
-        .packages
-        .iter()
-        .find(|item| item.package_name == app.package_name)
-        .ok_or_else(|| format!("{} 已安装状态在计划期间发生变化", app.display_name))?;
-    if !matches!(package.update_state, UpdateState::UpdateAvailable) {
+    if !version_is_newer(installed, target_version) {
         return Err(format!(
-            "{} 当前没有可安装的更高版本；拒绝生成重装或降级计划",
+            "{} 当前已是最新版本，拒绝生成重装或降级计划",
             app.display_name
         ));
-    }
-    if package.candidate_version.as_deref() != Some(target_version) {
-        return Err("APT 候选版本在下载后发生变化，请重新检查并下载".to_owned());
     }
     Ok(())
 }
