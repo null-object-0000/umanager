@@ -20,11 +20,15 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
-const CATALOG_PATH = new URL("../src-tauri/resources/vendors.json", import.meta.url);
-const OUT_PATH = process.argv[2] ?? new URL("../dist/feed.json", import.meta.url);
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(SCRIPT_DIR, "..");
+const CATALOG_PATH = resolve(REPO_ROOT, "src-tauri/resources/vendors.json");
+const OUT_PATH = process.argv[2] ?? resolve(REPO_ROOT, "dist", "feed.json");
 
 const errors = [];
 
@@ -330,6 +334,7 @@ async function main() {
     developmentTools,
   };
 
+  mkdirSync(dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, JSON.stringify(feed, null, 2));
   log(`Wrote ${OUT_PATH}`);
   log(
