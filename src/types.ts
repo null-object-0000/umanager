@@ -329,7 +329,7 @@ export interface DevToolReport {
 
 export interface DevToolProgress {
   toolId: string;
-  phase: "running" | "completed";
+  phase: "phase" | "running" | "completed";
   stream: "system" | "stdout" | "stderr";
   message: string;
 }

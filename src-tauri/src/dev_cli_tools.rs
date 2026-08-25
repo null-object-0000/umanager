@@ -85,7 +85,7 @@ pub async fn install(
     tauri::async_runtime::spawn_blocking(move || {
         let home = user_home()?;
         let mut command = install_command(&tool, &home)?;
-        let output = run_streaming(&mut command, &tool.tool_id, Some(&progress))?;
+        let output = run_streaming(&mut command, &tool.tool_id, &format!("开始安装 {}（{}）", tool.display_name, installer_label(&tool)), Some(&progress))?;
         Ok(DevToolReport {
             tool_id: tool.tool_id.clone(),
             action: "install".to_owned(),
@@ -109,7 +109,7 @@ pub async fn uninstall(
             .install_kind
             .ok_or_else(|| format!("未检测到已安装的 {}", tool.display_name))?;
         let mut command = uninstall_command(&tool, &home, &install_kind)?;
-        let output = run_streaming(&mut command, &tool.tool_id, Some(&progress))?;
+        let output = run_streaming(&mut command, &tool.tool_id, &format!("开始卸载 {}（{}）", tool.display_name, installer_label(&tool)), Some(&progress))?;
         Ok(DevToolReport {
             tool_id: tool.tool_id.clone(),
             action: "uninstall".to_owned(),
@@ -277,6 +277,13 @@ fn capture_version(path: &Path) -> Option<String> {
             Some(text.lines().next().unwrap_or_default().trim().to_owned())
         }
     })
+}
+
+fn installer_label(tool: &DevelopmentTool) -> &str {
+    match &tool.installer {
+        DevToolInstaller::Npm => "npm 全局安装",
+        DevToolInstaller::CurlScript { .. } => "官方安装脚本",
+    }
 }
 
 fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, String> {
@@ -448,8 +455,17 @@ fn npm_capture(home: &Path, args: &[String]) -> Result<String, String> {
 fn run_streaming(
     command: &mut Command,
     tool_id: &str,
+    phase_message: &str,
     progress: Option<&DevToolProgressCallback>,
 ) -> Result<String, String> {
+    if let Some(progress) = progress {
+        progress(DevToolProgress {
+            tool_id: tool_id.to_owned(),
+            phase: "phase",
+            stream: "system".to_owned(),
+            message: phase_message.to_owned(),
+        });
+    }
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
