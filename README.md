@@ -15,6 +15,31 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - 最终安装、更新和卸载会显示结构化进度与可展开的实时 `dpkg` 详细日志；日志只读，终端控制序列会被清理，单行与总量均有限制。
 - “开发环境”页通过用户级版本管理器（nvm 用于 Node.js，rustup 用于 Rust）检测、安装、切换和卸载运行时版本，全程无 root。
 
+## 安装
+
+UManager 面向 Ubuntu 22.04 及以上（amd64）。普通用户**不需要克隆源码**，也不需要安装 Node.js 或 Rust。
+
+1. 打开 [Releases](https://github.com/null-object-0000/umanager/releases) 页面；
+2. 下载最新版本的 `UManager_<版本>_amd64.deb`；
+3. 在下载目录执行：
+
+```bash
+sudo apt install ./UManager_*_amd64.deb
+```
+
+`apt` 会自动补装运行时依赖（`libwebkit2gtk-4.1-0`、`libgtk-3-0`）。
+
+也可以不打开浏览器，直接命令行下载并安装（以 v0.1.0 为例，升级到新版本时替换版本号）：
+
+```bash
+wget https://github.com/null-object-0000/umanager/releases/download/v0.1.0/UManager_0.1.0_amd64.deb
+sudo apt install ./UManager_0.1.0_amd64.deb
+```
+
+安装完成后，从应用菜单搜索 “UManager” 启动，或在终端运行 `umanager`。卸载入口在应用“设置”页，或直接执行 `sudo apt remove u-manager`。
+
+> 每次推送 `v*` 版本 tag，GitHub Actions 都会自动构建 `.deb` 并发布到 Release；源码构建见下文“开发环境”，仅面向贡献者。
+
 ## 开发环境
 
 当前开发环境固定为：
