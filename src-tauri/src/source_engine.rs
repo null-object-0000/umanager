@@ -1855,4 +1855,22 @@ mod tests {
             .unwrap()
             .is_none());
     }
+
+    #[test]
+    #[ignore = "requires network and a working system proxy to reach the GitHub asset"]
+    fn fetches_flclash_control_prefix_through_the_system_proxy() {
+        let app = flclash_app();
+        let download_hosts = website_download_hosts(&app).unwrap();
+        let url = "https://github.com/chen08209/FlClash/releases/download/v0.8.96/FlClash-0.8.96-linux-amd64.deb";
+        let client = restricted_client(&download_hosts, Duration::from_secs(30)).unwrap();
+        let payload = tauri::async_runtime::block_on(fetch_prefix_range(
+            &client,
+            url,
+            &download_hosts,
+            CONTROL_PROBE_BYTES,
+        ))
+        .unwrap();
+        assert!(payload.total_size > 0);
+        assert!(parse_control_archive_end(&payload.bytes).is_ok());
+    }
 }
