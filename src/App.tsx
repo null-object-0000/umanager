@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
+import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
 import { summarizePackages } from "./model";
 import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -277,7 +277,10 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
         {plan && !dryRun && <button className="dry-run-button" disabled={busy !== null} onClick={() => void run("dry-run", () => runSelfUpdateDryRun(plan!.plan.planId), setDryRun)}>{busy === "dry-run" ? "正在特权环境复核…" : "授权并执行更新前 dry-run"}</button>}
         {plan && dryRun && !installed && <><div className="dry-run-success"><strong>✓ 自更新前复核通过</strong><span>helper 已重新核对动作、固定包名、版本、架构和不可变计划；本次未修改系统。</span></div><button className="remove-confirm-button" disabled={busy !== null} onClick={() => void run("install", () => { setProgressEvents([]); return installSelfUpdate(plan!.plan.planId, (event) => appendProgress(setProgressEvents, event)); }, (value) => { setInstalled(value); onUpdated(); })}>{busy === "install" ? "正在更新 UManager…" : "再次确认并安装更新"}</button></>}
         <OperationLogPanel events={progressEvents} running={busy === "install"}/>
-        {installed && <div className="dry-run-success"><strong>✓ 更新命令已成功完成</strong><span>新的 UManager 已通过 dpkg 安装；重新打开 UManager 后生效。</span></div>}
+        {installed && <>
+          <div className="dry-run-success"><strong>✓ 更新命令已成功完成</strong><span>新的 UManager 已通过 dpkg 安装。</span></div>
+          <button className="download-button" disabled={busy !== null} onClick={() => { void restartApp().catch((reason) => setError(String(reason))); }}>重启 UManager</button>
+        </>}
       </div>
     </section>
   </div>;

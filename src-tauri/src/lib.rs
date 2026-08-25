@@ -9,6 +9,8 @@ mod operation_plan;
 mod scanner;
 mod source_engine;
 
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use tauri::{Emitter, Manager};
 use umanager_catalog::Catalog;
 
@@ -294,6 +296,32 @@ async fn get_installation_info() -> Result<installation::InstallationInfo, Strin
         .map_err(|error| format!("安装形态检测任务异常结束：{error}"))?
 }
 
+/// Relaunch UManager and exit the current process. Used after a self-update,
+/// where the on-disk binary has already been replaced by dpkg but the running
+/// process still holds the old image.
+#[tauri::command]
+async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
+    let info = tauri::async_runtime::spawn_blocking(installation::detect)
+        .await
+        .map_err(|error| format!("安装形态检测任务异常结束：{error}"))??;
+    let executable = if matches!(
+        info.installation_kind,
+        installation::InstallationKind::DebianPackage
+    ) {
+        PathBuf::from("/usr/bin/umanager")
+    } else {
+        PathBuf::from(&info.executable_path)
+    };
+    Command::new(&executable)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("无法启动新的 UManager：{error}"))?;
+    app.exit(0);
+    Ok(())
+}
+
 #[tauri::command]
 async fn get_pending_local_deb(
     state: tauri::State<'_, local_deb::LocalDebState>,
@@ -576,6 +604,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_installation_info,
+            restart_app,
             get_network_settings,
             set_network_settings,
             get_feed_status,

@@ -75,6 +75,11 @@ export function getInstallationInfo(): Promise<InstallationInfo> {
   return invoke<InstallationInfo>("get_installation_info");
 }
 
+export function restartApp(): Promise<void> {
+  if (isMock()) return Promise.resolve();
+  return invoke<void>("restart_app");
+}
+
 export function getNetworkSettings(): Promise<NetworkSettings> {
   if (isMock()) return Promise.resolve({ proxyEnabled: false, proxyUrl: "" });
   return invoke<NetworkSettings>("get_network_settings");
