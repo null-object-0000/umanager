@@ -58,12 +58,14 @@ jobs:
           tagName: v__VERSION__
           releaseName: "UManager v__VERSION__"
           releaseBody: |
-            首个发布版本（amd64 Debian 包）。
+            UManager v__VERSION__（amd64 Debian 包）。
 
             安装：
 
             ```bash
-            sudo apt install ./umanager_*_amd64.deb
+            sudo apt install ./UManager___VERSION___amd64.deb
             ```
+
+            已安装 `.deb` 版的用户也可以在 UManager「设置」页内检查并安装更新。
           releaseDraft: false
           prerelease: false
