@@ -1,3 +1,4 @@
+mod dev_cli_tools;
 mod dev_tools;
 mod installable;
 mod installation;
@@ -55,9 +56,10 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
                     item.source_url = Some(details.source_url.clone());
                 }
             }
-            Err(error) => result
-                .warnings
-                .push(format!("{} 官网更新检查失败：{error}", application.display_name)),
+            Err(error) => result.warnings.push(format!(
+                "{} 官网更新检查失败：{error}",
+                application.display_name
+            )),
         }
     }
     Ok(result)
@@ -122,6 +124,40 @@ async fn uninstall_dev_version(
         let _ = event_app.emit("dev-operation-progress", payload);
     });
     dev_tools::uninstall_version(toolchain_id, version, progress).await
+}
+
+#[tauri::command]
+async fn get_dev_tools() -> Result<Vec<umanager_catalog::DevelopmentTool>, String> {
+    dev_cli_tools::load_tools()
+}
+
+#[tauri::command]
+async fn get_dev_tool_state(tool_id: String) -> Result<dev_cli_tools::DevToolState, String> {
+    dev_cli_tools::detect_state(tool_id).await
+}
+
+#[tauri::command]
+async fn install_dev_tool(
+    app: tauri::AppHandle,
+    tool_id: String,
+) -> Result<dev_cli_tools::DevToolReport, String> {
+    let event_app = app.clone();
+    let progress: dev_cli_tools::DevToolProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("dev-tool-progress", payload);
+    });
+    dev_cli_tools::install(tool_id, progress).await
+}
+
+#[tauri::command]
+async fn uninstall_dev_tool(
+    app: tauri::AppHandle,
+    tool_id: String,
+) -> Result<dev_cli_tools::DevToolReport, String> {
+    let event_app = app.clone();
+    let progress: dev_cli_tools::DevToolProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("dev-tool-progress", payload);
+    });
+    dev_cli_tools::uninstall(tool_id, progress).await
 }
 
 #[tauri::command]
@@ -544,6 +580,10 @@ pub fn run() {
             install_dev_version,
             set_dev_default_version,
             uninstall_dev_version,
+            get_dev_tools,
+            get_dev_tool_state,
+            install_dev_tool,
+            uninstall_dev_tool,
             get_application_details,
             get_download_plan,
             download_package,

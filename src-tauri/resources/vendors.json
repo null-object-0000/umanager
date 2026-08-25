@@ -146,5 +146,83 @@
       "managerBinary": "~/.cargo/bin/rustup",
       "versionsDirectory": "~/.rustup/toolchains"
     }
+  ],
+  "developmentTools": [
+    {
+      "toolId": "claude-code",
+      "displayName": "Claude Code",
+      "vendor": "Anthropic",
+      "homepage": "https://docs.anthropic.com/en/docs/claude-code",
+      "icon": "claude",
+      "accentColor": "#b0562a",
+      "binaryName": "claude",
+      "npmPackage": "@anthropic-ai/claude-code",
+      "installer": {
+        "kind": "curlScript",
+        "scriptUrl": "https://claude.ai/install.sh",
+        "host": "claude.ai",
+        "shell": "bash"
+      },
+      "uninstall": {
+        "kind": "removeFiles",
+        "paths": ["~/.local/bin/claude"]
+      }
+    },
+    {
+      "toolId": "opencode",
+      "displayName": "OpenCode",
+      "vendor": "OpenCode (SST)",
+      "homepage": "https://opencode.ai/",
+      "icon": "opencode",
+      "accentColor": "#d97757",
+      "binaryName": "opencode",
+      "npmPackage": "opencode-ai",
+      "installer": {
+        "kind": "curlScript",
+        "scriptUrl": "https://opencode.ai/install",
+        "host": "opencode.ai",
+        "shell": "bash"
+      },
+      "uninstall": {
+        "kind": "removeFiles",
+        "paths": ["~/.opencode/bin/opencode"]
+      }
+    },
+    {
+      "toolId": "pi",
+      "displayName": "Pi",
+      "vendor": "earendil-works",
+      "homepage": "https://pi.dev/",
+      "icon": "pi",
+      "accentColor": "#7c5ce5",
+      "binaryName": "pi",
+      "npmPackage": "@earendil-works/pi-coding-agent",
+      "installer": {
+        "kind": "curlScript",
+        "scriptUrl": "https://pi.dev/install.sh",
+        "host": "pi.dev",
+        "shell": "sh"
+      },
+      "uninstall": {
+        "kind": "removeFiles",
+        "paths": ["~/.local/bin/pi"]
+      }
+    },
+    {
+      "toolId": "codex",
+      "displayName": "Codex CLI",
+      "vendor": "OpenAI",
+      "homepage": "https://developers.openai.com/codex/cli",
+      "icon": "codex",
+      "accentColor": "#171918",
+      "binaryName": "codex",
+      "npmPackage": "@openai/codex",
+      "installer": {
+        "kind": "npm"
+      },
+      "uninstall": {
+        "kind": "npm"
+      }
+    }
   ]
 }

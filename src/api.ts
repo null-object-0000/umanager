@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevToolchain, DevToolchainState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
+import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -364,4 +364,47 @@ export function setDevDefaultVersion(toolchainId: string, version: string, onPro
 
 export function uninstallDevVersion(toolchainId: string, version: string, onProgress?: (event: DevOperationProgress) => void): Promise<DevOperationReport> {
   return invokeWithDevProgress<DevOperationReport>("uninstall_dev_version", toolchainId, version, onProgress);
+}
+
+async function invokeWithDevToolProgress<T>(command: string, toolId: string, onProgress?: (event: DevToolProgress) => void): Promise<T> {
+  const unlisten = onProgress ? await listen<DevToolProgress>("dev-tool-progress", ({ payload }) => {
+    if (payload.toolId === toolId) onProgress(payload);
+  }) : null;
+  try {
+    return await invoke<T>(command, { toolId });
+  } finally {
+    unlisten?.();
+  }
+}
+
+const mockDevTools: DevTool[] = [
+  { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: "claude", accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installer: { kind: "curlScript", scriptUrl: "https://claude.ai/install.sh", host: "claude.ai", shell: "bash" }, uninstall: { kind: "removeFiles", paths: ["~/.local/bin/claude"] } },
+  { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: "opencode", accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installer: { kind: "curlScript", scriptUrl: "https://opencode.ai/install", host: "opencode.ai", shell: "bash" }, uninstall: { kind: "removeFiles", paths: ["~/.opencode/bin/opencode"] } },
+  { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: "pi", accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installer: { kind: "curlScript", scriptUrl: "https://pi.dev/install.sh", host: "pi.dev", shell: "sh" }, uninstall: { kind: "removeFiles", paths: ["~/.local/bin/pi"] } },
+  { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: "codex", accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installer: { kind: "npm" }, uninstall: { kind: "npm" } },
+];
+
+const mockDevToolStates: Record<string, DevToolState> = {
+  "claude-code": { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: null, accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "2.1.245", latestVersion: "2.1.245", binaryPath: "/home/user/.local/bin/claude", updateAvailable: false, canUninstall: true },
+  opencode: { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: null, accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "1.18.22", latestVersion: "1.18.22", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/opencode", updateAvailable: false, canUninstall: true },
+  pi: { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: null, accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installerKind: "curlScript", npmAvailable: true, installed: false, installKind: null, version: null, latestVersion: "0.84.3", binaryPath: null, updateAvailable: false, canUninstall: false },
+  codex: { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: null, accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.149.0", latestVersion: "0.149.1", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/codex", updateAvailable: true, canUninstall: true },
+};
+
+export function getDevTools(): Promise<DevTool[]> {
+  if (isMock()) return Promise.resolve(mockDevTools);
+  return invoke<DevTool[]>("get_dev_tools");
+}
+
+export function getDevToolState(toolId: string): Promise<DevToolState> {
+  if (isMock()) return Promise.resolve(mockDevToolStates[toolId] ?? mockDevToolStates["claude-code"]);
+  return invoke<DevToolState>("get_dev_tool_state", { toolId });
+}
+
+export function installDevTool(toolId: string, onProgress?: (event: DevToolProgress) => void): Promise<DevToolReport> {
+  return invokeWithDevToolProgress<DevToolReport>("install_dev_tool", toolId, onProgress);
+}
+
+export function uninstallDevTool(toolId: string, onProgress?: (event: DevToolProgress) => void): Promise<DevToolReport> {
+  return invokeWithDevToolProgress<DevToolReport>("uninstall_dev_tool", toolId, onProgress);
 }

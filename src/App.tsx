@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDownloadPlan, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevVersion } from "./api";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
 import { summarizePackages } from "./model";
-import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevToolchain, DevToolchainState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
+import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
 import chromeIcon from "./assets/app-icons/google-chrome.png";
@@ -11,11 +11,15 @@ import wechatIcon from "./assets/app-icons/wechat.png";
 import wemeetIcon from "./assets/app-icons/wemeet.svg?no-inline";
 import nodejsIcon from "./assets/app-icons/nodejs.svg?no-inline";
 import rustIcon from "./assets/app-icons/rust.svg?no-inline";
+import claudeIcon from "./assets/app-icons/claude.svg?no-inline";
+import opencodeIcon from "./assets/app-icons/opencode.svg?no-inline";
+import piIcon from "./assets/app-icons/pi.svg?no-inline";
+import codexIcon from "./assets/app-icons/codex.svg?no-inline";
 
 type Filter = "all" | "updates" | "local";
 type Page = "installed" | "installable" | "dev" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, nodejs: nodejsIcon, rust: rustIcon };
+const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
@@ -59,6 +63,14 @@ function DevLogo({ toolchain }: { toolchain: DevToolchain }) {
     return <span className="app-mark has-icon"><img src={asset} alt=""/></span>;
   }
   return <span className="app-mark" style={{ background: toolchain.accentColor ?? "#555" }}>{toolchain.displayName.slice(0, 1).toUpperCase()}</span>;
+}
+
+function DevToolLogo({ tool }: { tool: DevTool }) {
+  const asset = tool.icon ? iconAssets[tool.icon] : undefined;
+  if (asset) {
+    return <span className="app-mark has-icon"><img src={asset} alt=""/></span>;
+  }
+  return <span className="app-mark" style={{ background: tool.accentColor ?? "#555" }}>{tool.displayName.slice(0, 1).toUpperCase()}</span>;
 }
 
 function isAutoInstallable(packageName: string) {
@@ -619,26 +631,143 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
   </aside></div>;
 }
 
+const devToolInstallKindText = { npmGlobal: "npm 全局安装", officialInstaller: "官方安装器", onPath: "本机 PATH 中的可执行文件" } as const;
+
+function DevToolRow({ tool, onOpen }: { tool: DevTool; onOpen: () => void }) {
+  const [state, setState] = useState<DevToolState | null>(null);
+  useEffect(() => {
+    setState(null);
+    getDevToolState(tool.toolId).then(setState).catch(() => setState(null));
+  }, [tool.toolId]);
+  const statusClass = state?.updateAvailable ? "updateAvailable" : state?.installed ? "upToDate" : "updateAvailable";
+  const statusText = state?.updateAvailable ? "有可用更新" : state?.installed ? "已安装" : "可安装";
+  return <div className="package-row supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
+    <div className="app-cell"><DevToolLogo tool={tool}/><div className="app-meta"><strong>{tool.displayName}</strong><span>{tool.vendor} · {tool.binaryName}</span></div></div>
+    <div className="version-cell"><strong>{state?.version ?? (state?.installed ? "已安装" : "未安装")}</strong>{state?.updateAvailable && <span>→ {state.latestVersion}</span>}</div>
+    <div className="source-cell"><span className="source-dot officialWebsite"/><div><strong>{tool.installer.kind === "npm" ? "npm 全局" : "官方源"}</strong><span>{state?.installKind ? devToolInstallKindText[state.installKind] : "未安装"}</span></div></div>
+    <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><span className="row-arrow" aria-hidden="true">›</span></div>
+  </div>;
+}
+
+function DevToolLogPanel({ events, running }: { events: DevToolProgress[]; running: boolean }) {
+  if (events.length === 0) return null;
+  const logs = events.filter((event) => event.phase === "running");
+  return <section className="operation-progress-panel" aria-live="polite">
+    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "正在执行 CLI 工具操作" : "CLI 工具操作已结束"}</strong><span>输出只读，不会请求 root 权限</span></div></div></header>
+    <details className="operation-log-details" open={running || undefined}>
+      <summary>详细日志 <b>{logs.length}</b></summary>
+      <div className="operation-terminal" role="log">{logs.length === 0 ? <span className="terminal-placeholder">等待安装器输出…</span> : logs.map((event, index) => <div className={event.stream} key={`${index}-${event.message}`}><span>{event.stream === "stderr" ? "ERR" : "OUT"}</span><code>{event.message}</code></div>)}</div>
+    </details>
+  </section>;
+}
+
+function DevToolDrawer({ tool, onClose }: { tool: DevTool; onClose: () => void }) {
+  const [state, setState] = useState<DevToolState | null>(null);
+  const [busy, setBusy] = useState<"install" | "uninstall" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [events, setEvents] = useState<DevToolProgress[]>([]);
+
+  const refresh = async () => {
+    setError(null);
+    try { setState(await getDevToolState(tool.toolId)); } catch (reason) { setError(String(reason)); }
+  };
+  useEffect(() => { void refresh(); }, [tool.toolId]);
+
+  const run = async (kind: typeof busy, action: (onProgress: (event: DevToolProgress) => void) => Promise<DevToolReport>) => {
+    setBusy(kind); setError(null); setEvents([]);
+    try {
+      await action((event) => setEvents((current) => [...current.slice(-199), event]));
+      await refresh();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const installLabel = tool.installer.kind === "npm" ? "通过 npm 全局安装" : "通过官方安装脚本安装";
+  const canInstall = tool.installer.kind === "curlScript" || (state?.npmAvailable ?? false);
+
+  return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${tool.displayName} 开发环境详情`}>
+    <header className="drawer-header"><div className="drawer-app"><DevToolLogo tool={tool}/><div><h2>{tool.displayName}</h2><span>{tool.vendor} · {tool.binaryName}</span></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <div className="drawer-content">
+      {state && !state.npmAvailable && <div className="message"><strong>未检测到 npm</strong><span>无法读取 npm 最新版本{tool.installer.kind === "npm" ? "，也无法安装该工具" : ""}。请先在“开发环境”安装并设置 Node.js。</span></div>}
+      <div className="dev-facts">
+        <div><dt>当前版本</dt><dd>{state?.version ?? "未安装"}</dd></div>
+        <div><dt>最新版本</dt><dd>{state?.latestVersion ?? (state?.npmAvailable === false ? "无法读取" : "读取中…")}</dd></div>
+        <div><dt>安装方式</dt><dd>{state?.installKind ? devToolInstallKindText[state.installKind] : "—"}</dd></div>
+        <div className="wide"><dt>可执行文件</dt><dd title={state?.binaryPath ?? undefined}>{state?.binaryPath ?? (tool.installer.kind === "npm" ? `npm 包 ${tool.npmPackage}` : "官方安装脚本")}</dd></div>
+      </div>
+      {error && <div className="inline-error">{error}</div>}
+
+      <div style={{ marginTop: 22 }}>
+        <h3 className="dev-section-heading">操作</h3>
+        {state?.installed
+          ? <div className="dev-version-row">
+              <div className="dev-version-name">
+                <code>{state.version}</code>
+                {state.updateAvailable && state.latestVersion && <span className="dev-sub-label">有更新 {state.latestVersion}</span>}
+                {!state.updateAvailable && <span className="dev-badge installed">已是最新</span>}
+              </div>
+              <div className="dev-version-actions">
+                {state.updateAvailable && <button className="dev-action-button" disabled={busy !== null || !canInstall} onClick={() => void run("install", (onProgress) => installDevTool(tool.toolId, onProgress))}>{busy === "install" ? "正在更新…" : `更新到 ${state.latestVersion}`}</button>}
+                {state.canUninstall && <button className="dev-action-button danger" disabled={busy !== null} onClick={() => void run("uninstall", (onProgress) => uninstallDevTool(tool.toolId, onProgress))}>{busy === "uninstall" ? "正在卸载…" : "卸载"}</button>}
+                {!state.canUninstall && <span className="dev-sub-label">未能确定安装来源，请按官方文档卸载</span>}
+              </div>
+            </div>
+          : <div className="dev-version-row">
+              <div className="dev-version-name"><code>未安装</code>{state?.latestVersion && <span className="dev-sub-label">最新 {state.latestVersion}</span>}</div>
+              <div className="dev-version-actions">
+                <button className="dev-action-button" disabled={busy !== null || !canInstall} onClick={() => void run("install", (onProgress) => installDevTool(tool.toolId, onProgress))}>{busy === "install" ? "正在安装…" : installLabel}</button>
+              </div>
+            </div>}
+        {!canInstall && <p className="dev-empty">需要 npm 才能安装，请先在“开发环境”安装并设置 Node.js。</p>}
+      </div>
+
+      <DevToolLogPanel events={events} running={busy !== null}/>
+    </div>
+  </aside></div>;
+}
+
+function DevGroupLabel({ children }: { children: ReactNode }) {
+  return <div className="dev-group-label">{children}</div>;
+}
+
 function DevToolsPage() {
   const [toolchains, setToolchains] = useState<DevToolchain[] | null>(null);
+  const [tools, setTools] = useState<DevTool[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<DevToolchain | null>(null);
+  const [selectedToolchain, setSelectedToolchain] = useState<DevToolchain | null>(null);
+  const [selectedTool, setSelectedTool] = useState<DevTool | null>(null);
   const refresh = async () => {
     setLoading(true); setError(null);
-    try { setToolchains(await getDevToolchains()); } catch (reason) { setError(String(reason)); } finally { setLoading(false); }
+    const [toolchainOutcome, toolsOutcome] = await Promise.allSettled([getDevToolchains(), getDevTools()]);
+    if (toolchainOutcome.status === "fulfilled") setToolchains(toolchainOutcome.value); else setError(String(toolchainOutcome.reason));
+    if (toolsOutcome.status === "fulfilled") setTools(toolsOutcome.value); else setError(String(toolsOutcome.reason));
+    setLoading(false);
   };
   useEffect(() => { void refresh(); }, []);
   return <main className="workspace dev-workspace">
-    <header className="workspace-header"><div><h1>开发环境</h1><p>通过用户级版本管理器管理运行时（无 root）</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
+    <header className="workspace-header"><div><h1>开发环境</h1><p>用户级版本管理器 + 命令行 AI 编程工具（无 root）</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
     <section className="software-panel">
       <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
       {error && <div className="message error"><strong>无法读取开发环境</strong><span>{error}</span></div>}
-      {loading && !toolchains && <div className="empty-state"><span className="loader"/><p>正在读取版本管理器状态…</p></div>}
-      {toolchains && toolchains.length === 0 && <div className="empty-state"><p>软件源中未配置开发工具链。</p></div>}
-      {toolchains && <div className="package-list">{toolchains.map((toolchain) => <DevToolchainRow toolchain={toolchain} key={toolchain.toolchainId} onOpen={() => setSelected(toolchain)}/>)}</div>}
+      {loading && !toolchains && !tools && <div className="empty-state"><span className="loader"/><p>正在读取开发环境状态…</p></div>}
+      {(toolchains || tools) && <div className="package-list">
+        {toolchains && toolchains.length > 0 && <>
+          <DevGroupLabel>运行时 · 用户级版本管理器</DevGroupLabel>
+          {toolchains.map((toolchain) => <DevToolchainRow toolchain={toolchain} key={toolchain.toolchainId} onOpen={() => setSelectedToolchain(toolchain)}/>)}
+        </>}
+        {tools && tools.length > 0 && <>
+          <DevGroupLabel>命令行 · AI 编程工具</DevGroupLabel>
+          {tools.map((tool) => <DevToolRow tool={tool} key={tool.toolId} onOpen={() => setSelectedTool(tool)}/>)}
+        </>}
+      </div>}
+      {toolchains && toolchains.length === 0 && tools && tools.length === 0 && <div className="empty-state"><p>软件源中未配置开发工具。</p></div>}
     </section>
-    {selected && <DevToolchainDrawer toolchain={selected} onClose={() => setSelected(null)}/>}
+    {selectedToolchain && <DevToolchainDrawer toolchain={selectedToolchain} onClose={() => setSelectedToolchain(null)}/>}
+    {selectedTool && <DevToolDrawer tool={selectedTool} onClose={() => setSelectedTool(null)}/>}
   </main>;
 }
 

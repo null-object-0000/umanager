@@ -284,3 +284,53 @@ export interface DevOperationProgress {
   message: string;
 }
 
+export type DevToolInstaller = { kind: "npm" } | { kind: "curlScript"; scriptUrl: string; host: string; shell: string };
+export type DevToolUninstall = { kind: "npm" } | { kind: "removeFiles"; paths: string[] };
+
+export interface DevTool {
+  toolId: string;
+  displayName: string;
+  vendor: string;
+  homepage: string;
+  icon: string | null;
+  accentColor: string | null;
+  binaryName: string;
+  npmPackage: string;
+  installer: DevToolInstaller;
+  uninstall: DevToolUninstall;
+}
+
+export interface DevToolState {
+  toolId: string;
+  displayName: string;
+  vendor: string;
+  homepage: string;
+  icon: string | null;
+  accentColor: string | null;
+  binaryName: string;
+  npmPackage: string;
+  installerKind: "npm" | "curlScript";
+  npmAvailable: boolean;
+  installed: boolean;
+  installKind: "npmGlobal" | "officialInstaller" | "onPath" | null;
+  version: string | null;
+  latestVersion: string | null;
+  binaryPath: string | null;
+  updateAvailable: boolean;
+  canUninstall: boolean;
+}
+
+export interface DevToolReport {
+  toolId: string;
+  action: string;
+  success: boolean;
+  message: string;
+}
+
+export interface DevToolProgress {
+  toolId: string;
+  phase: "running" | "completed";
+  stream: "system" | "stdout" | "stderr";
+  message: string;
+}
+

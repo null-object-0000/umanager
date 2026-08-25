@@ -15,6 +15,7 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - “设置”页支持对 `.deb` 安装版进行自更新：从 UManager 官方 GitHub Release 检查、下载并校验 SHA-256，生成不可变计划，经特权 dry-run 与二次授权后以固定 `dpkg --install` 升级自身。
 - 最终安装、更新和卸载会显示结构化进度与可展开的实时 `dpkg` 详细日志；日志只读，终端控制序列会被清理，单行与总量均有限制。
 - “开发环境”页通过用户级版本管理器（nvm 用于 Node.js，rustup 用于 Rust）检测、安装、切换和卸载运行时版本，全程无 root。
+- “开发环境”页同时管理单版本的命令行 AI 编程工具（Claude Code、OpenCode、Pi、Codex CLI）：识别 npm / 官方安装器 / PATH 三种安装来源，并通过各工具的官方安装方式安装、更新与卸载，全程无 root。
 
 ## 安装
 
@@ -136,6 +137,31 @@ UManager 不再为每个软件写死适配器。新增一个软件只需要在 `
 3. 支持“安装并设为默认”、“设为默认”和“卸载”，实时展示版本管理器输出。
 
 nvm 是 shell 函数，因此通过 `/bin/bash -c 'source nvm.sh --no-use; nvm …'` 执行；rustup 是可执行文件，直接以参数向量调用。两者都只由固定子命令 + 经过严格校验的版本/别名 token 组成，不接收任意 shell。该链路始终以当前用户身份运行，不经过 Polkit helper，也不请求 root。
+
+## 开发环境（命令行 AI 编程工具）
+
+“开发环境”页的第二分区管理**单版本、npm 全局安装的命令行 AI 编程工具**：Claude Code CLI、OpenCode CLI、Pi Code Agent CLI 和 Codex CLI。它们不经过 dpkg、不需要 root，由 `src-tauri/src/dev_cli_tools.rs` 处理。
+
+在 `vendors.json` 的 `developmentTools` 数组里登记一条记录即可接入：
+
+- `toolId` / `displayName` / `vendor` / `homepage` / `accentColor`：工具标识与展示信息；
+- `binaryName`：安装后的可执行命令（如 `claude`、`opencode`、`pi`、`codex`）；
+- `npmPackage`：npm 包名，用于读取最新版本与 npm 型安装/卸载；
+- `installer.kind`：`npm`（执行 `npm install -g <npmPackage>@latest`）或 `curlScript`（执行厂商官方的一行安装脚本 `curl -fsSL <scriptUrl> | <shell>`）；
+- `uninstall.kind`：`npm`（执行 `npm uninstall -g <npmPackage>`）或 `removeFiles`（仅删除官方安装器写入的已知二进制路径，如 `~/.local/bin/claude`）。
+
+当前内置四条工具：
+
+| 工具 | npm 包 | 安装方式 | 命令 |
+|---|---|---|---|
+| Claude Code | `@anthropic-ai/claude-code` | 官方脚本 `https://claude.ai/install.sh` | `claude` |
+| OpenCode | `opencode-ai` | 官方脚本 `https://opencode.ai/install` | `opencode` |
+| Pi | `@earendil-works/pi-coding-agent` | 官方脚本 `https://pi.dev/install.sh` | `pi` |
+| Codex CLI | `@openai/codex` | npm 全局 | `codex` |
+
+检测会同时识别三种安装来源：npm 全局安装、官方安装器（`~/.local/bin` / `~/.opencode/bin`）以及 PATH 上的可执行文件；最新版本统一从 npm registry 读取。操作只提供“安装/更新”和“卸载”：安装与更新都重跑该工具的官方安装方式（npm 或官方脚本），卸载仅对来源可归属（npm 全局或官方安装器）的工具开放。日志只读，实时展示安装器输出。
+
+> 信任边界：`curlScript` 型安装会以当前用户身份执行厂商官方域名上的 HTTPS 安装脚本。脚本内容由厂商控制，UManager 只固定 URL 与参数、不接收任意 shell，但仍无法证明脚本内容与发布者身份（与 FlClash/微信的“官网直连”信任边界一致）。npm 型安装则受 npm registry 与包发布流程保护。
 
 ## Visual Studio Code 适配
 

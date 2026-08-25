@@ -14,6 +14,10 @@ pub struct Catalog {
     pub applications: Vec<Application>,
     #[serde(default)]
     pub development_toolchains: Vec<DevelopmentToolchain>,
+    /// Single-version command-line developer tools (e.g. AI coding agent CLIs).
+    /// These are installed via npm or an official installer, not a version manager.
+    #[serde(default)]
+    pub development_tools: Vec<DevelopmentTool>,
     /// Optional source that UManager itself checks for self-updates. Kept separate
     /// from `applications` so UManager never shows up in the managed software list.
     #[serde(default)]
@@ -70,6 +74,51 @@ pub struct DevelopmentToolchain {
     pub manager_binary: Option<String>,
     /// Directory that holds one subdirectory per installed version.
     pub versions_directory: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevelopmentTool {
+    pub tool_id: String,
+    pub display_name: String,
+    pub vendor: String,
+    pub homepage: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub accent_color: Option<String>,
+    /// Command name of the installed CLI, e.g. `claude`.
+    pub binary_name: String,
+    /// npm package used for installs, updates, and latest-version lookup.
+    pub npm_package: String,
+    /// How a missing tool is installed. `npm` runs a global npm install;
+    /// `curlScript` runs the vendor's official one-line installer.
+    pub installer: DevToolInstaller,
+    /// How an officially-installed tool is removed. npm installs always uninstall
+    /// through npm regardless of this value.
+    pub uninstall: DevToolUninstall,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DevToolInstaller {
+    Npm,
+    #[serde(rename_all = "camelCase")]
+    CurlScript {
+        script_url: String,
+        /// Exact host serving the install script; recorded for display only.
+        host: String,
+        /// Shell that executes the piped script (`bash` or `sh`).
+        shell: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DevToolUninstall {
+    Npm,
+    #[serde(rename_all = "camelCase")]
+    RemoveFiles { paths: Vec<String> },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -171,6 +220,12 @@ impl Catalog {
             .find(|toolchain| toolchain.toolchain_id == toolchain_id)
     }
 
+    pub fn by_tool_id(&self, tool_id: &str) -> Option<&DevelopmentTool> {
+        self.development_tools
+            .iter()
+            .find(|tool| tool.tool_id == tool_id)
+    }
+
     pub fn self_update_source(&self) -> Option<&SelfUpdateSource> {
         self.self_update.as_ref()
     }
@@ -266,6 +321,19 @@ mod tests {
         assert_eq!(nodejs.manager, "nvm");
         assert_eq!(nodejs.manager_kind, ManagerKind::Shell);
         assert!(nodejs.manager_home.contains(".nvm"));
+    }
+
+    #[test]
+    fn development_tools_are_configuration_driven() {
+        let catalog = Catalog::load().unwrap();
+        assert_eq!(catalog.development_tools.len(), 4);
+        let codex = catalog.by_tool_id("codex").unwrap();
+        assert_eq!(codex.binary_name, "codex");
+        assert_eq!(codex.npm_package, "@openai/codex");
+        assert!(matches!(codex.installer, DevToolInstaller::Npm));
+        let claude = catalog.by_tool_id("claude-code").unwrap();
+        assert!(matches!(claude.installer, DevToolInstaller::CurlScript { .. }));
+        assert!(matches!(claude.uninstall, DevToolUninstall::RemoveFiles { .. }));
     }
 
     #[test]

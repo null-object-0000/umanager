@@ -7,9 +7,10 @@ button,input { font:inherit; } button { color:inherit; }
 .brand { display:flex; align-items:center; gap:10px; height:38px; padding:0 10px; margin-bottom:25px; font-size:15px; letter-spacing:-.01em; }
 .brand-mark { display:grid; place-items:center; width:30px; height:30px; color:white; border-radius:8px; background:#5e294f; font-size:15px; font-weight:750; box-shadow:inset 0 0 0 1px #ffffff22; }
 nav { display:grid; gap:3px; }
-.nav-item { display:flex; align-items:center; gap:11px; width:100%; height:38px; padding:0 10px; border:0; border-radius:7px; color:#716b72; background:transparent; text-align:left; font-size:13px; }
+.nav-item { display:flex; align-items:center; gap:11px; width:100%; height:38px; padding:0 10px; border:0; border-radius:7px; color:#716b72; background:transparent; text-align:left; font-size:13px; cursor:pointer; }
+.nav-item:hover:not(:disabled):not(.active) { background:#e5e2e4; }
 .nav-item.active { color:#4d2342; background:#ded8dd; font-weight:650; }
-.nav-item:disabled { opacity:.58; }
+.nav-item:disabled { opacity:.58; cursor:not-allowed; }
 .ui-icon { width:17px; height:17px; flex:none; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .later { margin-left:auto; color:#918b91; font-size:9px; }
 .sidebar-spacer { flex:1; }
@@ -401,7 +402,8 @@ nav { display:grid; gap:3px; }
   .detail-drawer { width:min(550px,calc(100vw - 190px)); }
 }
 
-/* Development environment: user-level version-manager toolchains (no root). */
+/* Development environment: user-level version-manager toolchains + CLI tools (no root). */
+.dev-group-label { padding:13px 19px 9px; color:#8a848a; border-top:1px solid #f0eeee; background:#fbfafb; font-size:11px; font-weight:650; letter-spacing:.04em; }
 .dev-facts { display:grid; grid-template-columns:1fr 1fr; gap:1px; overflow:hidden; margin:18px 0 24px; border:1px solid #dfdcde; border-radius:8px; background:#dfdcde; }
 .dev-facts>div { display:grid; grid-template-columns:96px minmax(0,1fr); gap:12px; min-width:0; padding:12px 14px; background:#fff; }
 .dev-facts>div.wide { grid-column:1 / -1; }
