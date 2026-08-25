@@ -13,7 +13,7 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - 受管软件卸载使用独立不可变计划、特权 dry-run 和二次授权，仅执行白名单中固定的 `dpkg --remove` 动作。
 - 设置页会核对当前可执行文件与 `dpkg` 安装清单，区分 `.deb` 安装版、便携版和开发版；`.deb` 安装版可通过独立的 `remove-umanager` 计划安全卸载自身。
 - 最终安装、更新和卸载会显示结构化进度与可展开的实时 `dpkg` 详细日志；日志只读，终端控制序列会被清理，单行与总量均有限制。
-- “开发环境”页通过用户级版本管理器（当前为 nvm）检测、安装、切换和卸载 Node.js 版本，全程无 root。
+- “开发环境”页通过用户级版本管理器（nvm 用于 Node.js，rustup 用于 Rust）检测、安装、切换和卸载运行时版本，全程无 root。
 
 ## 开发环境
 
@@ -94,17 +94,22 @@ UManager 不再为每个软件写死适配器。新增一个软件只需要在 `
 在 `vendors.json` 的 `developmentToolchains` 数组里登记一条记录即可接入：
 
 - `toolchainId` / `displayName` / `vendor` / `homepage`：工具链标识与展示信息；
-- `manager`：版本管理器标识，目前实现 `nvm`；
-- `managerHome` / `managerScript`：管理器目录与需要 source 的脚本；
+- `manager`：版本管理器标识，如 `nvm`、`rustup`；
+- `managerKind`：`shell`（管理器是 shell 函数，需 source 脚本）或 `binary`（管理器是磁盘上的可执行文件）；
+- `managerHome`：管理器数据目录（如 `~/.nvm`、`~/.rustup`）；`managerScript` 记录 shell 型管理器要 source 的脚本；`managerBinary` 记录 binary 型管理器的可执行路径；
 - `versionsDirectory`：存放各版本子目录的路径。
 
-当前内置了 Node.js（`nvm`）。“开发环境”页会：
+当前内置两条工具链：
+- **Node.js（nvm，shell）**，`managerKind: shell`，通过 `~/.nvm/nvm.sh` 调用；
+- **Rust（rustup，binary）**，`managerKind: binary`，直接调用 `~/.cargo/bin/rustup`。
 
-1. 检测 `~/.nvm`（优先尊重 `NVM_DIR`）与 `nvm.sh`，读取 nvm 版本、默认版本和已安装版本；
-2. 通过 `nvm ls-remote --lts` 读取可安装的 LTS 版本；
-3. 支持“安装并设为默认”（`nvm install <version> --default`）、“设为默认”（`nvm alias default <version>`）和“卸载”（`nvm uninstall <version>`），实时展示版本管理器输出。
+“开发环境”页会：
 
-nvm 是 shell 函数，因此版本操作通过 `/bin/bash -c 'source nvm.sh --no-use; nvm …'` 执行；命令文本只由固定子命令和经过严格校验的版本/别名 token 拼接，不接收任意 shell。该链路始终以当前用户身份运行，不经过 Polkit helper，也不请求 root。
+1. 检测管理器（优先尊重 `NVM_DIR` / `RUSTUP_HOME`），读取管理器版本、默认版本和已安装版本；
+2. 读取可安装版本：Node.js 走 `nvm ls-remote --lts`，Rust 提供 `stable / beta / nightly` 通道；
+3. 支持“安装并设为默认”、“设为默认”和“卸载”，实时展示版本管理器输出。
+
+nvm 是 shell 函数，因此通过 `/bin/bash -c 'source nvm.sh --no-use; nvm …'` 执行；rustup 是可执行文件，直接以参数向量调用。两者都只由固定子命令 + 经过严格校验的版本/别名 token 组成，不接收任意 shell。该链路始终以当前用户身份运行，不经过 Polkit helper，也不请求 root。
 
 ## Visual Studio Code 适配
 

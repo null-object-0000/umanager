@@ -208,7 +208,8 @@ async function invokeWithDevProgress<T>(command: string, toolchainId: string, ve
 }
 
 const mockDevToolchains: DevToolchain[] = [
-  { toolchainId: "nodejs", displayName: "Node.js", vendor: "OpenJS Foundation", homepage: "https://nodejs.org/", icon: "nodejs", accentColor: "#5fa04e", manager: "nvm", managerHome: "~/.nvm", managerScript: "nvm.sh", versionsDirectory: "~/.nvm/versions/node" },
+  { toolchainId: "nodejs", displayName: "Node.js", vendor: "OpenJS Foundation", homepage: "https://nodejs.org/", icon: "nodejs", accentColor: "#5fa04e", manager: "nvm", managerKind: "shell", managerHome: "~/.nvm", managerScript: "nvm.sh", managerBinary: null, versionsDirectory: "~/.nvm/versions/node" },
+  { toolchainId: "rust", displayName: "Rust", vendor: "Rust Project", homepage: "https://www.rust-lang.org/", icon: "rust", accentColor: "#c0562a", manager: "rustup", managerKind: "binary", managerHome: "~/.rustup", managerScript: null, managerBinary: "~/.cargo/bin/rustup", versionsDirectory: "~/.rustup/toolchains" },
 ];
 
 const mockDevState: DevToolchainState = {
@@ -227,11 +228,32 @@ const mockDevState: DevToolchainState = {
   ],
 };
 
+const mockRustState: DevToolchainState = {
+  toolchainId: "rust",
+  displayName: "Rust",
+  vendor: "Rust Project",
+  homepage: "https://www.rust-lang.org/",
+  manager: "rustup",
+  managerFound: true,
+  managerHome: "/home/user/.rustup",
+  managerVersion: "1.29.0",
+  defaultVersion: "stable",
+  installedVersions: [
+    { version: "stable", isDefault: true, isLts: false, ltsName: null },
+  ],
+};
+
 const mockDevReleases: DevRelease[] = [
-  { version: "v24.19.0", major: 24, lts: "Krypton", latestLts: true },
-  { version: "v22.23.2", major: 22, lts: "Jod", latestLts: false },
-  { version: "v20.20.2", major: 20, lts: "Iron", latestLts: false },
-  { version: "v18.20.8", major: 18, lts: "Hydrogen", latestLts: false },
+  { version: "v24.19.0", label: "LTS Krypton", recommended: true },
+  { version: "v22.23.2", label: "LTS Jod", recommended: false },
+  { version: "v20.20.2", label: "LTS Iron", recommended: false },
+  { version: "v18.20.8", label: "LTS Hydrogen", recommended: false },
+];
+
+const mockRustReleases: DevRelease[] = [
+  { version: "stable", label: "稳定版", recommended: true },
+  { version: "beta", label: "测试版", recommended: false },
+  { version: "nightly", label: "每日版", recommended: false },
 ];
 
 export function getDevToolchains(): Promise<DevToolchain[]> {
@@ -240,12 +262,12 @@ export function getDevToolchains(): Promise<DevToolchain[]> {
 }
 
 export function getDevToolchainState(toolchainId: string): Promise<DevToolchainState> {
-  if (isMock()) return Promise.resolve(mockDevState);
+  if (isMock()) return Promise.resolve(toolchainId === "rust" ? mockRustState : mockDevState);
   return invoke<DevToolchainState>("get_dev_toolchain_state", { toolchainId });
 }
 
 export function getDevReleases(toolchainId: string): Promise<DevRelease[]> {
-  if (isMock()) return Promise.resolve(mockDevReleases);
+  if (isMock()) return Promise.resolve(toolchainId === "rust" ? mockRustReleases : mockDevReleases);
   return invoke<DevRelease[]>("get_dev_releases", { toolchainId });
 }
 

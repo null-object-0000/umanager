@@ -12,3 +12,15 @@ These icons were copied unchanged from the locally installed vendor `.deb` packa
 | `wemeet.svg` | `/opt/wemeet/wemeet.svg` | `8c7df6f803e60c37bf366032622f07a5b099b23c5c5c48795b79cf09d6d637dd` |
 
 They are used only to identify the corresponding installed applications in UManager.
+
+## Development-environment toolchain icons
+
+Node.js and Rust are installed via user-level version managers (nvm / rustup), not `.deb`
+packages, so there is no bundled vendor logo to copy. Their icons are the standard Simple
+Icons glyphs, fetched on 2026-08-25 from `https://cdn.simpleicons.org/` and colored to match
+each toolchain's accent color:
+
+| Asset | Source (Simple Icons) | Color |
+| --- | --- | --- |
+| `nodejs.svg` | `nodedotjs` | `#5fa04e` |
+| `rust.svg` | `rust` | `#c0562a` |

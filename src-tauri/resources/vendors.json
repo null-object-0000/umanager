@@ -116,9 +116,23 @@
       "icon": "nodejs",
       "accentColor": "#5fa04e",
       "manager": "nvm",
+      "managerKind": "shell",
       "managerHome": "~/.nvm",
       "managerScript": "nvm.sh",
       "versionsDirectory": "~/.nvm/versions/node"
+    },
+    {
+      "toolchainId": "rust",
+      "displayName": "Rust",
+      "vendor": "Rust Project",
+      "homepage": "https://www.rust-lang.org/",
+      "icon": "rust",
+      "accentColor": "#c0562a",
+      "manager": "rustup",
+      "managerKind": "binary",
+      "managerHome": "~/.rustup",
+      "managerBinary": "~/.cargo/bin/rustup",
+      "versionsDirectory": "~/.rustup/toolchains"
     }
   ]
 }

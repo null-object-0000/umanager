@@ -231,8 +231,10 @@ export interface DevToolchain {
   icon: string | null;
   accentColor: string | null;
   manager: string;
+  managerKind: "shell" | "binary";
   managerHome: string;
-  managerScript: string;
+  managerScript: string | null;
+  managerBinary: string | null;
   versionsDirectory: string;
 }
 
@@ -258,9 +260,8 @@ export interface DevToolchainState {
 
 export interface DevRelease {
   version: string;
-  major: number;
-  lts: string;
-  latestLts: boolean;
+  label: string | null;
+  recommended: boolean;
 }
 
 export interface DevOperationReport {

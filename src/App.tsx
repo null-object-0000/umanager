@@ -9,11 +9,13 @@ import chromeIcon from "./assets/app-icons/google-chrome.png";
 import vscodeIcon from "./assets/app-icons/vscode.png";
 import wechatIcon from "./assets/app-icons/wechat.png";
 import wemeetIcon from "./assets/app-icons/wemeet.svg?no-inline";
+import nodejsIcon from "./assets/app-icons/nodejs.svg";
+import rustIcon from "./assets/app-icons/rust.svg";
 
 type Filter = "all" | "updates" | "local";
 type Page = "installed" | "installable" | "dev" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon };
+const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, nodejs: nodejsIcon, rust: rustIcon };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
@@ -49,6 +51,14 @@ function AppLogo({ packageName, displayName }: { packageName: string; displayNam
 
 function AppMark({ item }: { item: ManagedPackage }) {
   return <AppLogo packageName={item.packageName} displayName={item.displayName}/>;
+}
+
+function DevLogo({ toolchain }: { toolchain: DevToolchain }) {
+  const asset = toolchain.icon ? iconAssets[toolchain.icon] : undefined;
+  if (asset) {
+    return <span className="app-mark has-icon"><img src={asset} alt=""/></span>;
+  }
+  return <span className="app-mark" style={{ background: toolchain.accentColor ?? "#555" }}>{toolchain.displayName.slice(0, 1).toUpperCase()}</span>;
 }
 
 function isAutoInstallable(packageName: string) {
@@ -407,7 +417,7 @@ function DevToolchainRow({ toolchain, onOpen }: { toolchain: DevToolchain; onOpe
   const statusClass = state && !state.managerFound ? "unknown" : state && installedCount > 0 ? "upToDate" : "updateAvailable";
   const statusText = state && !state.managerFound ? `未检测到 ${state.manager}` : state && installedCount > 0 ? `已安装 ${installedCount} 个版本` : "可安装";
   return <div className="package-row supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
-    <div className="app-cell"><span className="app-mark" style={{ background: toolchain.accentColor ?? "#555" }}>{toolchain.displayName.slice(0, 1).toUpperCase()}</span><div className="app-meta"><strong>{toolchain.displayName}</strong><span>{toolchain.vendor} · {toolchain.manager}</span></div></div>
+    <div className="app-cell"><DevLogo toolchain={toolchain}/><div className="app-meta"><strong>{toolchain.displayName}</strong><span>{toolchain.vendor} · {toolchain.manager}</span></div></div>
     <div className="version-cell"><strong>{state?.defaultVersion ?? (state && !state.managerFound ? "未检测到" : "未设置")}</strong></div>
     <div className="source-cell"><span className="source-dot officialWebsite"/><div><strong>用户级版本管理器</strong><span>{toolchain.manager}</span></div></div>
     <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span>{error && <span className="row-arrow placeholder" aria-hidden="true">›</span>}</div>
@@ -444,10 +454,10 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
     }
   };
 
-  const installedVersion = (version: string) => state?.installedVersions.some((item) => item.version === version);
+  const installedVersion = (version: string) => state?.installedVersions.some((item) => item.version === version || item.version.startsWith(`${version}-`));
 
   return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${toolchain.displayName} 开发环境详情`}>
-    <header className="drawer-header"><div className="drawer-app"><span className="app-mark" style={{ background: toolchain.accentColor ?? "#555" }}>{toolchain.displayName.slice(0, 1).toUpperCase()}</span><div><h2>{toolchain.displayName}</h2><span>{toolchain.vendor} · {toolchain.manager}</span></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <header className="drawer-header"><div className="drawer-app"><DevLogo toolchain={toolchain}/><div><h2>{toolchain.displayName}</h2><span>{toolchain.vendor} · {toolchain.manager}</span></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     <div className="drawer-content">
       {state && !state.managerFound && <div className="message"><strong>未检测到 {state.manager}</strong><span>版本管理器脚本缺失：{toolchain.managerHome}。请先安装 {state.manager}。</span></div>}
       {state?.managerFound && <div className="dev-facts">
@@ -479,7 +489,8 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
         {releases?.map((release) => <div key={release.version} className="dev-version-row">
           <div className="dev-version-name">
             <code>{release.version}</code>
-            <span className="dev-sub-label">LTS {release.lts}{release.latestLts ? " · 最新 LTS" : ""}</span>
+            <span className="dev-sub-label">{release.label}</span>
+            {release.recommended && <span className="dev-badge default">推荐</span>}
           </div>
           <div className="dev-version-actions">
             {installedVersion(release.version)

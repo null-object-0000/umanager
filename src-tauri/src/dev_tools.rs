@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use umanager_catalog::{Catalog, DevelopmentToolchain};
+use umanager_catalog::{Catalog, DevelopmentToolchain, ManagerKind};
 
 const SAFE_SYSTEM_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 const MAX_LOG_LINE_CHARS: usize = 2_000;
@@ -38,9 +38,8 @@ pub struct DevVersion {
 #[serde(rename_all = "camelCase")]
 pub struct DevRelease {
     pub version: String,
-    pub major: u32,
-    pub lts: String,
-    pub latest_lts: bool,
+    pub label: Option<String>,
+    pub recommended: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -80,8 +79,8 @@ pub async fn detect_state(toolchain_id: String) -> Result<DevToolchainState, Str
 }
 
 pub async fn list_remote_versions(toolchain_id: String) -> Result<Vec<DevRelease>, String> {
-    let (toolchain, home, nvm_dir) = prepare(&toolchain_id)?;
-    tauri::async_runtime::spawn_blocking(move || list_remote_versions_sync(&toolchain, &home, &nvm_dir))
+    let (toolchain, home, data_dir) = prepare(&toolchain_id)?;
+    tauri::async_runtime::spawn_blocking(move || list_remote_versions_sync(&toolchain, &home, &data_dir))
         .await
         .map_err(|error| format!("远程版本读取任务异常结束：{error}"))?
 }
@@ -91,11 +90,10 @@ pub async fn install_version(
     version: String,
     progress: DevProgressCallback,
 ) -> Result<DevOperationReport, String> {
-    validate_nvm_token(&version)?;
-    let (toolchain, home, nvm_dir) = prepare(&toolchain_id)?;
+    validate_version_token(&version)?;
+    let (toolchain, home, data_dir) = prepare(&toolchain_id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let args = vec!["install".to_owned(), version.clone(), "--default".to_owned()];
-        let output = run_nvm_streaming(&toolchain, &home, &nvm_dir, &args, Some(&progress))?;
+        let output = run_sequence(&toolchain, &home, &data_dir, &install_commands(&toolchain, &version), Some(&progress))?;
         Ok(DevOperationReport {
             toolchain_id: toolchain.toolchain_id.clone(),
             action: "install".to_owned(),
@@ -113,11 +111,10 @@ pub async fn set_default_version(
     version: String,
     progress: DevProgressCallback,
 ) -> Result<DevOperationReport, String> {
-    validate_nvm_token(&version)?;
-    let (toolchain, home, nvm_dir) = prepare(&toolchain_id)?;
+    validate_version_token(&version)?;
+    let (toolchain, home, data_dir) = prepare(&toolchain_id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let args = vec!["alias".to_owned(), "default".to_owned(), version.clone()];
-        let output = run_nvm_streaming(&toolchain, &home, &nvm_dir, &args, Some(&progress))?;
+        let output = run_sequence(&toolchain, &home, &data_dir, &set_default_commands(&toolchain, &version), Some(&progress))?;
         Ok(DevOperationReport {
             toolchain_id: toolchain.toolchain_id.clone(),
             action: "set-default".to_owned(),
@@ -135,11 +132,10 @@ pub async fn uninstall_version(
     version: String,
     progress: DevProgressCallback,
 ) -> Result<DevOperationReport, String> {
-    validate_nvm_token(&version)?;
-    let (toolchain, home, nvm_dir) = prepare(&toolchain_id)?;
+    validate_version_token(&version)?;
+    let (toolchain, home, data_dir) = prepare(&toolchain_id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let args = vec!["uninstall".to_owned(), version.clone()];
-        let output = run_nvm_streaming(&toolchain, &home, &nvm_dir, &args, Some(&progress))?;
+        let output = run_sequence(&toolchain, &home, &data_dir, &uninstall_commands(&toolchain, &version), Some(&progress))?;
         Ok(DevOperationReport {
             toolchain_id: toolchain.toolchain_id.clone(),
             action: "uninstall".to_owned(),
@@ -159,34 +155,35 @@ fn prepare(toolchain_id: &str) -> Result<(DevelopmentToolchain, PathBuf, PathBuf
         .cloned()
         .ok_or_else(|| format!("软件源中不存在开发工具 {toolchain_id}"))?;
     let home = user_home()?;
-    let nvm_dir = resolve_manager_home(&toolchain)
-        .ok_or_else(|| format!("未检测到 {}（{} 缺失）", toolchain.display_name, toolchain.manager_home))?;
-    Ok((toolchain, home, nvm_dir))
+    let data_dir = resolve_data_dir(&toolchain)
+        .ok_or_else(|| format!("未检测到 {}（{}）", toolchain.display_name, toolchain.manager_home))?;
+    Ok((toolchain, home, data_dir))
 }
 
 fn detect_state_sync(toolchain: &DevelopmentToolchain) -> Result<DevToolchainState, String> {
     let home = user_home()?;
-    let nvm_dir = resolve_manager_home(toolchain);
-    let manager_found = nvm_dir.is_some();
-    let manager_version = match nvm_dir.as_ref() {
-        Some(dir) => nvm_capture(&home, dir, &toolchain.manager_script, &["--version".to_owned()])
+    let data_dir = resolve_data_dir(toolchain);
+    let manager_found = data_dir.as_ref().is_some_and(|dir| manager_available(toolchain, dir));
+    let manager_version = if manager_found {
+        manager_capture(toolchain, &home, data_dir.as_ref().unwrap(), &["--version".to_owned()])
             .ok()
-            .filter(|value| !value.is_empty()),
-        None => None,
+            .map(|value| parse_manager_version(toolchain, &value))
+    } else {
+        None
     };
-    let installed = nvm_dir
+    let installed = data_dir
         .as_ref()
         .map(|dir| list_installed_versions(toolchain, dir))
         .unwrap_or_default();
-    let lts_aliases = nvm_dir
-        .as_ref()
-        .map(|dir| lts_aliases(dir))
-        .unwrap_or_default();
-    let default_version = match nvm_dir.as_ref() {
-        Some(dir) => nvm_capture(&home, dir, &toolchain.manager_script, &["version".to_owned(), "default".to_owned()])
-            .ok()
-            .filter(|value| !value.is_empty()),
-        None => None,
+    let lts_aliases = if toolchain.manager_kind == ManagerKind::Shell {
+        data_dir.as_ref().map(|dir| lts_aliases(dir.as_path())).unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+    let default_version = if manager_found {
+        resolve_default_version(toolchain, &home, data_dir.as_ref().unwrap())
+    } else {
+        None
     };
 
     let mut installed_versions = installed
@@ -198,7 +195,11 @@ fn detect_state_sync(toolchain: &DevelopmentToolchain) -> Result<DevToolchainSta
             version,
         })
         .collect::<Vec<_>>();
-    installed_versions.sort_by(|left, right| version_key(&right.version).cmp(&version_key(&left.version)));
+    if toolchain.manager_kind == ManagerKind::Shell {
+        installed_versions.sort_by(|left, right| version_key(&right.version).cmp(&version_key(&left.version)));
+    } else {
+        installed_versions.sort_by(|left, right| channel_key(&left.version).cmp(&channel_key(&right.version)));
+    }
 
     Ok(DevToolchainState {
         toolchain_id: toolchain.toolchain_id.clone(),
@@ -207,16 +208,26 @@ fn detect_state_sync(toolchain: &DevelopmentToolchain) -> Result<DevToolchainSta
         homepage: toolchain.homepage.clone(),
         manager: toolchain.manager.clone(),
         manager_found,
-        manager_home: nvm_dir.as_ref().map(|dir| dir.to_string_lossy().into_owned()),
+        manager_home: data_dir.as_ref().map(|dir| dir.to_string_lossy().into_owned()),
         manager_version,
         default_version,
         installed_versions,
     })
 }
 
-fn list_installed_versions(toolchain: &DevelopmentToolchain, nvm_dir: &Path) -> Vec<String> {
+fn manager_available(toolchain: &DevelopmentToolchain, data_dir: &Path) -> bool {
+    match toolchain.manager_kind {
+        ManagerKind::Shell => toolchain
+            .manager_script
+            .as_ref()
+            .is_some_and(|script| data_dir.join(script).is_file()),
+        ManagerKind::Binary => resolve_binary(toolchain).is_some(),
+    }
+}
+
+fn list_installed_versions(toolchain: &DevelopmentToolchain, data_dir: &Path) -> Vec<String> {
     let directory = expand_path(&toolchain.versions_directory)
-        .unwrap_or_else(|_| nvm_dir.join("versions").join("node"));
+        .unwrap_or_else(|_| data_dir.join("versions").join("node"));
     let Ok(entries) = fs::read_dir(&directory) else {
         return Vec::new();
     };
@@ -224,10 +235,16 @@ fn list_installed_versions(toolchain: &DevelopmentToolchain, nvm_dir: &Path) -> 
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            (entry.path().is_dir() && name.starts_with('v') && name.len() > 1).then_some(name)
+            if !entry.path().is_dir() || name.is_empty() {
+                return None;
+            }
+            match toolchain.manager_kind {
+                ManagerKind::Shell => (name.starts_with('v') && name.len() > 1).then_some(name),
+                ManagerKind::Binary => Some(shorten_toolchain(&name)),
+            }
         })
         .collect::<Vec<_>>();
-    versions.sort_by(|left, right| version_key(right).cmp(&version_key(left)));
+    versions.dedup();
     versions
 }
 
@@ -253,42 +270,56 @@ fn lts_aliases(nvm_dir: &Path) -> HashMap<String, String> {
 fn list_remote_versions_sync(
     toolchain: &DevelopmentToolchain,
     home: &Path,
-    nvm_dir: &Path,
+    data_dir: &Path,
 ) -> Result<Vec<DevRelease>, String> {
-    let output = nvm_capture(
-        home,
-        nvm_dir,
-        &toolchain.manager_script,
-        &["ls-remote".to_owned(), "--lts".to_owned()],
-    )?;
+    match toolchain.manager_kind {
+        ManagerKind::Shell => {
+            let output = manager_capture(
+                toolchain,
+                home,
+                data_dir,
+                &["ls-remote".to_owned(), "--lts".to_owned()],
+            )?;
+            Ok(parse_lts_releases(&output))
+        }
+        ManagerKind::Binary => Ok(rust_channels()),
+    }
+}
+
+fn rust_channels() -> Vec<DevRelease> {
+    vec![
+        DevRelease { version: "stable".to_owned(), label: Some("稳定版".to_owned()), recommended: true },
+        DevRelease { version: "beta".to_owned(), label: Some("测试版".to_owned()), recommended: false },
+        DevRelease { version: "nightly".to_owned(), label: Some("每日版".to_owned()), recommended: false },
+    ]
+}
+
+fn parse_lts_releases(output: &str) -> Vec<DevRelease> {
     let mut by_major: HashMap<u32, (String, String, bool)> = HashMap::new();
     for line in output.lines() {
-        if let Some((version, major, codename, latest)) = parse_lts_line(line) {
-            by_major.insert(major, (version, codename, latest));
+        if let Some((version, major, codename, _latest)) = parse_lts_line(line) {
+            by_major.insert(major, (version, codename, false));
         }
     }
     let mut releases = by_major
         .into_iter()
-        .map(|(major, (version, lts, _latest))| DevRelease {
+        .map(|(_, (version, codename, _))| DevRelease {
             version,
-            major,
-            lts,
-            latest_lts: false,
+            label: Some(format!("LTS {codename}")),
+            recommended: false,
         })
         .collect::<Vec<_>>();
     if let Some(latest) = releases
         .iter()
-        .max_by(|left, right| {
-            left.major.cmp(&right.major).then_with(|| version_key(&left.version).cmp(&version_key(&right.version)))
-        })
+        .max_by(|left, right| version_key(&left.version).cmp(&version_key(&right.version)))
         .map(|release| release.version.clone())
     {
         for release in &mut releases {
-            release.latest_lts = release.version == latest;
+            release.recommended = release.version == latest;
         }
     }
-    releases.sort_by(|left, right| right.major.cmp(&left.major));
-    Ok(releases)
+    releases.sort_by(|left, right| version_key(&right.version).cmp(&version_key(&left.version)));
+    releases
 }
 
 fn parse_lts_line(line: &str) -> Option<(String, u32, String, bool)> {
@@ -309,20 +340,66 @@ fn parse_lts_line(line: &str) -> Option<(String, u32, String, bool)> {
     Some((version, major, codename, line.contains("Latest LTS")))
 }
 
-fn run_nvm_streaming(
+fn resolve_default_version(toolchain: &DevelopmentToolchain, home: &Path, data_dir: &Path) -> Option<String> {
+    match toolchain.manager_kind {
+        ManagerKind::Shell => manager_capture(toolchain, home, data_dir, &["version".to_owned(), "default".to_owned()])
+            .ok()
+            .filter(|value| !value.is_empty()),
+        ManagerKind::Binary => manager_capture(toolchain, home, data_dir, &["default".to_owned()])
+            .ok()
+            .and_then(|value| value.split_whitespace().next().map(str::to_owned))
+            .map(|name| shorten_toolchain(&name)),
+    }
+}
+
+fn install_commands(toolchain: &DevelopmentToolchain, version: &str) -> Vec<Vec<String>> {
+    match toolchain.manager_kind {
+        ManagerKind::Shell => vec![vec!["install".to_owned(), version.to_owned(), "--default".to_owned()]],
+        ManagerKind::Binary => vec![
+            vec!["toolchain".to_owned(), "install".to_owned(), version.to_owned()],
+            vec!["default".to_owned(), version.to_owned()],
+        ],
+    }
+}
+
+fn set_default_commands(toolchain: &DevelopmentToolchain, version: &str) -> Vec<Vec<String>> {
+    match toolchain.manager_kind {
+        ManagerKind::Shell => vec![vec!["alias".to_owned(), "default".to_owned(), version.to_owned()]],
+        ManagerKind::Binary => vec![vec!["default".to_owned(), version.to_owned()]],
+    }
+}
+
+fn uninstall_commands(toolchain: &DevelopmentToolchain, version: &str) -> Vec<Vec<String>> {
+    match toolchain.manager_kind {
+        ManagerKind::Shell => vec![vec!["uninstall".to_owned(), version.to_owned()]],
+        ManagerKind::Binary => vec![vec!["toolchain".to_owned(), "uninstall".to_owned(), version.to_owned()]],
+    }
+}
+
+fn run_sequence(
     toolchain: &DevelopmentToolchain,
     home: &Path,
-    nvm_dir: &Path,
+    data_dir: &Path,
+    commands: &[Vec<String>],
+    progress: Option<&DevProgressCallback>,
+) -> Result<String, String> {
+    let mut combined = Vec::new();
+    for command in commands {
+        let output = run_manager_streaming(toolchain, home, data_dir, command, progress)?;
+        combined.push(output);
+    }
+    Ok(combined.join("\n"))
+}
+
+fn run_manager_streaming(
+    toolchain: &DevelopmentToolchain,
+    home: &Path,
+    data_dir: &Path,
     args: &[String],
     progress: Option<&DevProgressCallback>,
 ) -> Result<String, String> {
-    let script = build_nvm_script(nvm_dir, &toolchain.manager_script, args)?;
-    let mut command = nvm_command(home, nvm_dir);
-    command
-        .arg("-c")
-        .arg(&script)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let mut command = manager_command(toolchain, home, data_dir, args)?;
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
         .spawn()
         .map_err(|error| format!("无法启动 {}：{error}", toolchain.display_name))?;
@@ -341,17 +418,13 @@ fn run_nvm_streaming(
         let collected = Arc::clone(&collected);
         let progress = progress.cloned();
         let toolchain_id = toolchain_id.clone();
-        std::thread::spawn(move || {
-            forward_lines(stdout, "stdout", &collected, progress, &toolchain_id)
-        })
+        std::thread::spawn(move || forward_lines(stdout, "stdout", &collected, progress, &toolchain_id))
     };
     let stderr_thread = {
         let collected = Arc::clone(&collected);
         let progress = progress.cloned();
         let toolchain_id = toolchain_id.clone();
-        std::thread::spawn(move || {
-            forward_lines(stderr, "stderr", &collected, progress, &toolchain_id)
-        })
+        std::thread::spawn(move || forward_lines(stderr, "stderr", &collected, progress, &toolchain_id))
     };
 
     let status = child
@@ -369,11 +442,7 @@ fn run_nvm_streaming(
             toolchain_id,
             phase: "completed",
             stream: "system".to_owned(),
-            message: if status.success() {
-                "操作已成功完成".to_owned()
-            } else {
-                "操作失败".to_owned()
-            },
+            message: if status.success() { "操作已成功完成".to_owned() } else { "操作失败".to_owned() },
         });
     }
     if !status.success() {
@@ -411,66 +480,148 @@ fn forward_lines(
     }
 }
 
-fn nvm_capture(
+fn manager_capture(
+    toolchain: &DevelopmentToolchain,
     home: &Path,
-    nvm_dir: &Path,
-    script: &str,
+    data_dir: &Path,
     args: &[String],
 ) -> Result<String, String> {
-    let script_text = build_nvm_script(nvm_dir, script, args)?;
-    let output = nvm_command(home, nvm_dir)
-        .arg("-c")
-        .arg(&script_text)
+    let output = manager_command(toolchain, home, data_dir, args)?
         .output()
-        .map_err(|error| format!("无法执行 nvm：{error}"))?;
+        .map_err(|error| format!("无法执行 {}：{error}", toolchain.display_name))?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn build_nvm_script(nvm_dir: &Path, script: &str, args: &[String]) -> Result<String, String> {
-    let script_path = nvm_dir.join(script);
-    if !script_path.is_file() {
-        return Err(format!("版本管理器脚本缺失：{}", script_path.display()));
+fn manager_command(
+    toolchain: &DevelopmentToolchain,
+    home: &Path,
+    data_dir: &Path,
+    args: &[String],
+) -> Result<Command, String> {
+    match toolchain.manager_kind {
+        ManagerKind::Shell => {
+            let script = toolchain
+                .manager_script
+                .as_deref()
+                .ok_or_else(|| "该版本管理器未配置可 source 的脚本".to_owned())?;
+            let script_path = data_dir.join(script);
+            if !script_path.is_file() {
+                return Err(format!("版本管理器脚本缺失：{}", script_path.display()));
+            }
+            let mut parts = vec![format!(
+                "source {} --no-use >/dev/null 2>&1; nvm",
+                shell_quote(&script_path.to_string_lossy())
+            )];
+            for argument in args {
+                parts.push(shell_quote(argument));
+            }
+            let mut command = Command::new("/bin/bash");
+            command
+                .arg("-c")
+                .arg(parts.join(" "))
+                .env_clear()
+                .env("PATH", SAFE_SYSTEM_PATH)
+                .env("HOME", home)
+                .env("NVM_DIR", data_dir)
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
+                .env("LANGUAGE", "C");
+            Ok(command)
+        }
+        ManagerKind::Binary => {
+            let binary = resolve_binary(toolchain).ok_or_else(|| format!("未找到 {} 可执行文件", toolchain.manager))?;
+            let mut command = Command::new(&binary);
+            command
+                .args(args)
+                .env_clear()
+                .env("PATH", SAFE_SYSTEM_PATH)
+                .env("HOME", home)
+                .env("RUSTUP_HOME", data_dir)
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
+                .env("LANGUAGE", "C");
+            Ok(command)
+        }
     }
-    let mut parts = vec![format!(
-        "source {} --no-use >/dev/null 2>&1; nvm",
-        shell_quote(&script_path.to_string_lossy())
-    )];
-    for argument in args {
-        parts.push(shell_quote(argument));
-    }
-    Ok(parts.join(" "))
 }
 
-fn nvm_command(home: &Path, nvm_dir: &Path) -> Command {
-    let mut command = Command::new("/bin/bash");
-    command
-        .env_clear()
-        .env("PATH", SAFE_SYSTEM_PATH)
-        .env("HOME", home)
-        .env("NVM_DIR", nvm_dir)
-        .env("LC_ALL", "C")
-        .env("LANG", "C")
-        .env("LANGUAGE", "C");
-    command
+fn resolve_data_dir(toolchain: &DevelopmentToolchain) -> Option<PathBuf> {
+    match toolchain.manager_kind {
+        ManagerKind::Shell => {
+            if toolchain.manager == "nvm"
+                && let Some(directory) = std::env::var_os("NVM_DIR")
+            {
+                let candidate = PathBuf::from(directory);
+                if toolchain
+                    .manager_script
+                    .as_ref()
+                    .is_some_and(|script| candidate.join(script).is_file())
+                {
+                    return Some(candidate);
+                }
+            }
+            let candidate = expand_path(&toolchain.manager_home).ok()?;
+            candidate
+                .join(toolchain.manager_script.as_deref()?)
+                .is_file()
+                .then_some(candidate)
+        }
+        ManagerKind::Binary => {
+            if let Some(directory) = std::env::var_os("RUSTUP_HOME") {
+                let candidate = PathBuf::from(directory);
+                if candidate.is_dir() {
+                    return Some(candidate);
+                }
+            }
+            expand_path(&toolchain.manager_home).ok().filter(|dir| dir.is_dir())
+        }
+    }
 }
 
-fn resolve_manager_home(toolchain: &DevelopmentToolchain) -> Option<PathBuf> {
-    if toolchain.manager == "nvm"
-        && let Some(directory) = std::env::var_os("NVM_DIR")
-    {
-        let candidate = PathBuf::from(directory);
-        if candidate.join(&toolchain.manager_script).is_file() {
+fn resolve_binary(toolchain: &DevelopmentToolchain) -> Option<PathBuf> {
+    if let Some(binary) = &toolchain.manager_binary {
+        if let Ok(path) = expand_path(binary) {
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+    find_on_path(&toolchain.manager)
+}
+
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for directory in std::env::split_paths(&path) {
+        let candidate = directory.join(name);
+        if candidate.is_file() {
             return Some(candidate);
         }
     }
-    let candidate = expand_path(&toolchain.manager_home).ok()?;
-    candidate
-        .join(&toolchain.manager_script)
-        .is_file()
-        .then_some(candidate)
+    None
+}
+
+fn shorten_toolchain(name: &str) -> String {
+    name.split('-').next().unwrap_or(name).to_owned()
+}
+
+fn parse_manager_version(toolchain: &DevelopmentToolchain, line: &str) -> String {
+    match toolchain.manager_kind {
+        ManagerKind::Shell => line.trim().to_owned(),
+        ManagerKind::Binary => line.split_whitespace().nth(1).unwrap_or(line).to_owned(),
+    }
+}
+
+fn channel_key(toolchain: &str) -> (u8, Vec<u64>) {
+    let rank = match toolchain {
+        "stable" => 0,
+        "beta" => 1,
+        "nightly" => 2,
+        _ => 3,
+    };
+    (rank, version_key(toolchain).into_iter().rev().collect())
 }
 
 fn user_home() -> Result<PathBuf, String> {
@@ -499,9 +650,7 @@ fn is_version(value: &str) -> bool {
 }
 
 fn is_concrete_version(value: &str) -> bool {
-    value
-        .strip_prefix('v')
-        .is_some_and(is_version)
+    value.strip_prefix('v').is_some_and(is_version)
 }
 
 fn version_key(value: &str) -> Vec<u64> {
@@ -512,7 +661,7 @@ fn version_key(value: &str) -> Vec<u64> {
         .collect()
 }
 
-fn validate_nvm_token(value: &str) -> Result<(), String> {
+fn validate_version_token(value: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 64
         || value.starts_with('-')
@@ -572,12 +721,23 @@ mod tests {
     }
 
     #[test]
-    fn validates_nvm_tokens() {
-        assert!(validate_nvm_token("v24.19.0").is_ok());
-        assert!(validate_nvm_token("lts/*").is_ok());
-        assert!(validate_nvm_token("--default").is_err());
-        assert!(validate_nvm_token("../etc").is_err());
-        assert!(validate_nvm_token("a'b").is_err());
+    fn selects_one_recommended_lts_release() {
+        let output = "       v22.23.2   (LTS: Jod)\n->     v24.19.0 * (Latest LTS: Krypton)";
+        let releases = parse_lts_releases(output);
+        assert_eq!(releases.len(), 2);
+        assert_eq!(releases.iter().filter(|item| item.recommended).count(), 1);
+        assert_eq!(releases.iter().find(|item| item.version == "v24.19.0").unwrap().recommended, true);
+        assert_eq!(releases.iter().find(|item| item.version == "v22.23.2").unwrap().label.as_deref(), Some("LTS Jod"));
+    }
+
+    #[test]
+    fn validates_version_tokens() {
+        assert!(validate_version_token("v24.19.0").is_ok());
+        assert!(validate_version_token("stable").is_ok());
+        assert!(validate_version_token("1.75.0").is_ok());
+        assert!(validate_version_token("--default").is_err());
+        assert!(validate_version_token("../etc").is_err());
+        assert!(validate_version_token("a'b").is_err());
     }
 
     #[test]
@@ -587,9 +747,35 @@ mod tests {
     }
 
     #[test]
+    fn shortens_toolchains_to_their_channel() {
+        assert_eq!(shorten_toolchain("stable-x86_64-unknown-linux-gnu"), "stable");
+        assert_eq!(shorten_toolchain("1.75.0-x86_64-unknown-linux-gnu"), "1.75.0");
+    }
+
+    #[test]
+    fn rust_channels_are_offered() {
+        let channels = rust_channels();
+        assert_eq!(channels.len(), 3);
+        assert_eq!(channels[0].version, "stable");
+        assert!(channels[0].recommended);
+    }
+
+    #[test]
     fn embedded_toolchains_are_configured() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_toolchains.len(), 1);
-        assert_eq!(catalog.by_toolchain_id("nodejs").unwrap().manager, "nvm");
+        assert_eq!(catalog.development_toolchains.len(), 2);
+        assert_eq!(catalog.by_toolchain_id("nodejs").unwrap().manager_kind, ManagerKind::Shell);
+        assert_eq!(catalog.by_toolchain_id("rust").unwrap().manager_kind, ManagerKind::Binary);
+    }
+
+    #[test]
+    #[ignore = "depends on rustup being installed on the host"]
+    fn detects_local_rust_through_rustup() {
+        let catalog = Catalog::load().unwrap();
+        let rust = catalog.by_toolchain_id("rust").unwrap().clone();
+        let state = detect_state_sync(&rust).unwrap();
+        assert!(state.manager_found);
+        assert!(state.installed_versions.iter().any(|item| item.version == "stable"));
+        assert!(state.manager_version.is_some());
     }
 }

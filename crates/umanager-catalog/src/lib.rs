@@ -16,6 +16,15 @@ pub struct Catalog {
     pub development_toolchains: Vec<DevelopmentToolchain>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ManagerKind {
+    /// Version manager exposed as a shell function that must be sourced (e.g. nvm).
+    Shell,
+    /// Version manager exposed as an executable on disk (e.g. rustup).
+    Binary,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevelopmentToolchain {
@@ -29,10 +38,16 @@ pub struct DevelopmentToolchain {
     pub accent_color: Option<String>,
     /// Version-manager identifier, e.g. `nvm`.
     pub manager: String,
+    /// How the manager is invoked.
+    pub manager_kind: ManagerKind,
     /// Home directory of the manager, e.g. `~/.nvm`; `~` expands to the user home.
     pub manager_home: String,
-    /// Script that must be sourced before invoking the manager, e.g. `nvm.sh`.
-    pub manager_script: String,
+    /// Script that must be sourced before invoking a `Shell` manager, e.g. `nvm.sh`.
+    #[serde(default)]
+    pub manager_script: Option<String>,
+    /// Executable path for a `Binary` manager, e.g. `~/.cargo/bin/rustup`.
+    #[serde(default)]
+    pub manager_binary: Option<String>,
     /// Directory that holds one subdirectory per installed version.
     pub versions_directory: String,
 }
@@ -198,7 +213,18 @@ mod tests {
         let nodejs = catalog.by_toolchain_id("nodejs").unwrap();
         assert_eq!(nodejs.display_name, "Node.js");
         assert_eq!(nodejs.manager, "nvm");
+        assert_eq!(nodejs.manager_kind, ManagerKind::Shell);
         assert!(nodejs.manager_home.contains(".nvm"));
+    }
+
+    #[test]
+    fn rust_toolchain_is_configured_as_a_binary_manager() {
+        let catalog = Catalog::load().unwrap();
+        let rust = catalog.by_toolchain_id("rust").unwrap();
+        assert_eq!(rust.manager, "rustup");
+        assert_eq!(rust.manager_kind, ManagerKind::Binary);
+        assert!(rust.versions_directory.contains(".rustup"));
+        assert!(rust.manager_binary.as_deref().is_some_and(|path| path.contains("rustup")));
     }
 
     #[test]
