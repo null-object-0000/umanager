@@ -54,13 +54,15 @@ struct HelperProgressEvent {
 pub type ProgressCallback = Arc<dyn Fn(OperationProgressEvent) + Send + Sync>;
 
 pub async fn create_install_plan(
+    catalog: &Catalog,
     app: &Application,
     cache_dir: PathBuf,
 ) -> Result<PlanArtifact, String> {
     let verified = source_engine::verify_cached(app, &cache_dir).await?;
     let package_name = app.package_name.clone();
+    let catalog_for_scan = catalog.clone();
     let installed_version = tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
-        let scan = scanner::scan()?;
+        let scan = scanner::scan(&catalog_for_scan)?;
         Ok(scan
             .packages
             .into_iter()
@@ -75,6 +77,7 @@ pub async fn create_install_plan(
     // from a pinned official URL and installed with a fixed `dpkg --install`, so the
     // website (feed-verified) helper action is used for all of them.
     let action = OperationAction::InstallVerifiedWebsiteDeb;
+    let (catalog_json, catalog_signature) = signed_catalog_auth(app)?;
     let created = unix_timestamp();
     let plan = OperationPlan::new(PlanPayload {
         schema_version: PLAN_SCHEMA_VERSION,
@@ -89,12 +92,26 @@ pub async fn create_install_plan(
         size: verified.actual_size,
         created_at_unix_seconds: created,
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
+        catalog_json,
+        catalog_signature,
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {
         plan,
         plan_path: path.to_string_lossy().into_owned(),
     })
+}
+
+/// Returns the signed catalog auth pair when the application was added by the
+/// metadata feed (rather than compiled into the embedded catalog).
+fn signed_catalog_auth(app: &Application) -> Result<(Option<String>, Option<String>), String> {
+    let embedded = Catalog::load()?;
+    if embedded.by_application_id(&app.application_id).is_some() {
+        return Ok((None, None));
+    }
+    crate::feed::catalog_auth()
+        .map(|(json, signature)| (Some(json), Some(signature)))
+        .ok_or_else(|| "无法取得该应用已签名的软件源目录".to_owned())
 }
 
 fn ensure_installable_transition(
@@ -115,20 +132,21 @@ fn ensure_installable_transition(
 }
 
 pub fn create_removal_plan(
+    catalog: &Catalog,
     cache_dir: &Path,
     package_name: &str,
 ) -> Result<RemovalPlanArtifact, String> {
-    let catalog = Catalog::load()?;
     let application = catalog
         .by_package_name(package_name)
         .filter(|item| item.removable)
         .ok_or_else(|| "该软件包不在 UManager 卸载白名单中".to_owned())?;
-    let scan = scanner::scan()?;
+    let scan = scanner::scan(catalog)?;
     let package = scan
         .packages
         .iter()
         .find(|item| item.package_name == package_name)
         .ok_or_else(|| "软件包未安装或已不再由 UManager 管理".to_owned())?;
+    let (catalog_json, catalog_signature) = signed_catalog_auth(application)?;
     let created = unix_timestamp();
     let plan = RemovalPlan::new(RemovalPlanPayload {
         schema_version: PLAN_SCHEMA_VERSION,
@@ -139,6 +157,8 @@ pub fn create_removal_plan(
         architecture: package.architecture.clone(),
         created_at_unix_seconds: created,
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
+        catalog_json,
+        catalog_signature,
     })?;
     let plan_path = persist_immutable_removal_plan(&cache_dir.join("plans"), &plan)?;
     Ok(RemovalPlanArtifact {
@@ -168,6 +188,8 @@ pub fn create_self_removal_plan(cache_dir: &Path) -> Result<RemovalPlanArtifact,
         architecture,
         created_at_unix_seconds: created,
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
+        catalog_json: None,
+        catalog_signature: None,
     })?;
     let plan_path = persist_immutable_removal_plan(&cache_dir.join("plans"), &plan)?;
     Ok(RemovalPlanArtifact {
@@ -207,6 +229,8 @@ pub async fn create_self_update_plan(cache_dir: &Path) -> Result<PlanArtifact, S
         size: verified.actual_size,
         created_at_unix_seconds: created,
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
+        catalog_json: None,
+        catalog_signature: None,
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {

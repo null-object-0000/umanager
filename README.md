@@ -120,9 +120,9 @@ UManager 不再为每个软件写死适配器。新增一个软件只需要在 `
 
 UManager 的软件/版本信息**只依赖一份中央 feed**，不再在用户机器上抓取官网、调用发布 API 或解析本机 `apt-cache policy`。GitHub Actions 定时爬取厂商来源，把「最新版本 + 大小 + SHA-256 + 下载地址」整理成单个 `feed.json`，用 Ed25519 签名后发布到 GitHub Pages；应用只拉取这个文件（外加 `feed.json.sig`），验签通过后把候选版本交给下载与安装链路。`vendors.json` 顶层的 `metadataFeed` 声明了 feed 的 URL 与精确域名白名单（加入白名单的域名会经过 HTTPS 精确匹配才能被接受）。
 
-- 触发：`.github/workflows/update-feed.yml` 定时（每 6 小时）、手动触发，以及 `vendors.json` / `scripts/update-feed.mjs` / workflow 变更时；
-- 生成：`scripts/update-feed.mjs` 读取 `vendors.json`，逐个解析 `aptRepository` 的 `Packages` 索引、官网固定地址、GitHub Releases 资产和 npm registry，产出 `feed.json`；
-- 签名：用 GitHub Actions secret `FEED_SIGNING_KEY` 对 `feed.json` 原文做 Ed25519 签名，产出 `feed.json.sig`；私钥只存在 CI 秘密里，App 内置对应的公钥（`src-tauri/src/feed.rs`）；
+- 触发：`.github/workflows/update-feed.yml` 定时（每 6 小时）、手动触发，以及 `vendors.json` / `feed-sources.json` / `scripts/update-feed.mjs` / workflow 变更时；
+- 生成：`scripts/update-feed.mjs` 读取 `vendors.json`（内置基础清单）+ `feed-sources.json`（可新增软件的清单），逐个解析 `aptRepository` 的 `Packages` 索引、官网固定地址、GitHub Releases 资产和 npm registry，产出 `feed.json`；
+- 签名：用 GitHub Actions secret `FEED_SIGNING_KEY` 对 `feed.json` 原文做 Ed25519 签名产出 `feed.json.sig`，并对 `catalogJson` 单独签名（`catalogSignature`），供特权 helper 授权 feed 新增的软件；私钥只存在 CI 秘密里，App 与 helper 内置对应公钥；
 - 发布：用 `actions/configure-pages` + `actions/upload-pages-artifact` + `actions/deploy-pages` 部署到 GitHub Pages，托管地址为 `https://<owner>.github.io/<repo>/feed.json`。
 
 要让该地址生效，需要在仓库 Settings → Pages 的 Build and deployment → Source 选择「GitHub Actions」；也可以直接运行一次 `update-feed` workflow（`configure-pages` 会自动启用 Pages）。应用会校验 feed 的 HTTPS 精确域名、大小上限、Ed25519 签名与字段格式；一旦抓取失败或签名不符，对应应用的候选版本会显示为不可用，并在「设置 → 软件信息源」里展示最近抓取时间与失败原因。
@@ -135,19 +135,29 @@ UManager 的软件/版本信息**只依赖一份中央 feed**，不再在用户�
 
 ```jsonc
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedAtUnixSeconds": 1750000000,
   "applications": {
     "wechat": { "packageName": "wechat", "version": "4.1.1.8", "architecture": "amd64",
                 "size": 212419528, "sha256": "…", "downloadUrl": "…", "websiteVersion": "4.1.1" }
   },
+  "catalogJson": "[{\"applicationId\":\"example\", …}]",
+  "catalogSignature": "hex-ed25519-over-catalogJson",
   "selfUpdate": { "packageName": "u-manager", "version": "…", "architecture": "amd64",
                   "size": …, "sha256": "…", "downloadUrl": "…", "releaseTag": "v0.1.1", "assetName": "…" },
   "developmentTools": { "claude-code": { "npmPackage": "@anthropic-ai/claude-code", "version": "2.1.245" } }
 }
 ```
 
-应用侧 `src-tauri/src/feed.rs` 负责解析与校验（HTTPS、精确域名、大小上限、SHA-256 格式），`src-tauri/src/source_engine.rs` 负责把它转换成现有的 `ApplicationDetails` / `DownloadPlan`，从而完全复用既有的下载校验与不可变计划链路。
+应用侧 `src-tauri/src/feed.rs` 负责解析与校验（HTTPS、精确域名、大小上限、SHA-256 格式、Ed25519 签名、`catalogJson` 目录签名），`src-tauri/src/source_engine.rs` 负责把它转换成现有的 `ApplicationDetails` / `DownloadPlan`，从而完全复用既有的下载校验与不可变计划链路。
+
+### 新增软件（无需更新 App）
+
+在仓库根目录的 `feed-sources.json` 的 `applications` 里追加一条与 `vendors.json` 同构的记录即可。push 后 CI 会重新生成 feed：
+
+1. 该应用进入 feed 的 `applications`（版本/大小/SHA-256/下载地址）与 `catalogJson`（完整软件定义，含允许域名白名单、是否可卸载等），并各自用 `FEED_SIGNING_KEY` 签名；
+2. 用户已安装的 UManager 会拉取新 feed：主程序把 `catalogJson` 里新增的应用合并进软件列表；
+3. 用户安装/卸载该新软件时，主程序把 `catalogJson` + `catalogSignature` 写进不可变计划，特权 helper 用内置公钥验签后才允许操作——因此新增软件不需要用户更新 UManager，也不需要放宽 helper 的固定白名单。
 
 ## 开发环境（用户级版本管理器）
 

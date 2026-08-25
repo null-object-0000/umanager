@@ -117,6 +117,8 @@ pub fn create_plan(cache_dir: &Path, sha256: &str) -> Result<PlanArtifact, Strin
         size: inspected.size,
         created_at_unix_seconds: created,
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
+        catalog_json: None,
+        catalog_signature: None,
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {

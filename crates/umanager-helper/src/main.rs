@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use umanager_catalog::{Catalog, SourceSpec};
+use umanager_catalog::{Application, Catalog, SourceSpec};
 use umanager_plan::{OperationAction, OperationPlan, RemovalAction, RemovalPlan};
 
 const APT_CACHE_BIN: &str = "/usr/bin/apt-cache";
@@ -22,6 +22,11 @@ const UMANAGER_PACKAGE_NAME: &str = "u-manager";
 const LOG_EVENT_PREFIX: &str = "UMANAGER_EVENT\t";
 const MAX_LOG_BYTES: usize = 256 * 1024;
 const MAX_LOG_LINE_CHARS: usize = 2_000;
+/// Ed25519 public key matching the CI `FEED_SIGNING_KEY` secret. Used only to
+/// authorize feed-added applications (applications not in the embedded catalog).
+const FEED_PUBLIC_KEY_HEX: &str = "57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9";
+const MAX_CATALOG_AUTH_BYTES: usize = 256 * 1024;
+const MAX_PLAN_FILE_BYTES: usize = 512 * 1024;
 
 fn load_catalog() -> Result<Catalog, String> {
     Catalog::load().map_err(|error| format!("内置软件源无效：{error}"))
@@ -445,7 +450,7 @@ fn load_and_validate_plan(
     validate_user_file(&canonical_plan, caller.uid, true)?;
     let bytes = fs::read(&canonical_plan)
         .map_err(|error| format!("cannot read operation plan: {error}"))?;
-    if bytes.len() > 64 * 1024 {
+    if bytes.len() > MAX_PLAN_FILE_BYTES {
         return Err("operation plan is unexpectedly large".to_owned());
     }
     let plan: OperationPlan = serde_json::from_slice(&bytes)
@@ -477,7 +482,7 @@ fn load_and_validate_removal_plan(
     validate_user_file(&canonical_plan, caller.uid, true)?;
     let bytes =
         fs::read(&canonical_plan).map_err(|error| format!("cannot read removal plan: {error}"))?;
-    if bytes.len() > 64 * 1024 {
+    if bytes.len() > MAX_PLAN_FILE_BYTES {
         return Err("removal plan is unexpectedly large".to_owned());
     }
     let plan: RemovalPlan = serde_json::from_slice(&bytes)
@@ -524,14 +529,31 @@ fn validate_removal_constraints(
 ) -> Result<ManagedApplication, String> {
     let payload = &plan.payload;
     match payload.action {
-        RemovalAction::RemoveManagedPackage => managed_applications(catalog)
-            .into_iter()
-            .find(|application| {
-                payload.application_id == application.application_id
-                    && payload.package_name == application.package_name
-                    && payload.architecture == application.architecture
+        RemovalAction::RemoveManagedPackage => {
+            if let Some(application) = managed_applications(catalog)
+                .into_iter()
+                .find(|application| {
+                    payload.application_id == application.application_id
+                        && payload.package_name == application.package_name
+                        && payload.architecture == application.architecture
+                })
+            {
+                return Ok(application);
+            }
+            let application = feed_added_application(
+                payload.catalog_json.as_deref(),
+                payload.catalog_signature.as_deref(),
+                &payload.application_id,
+                &payload.package_name,
+                &payload.architecture,
+                true,
+            )?;
+            Ok(ManagedApplication {
+                application_id: application.application_id,
+                package_name: application.package_name,
+                architecture: application.architecture,
             })
-            .ok_or_else(|| "removal plan is not for an allowlisted managed package".to_owned()),
+        }
         RemovalAction::RemoveUmanager => (payload.application_id == UMANAGER_APPLICATION_ID
             && payload.package_name == UMANAGER_PACKAGE_NAME)
             .then_some(ManagedApplication {
@@ -806,15 +828,32 @@ fn website_application_for_plan(
     catalog: &Catalog,
 ) -> Result<WebsiteApplication, String> {
     let payload = &plan.payload;
-    website_applications(catalog)
+    if payload.action != OperationAction::InstallVerifiedWebsiteDeb {
+        return Err("operation plan is not an allowed official website update".to_owned());
+    }
+    if let Some(application) = website_applications(catalog)
         .into_iter()
         .find(|application| {
-            payload.action == OperationAction::InstallVerifiedWebsiteDeb
-                && payload.application_id == application.application_id
+            payload.application_id == application.application_id
                 && payload.package_name == application.package_name
                 && payload.architecture == application.architecture
         })
-        .ok_or_else(|| "operation plan is not an allowed official website update".to_owned())
+    {
+        return Ok(application);
+    }
+    let application = feed_added_application(
+        payload.catalog_json.as_deref(),
+        payload.catalog_signature.as_deref(),
+        &payload.application_id,
+        &payload.package_name,
+        &payload.architecture,
+        false,
+    )?;
+    Ok(WebsiteApplication {
+        application_id: application.application_id,
+        package_name: application.package_name,
+        architecture: application.architecture,
+    })
 }
 
 fn valid_package_name(value: &str) -> bool {
@@ -827,6 +866,78 @@ fn valid_package_name(value: &str) -> bool {
         && value.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.')
         })
+}
+
+/// Authorizes an application that is not part of the embedded catalog by
+/// verifying the Ed25519 signature the plan carries over its signed catalog JSON.
+fn feed_added_application(
+    catalog_json: Option<&str>,
+    catalog_signature: Option<&str>,
+    application_id: &str,
+    package_name: &str,
+    architecture: &str,
+    require_removable: bool,
+) -> Result<Application, String> {
+    let (Some(json), Some(signature)) = (catalog_json, catalog_signature) else {
+        return Err("plan does not carry a signed catalog for this application".to_owned());
+    };
+    if json.len() > MAX_CATALOG_AUTH_BYTES || json.contains('\0') {
+        return Err("signed catalog payload is invalid".to_owned());
+    }
+    verify_ed25519(json.as_bytes(), signature)?;
+    let applications: Vec<Application> = serde_json::from_str(json)
+        .map_err(|error| format!("signed catalog JSON is invalid: {error}"))?;
+    applications
+        .into_iter()
+        .find(|application| {
+            application.application_id == application_id
+                && application.package_name == package_name
+                && application.architecture == architecture
+                && (!require_removable || application.removable)
+        })
+        .ok_or_else(|| "signed catalog does not authorize this application".to_owned())
+}
+
+fn verify_ed25519(message: &[u8], signature_hex: &str) -> Result<(), String> {
+    let key_bytes = decode_hex_32(FEED_PUBLIC_KEY_HEX)?;
+    let signature_bytes = decode_hex_64(signature_hex)?;
+    let public_key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &key_bytes);
+    public_key
+        .verify(message, &signature_bytes)
+        .map_err(|_| "signed catalog signature verification failed".to_owned())
+}
+
+fn decode_hex_32(input: &str) -> Result<[u8; 32], String> {
+    let bytes = decode_hex(input)?;
+    let mut out = [0_u8; 32];
+    if bytes.len() != out.len() {
+        return Err("feed public key has an invalid length".to_owned());
+    }
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+fn decode_hex_64(input: &str) -> Result<[u8; 64], String> {
+    let bytes = decode_hex(input)?;
+    let mut out = [0_u8; 64];
+    if bytes.len() != out.len() {
+        return Err("catalog signature has an invalid length".to_owned());
+    }
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+fn decode_hex(input: &str) -> Result<Vec<u8>, String> {
+    if input.len() % 2 != 0 || !input.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("catalog signature is not valid hex".to_owned());
+    }
+    (0..input.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&input[index..index + 2], 16)
+                .map_err(|_| "catalog signature is not valid hex".to_owned())
+        })
+        .collect()
 }
 
 fn validate_official_apt_record(
@@ -1285,6 +1396,8 @@ mod tests {
             size: 1,
             created_at_unix_seconds: 1,
             expires_at_unix_seconds: 2,
+            catalog_json: None,
+            catalog_signature: None,
         };
         let mut plan = OperationPlan::new(payload).unwrap();
         let catalog = load_catalog().unwrap();
@@ -1311,6 +1424,8 @@ mod tests {
             size: 1,
             created_at_unix_seconds: 1,
             expires_at_unix_seconds: 2,
+            catalog_json: None,
+            catalog_signature: None,
         };
         let mut plan = OperationPlan::new(payload).unwrap();
         let catalog = load_catalog().unwrap();
@@ -1332,6 +1447,25 @@ mod tests {
         assert!(website_application_for_plan(&plan, &catalog).is_ok());
         plan.payload.architecture = "arm64".to_owned();
         assert!(website_application_for_plan(&plan, &catalog).is_err());
+    }
+
+    #[test]
+    fn feed_added_authorization_rejects_missing_or_invalid_signatures() {
+        // No catalog at all.
+        assert!(feed_added_application(None, None, "x", "y", "amd64", false).is_err());
+        // Invalid signature (never reaches the JSON parse, so the content is irrelevant).
+        let json = r#"[{"applicationId":"x","packageName":"y","architecture":"amd64","removable":true,"source":{"kind":"browserImport","homepageUrl":"https://example.com"}}]"#;
+        assert!(
+            feed_added_application(
+                Some(json),
+                Some(&"0".repeat(128)),
+                "x",
+                "y",
+                "amd64",
+                true,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1385,6 +1519,8 @@ mod tests {
             architecture: "amd64".to_owned(),
             created_at_unix_seconds: 1,
             expires_at_unix_seconds: 2,
+            catalog_json: None,
+            catalog_signature: None,
         };
         let mut plan = RemovalPlan::new(payload).unwrap();
         let catalog = load_catalog().unwrap();
@@ -1420,6 +1556,8 @@ mod tests {
             architecture: "amd64".to_owned(),
             created_at_unix_seconds: 1,
             expires_at_unix_seconds: 2,
+            catalog_json: None,
+            catalog_signature: None,
         };
         let mut plan = RemovalPlan::new(payload).unwrap();
         let catalog = load_catalog().unwrap();
@@ -1451,6 +1589,8 @@ mod tests {
             size: 1,
             created_at_unix_seconds: 1,
             expires_at_unix_seconds: 2,
+            catalog_json: None,
+            catalog_signature: None,
         };
         let mut plan = OperationPlan::new(payload).unwrap();
         assert!(self_update_plan_matches(&plan, source));

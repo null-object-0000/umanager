@@ -23,8 +23,9 @@ fn require_application<'a>(
 
 #[tauri::command]
 async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, String> {
-    let catalog = Catalog::load()?;
-    let mut result = tauri::async_runtime::spawn_blocking(scanner::scan)
+    let catalog = feed::effective_catalog().await?;
+    let scan_catalog = catalog.clone();
+    let mut result = tauri::async_runtime::spawn_blocking(move || scanner::scan(&scan_catalog))
         .await
         .map_err(|error| format!("扫描任务异常结束：{error}"))??;
     let cache_dir = app
@@ -68,7 +69,7 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
 
 #[tauri::command]
 async fn get_software_catalog() -> Result<Vec<umanager_catalog::Application>, String> {
-    Ok(Catalog::load()?.applications)
+    feed::effective_applications().await
 }
 
 #[tauri::command]
@@ -166,7 +167,7 @@ async fn get_application_details(
     app: tauri::AppHandle,
     application_id: String,
 ) -> Result<source_engine::ApplicationDetails, String> {
-    let catalog = Catalog::load()?;
+    let catalog = feed::effective_catalog().await?;
     let application = require_application(&catalog, &application_id)?;
     let cache_dir = app
         .path()
@@ -180,7 +181,7 @@ async fn get_download_plan(
     app: tauri::AppHandle,
     application_id: String,
 ) -> Result<source_engine::DownloadPlan, String> {
-    let catalog = Catalog::load()?;
+    let catalog = feed::effective_catalog().await?;
     let application = require_application(&catalog, &application_id)?;
     let cache_dir = app
         .path()
@@ -194,7 +195,7 @@ async fn download_package(
     app: tauri::AppHandle,
     application_id: String,
 ) -> Result<source_engine::DownloadResult, String> {
-    let catalog = Catalog::load()?;
+    let catalog = feed::effective_catalog().await?;
     let application = require_application(&catalog, &application_id)?;
     let cache_dir = app
         .path()
@@ -212,13 +213,13 @@ async fn create_operation_plan(
     app: tauri::AppHandle,
     application_id: String,
 ) -> Result<operation_plan::PlanArtifact, String> {
-    let catalog = Catalog::load()?;
+    let catalog = feed::effective_catalog().await?;
     let application = require_application(&catalog, &application_id)?;
     let cache_dir = app
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    operation_plan::create_install_plan(application, cache_dir).await
+    operation_plan::create_install_plan(&catalog, application, cache_dir).await
 }
 
 #[tauri::command]
@@ -387,8 +388,9 @@ async fn create_removal_operation_plan(
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let catalog = feed::effective_catalog().await?;
     tauri::async_runtime::spawn_blocking(move || {
-        operation_plan::create_removal_plan(&cache_dir, &package_name)
+        operation_plan::create_removal_plan(&catalog, &cache_dir, &package_name)
     })
     .await
     .map_err(|error| format!("卸载计划任务异常结束：{error}"))?

@@ -28,6 +28,7 @@ import { gunzipSync } from "node:zlib";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const CATALOG_PATH = resolve(REPO_ROOT, "src-tauri/resources/vendors.json");
+const EXTRA_CATALOG_PATH = resolve(REPO_ROOT, "feed-sources.json");
 const OUT_PATH = process.argv[2] ?? resolve(REPO_ROOT, "dist", "feed.json");
 
 const errors = [];
@@ -294,8 +295,18 @@ async function toolEntry(tool) {
 async function main() {
   const catalog = JSON.parse(readFileSync(CATALOG_PATH, "utf8"));
 
+  let extra = { applications: [] };
+  try {
+    extra = JSON.parse(readFileSync(EXTRA_CATALOG_PATH, "utf8"));
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      fail("feed-sources.json", `解析额外软件源失败：${error.message}`);
+    }
+  }
+  const extraApplications = extra.applications || [];
+
   const applications = {};
-  for (const app of catalog.applications || []) {
+  for (const app of [...(catalog.applications || []), ...extraApplications]) {
     if (app.source?.kind === "aptRepository") {
       const entry = await aptEntry(app);
       if (entry) applications[app.applicationId] = entry;
@@ -326,10 +337,17 @@ async function main() {
     if (entry) developmentTools[tool.toolId] = entry;
   }
 
+  const catalogJson = JSON.stringify(extraApplications);
+  const catalogSignature = process.env.FEED_SIGNING_KEY
+    ? sign(null, Buffer.from(catalogJson), process.env.FEED_SIGNING_KEY).toString("hex")
+    : null;
+
   const feed = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAtUnixSeconds: Math.floor(Date.now() / 1000),
     applications,
+    catalogJson,
+    catalogSignature,
     selfUpdate,
     developmentTools,
   };
@@ -348,10 +366,10 @@ async function main() {
   }
 
   log(
-    `applications=${Object.keys(applications).length} selfUpdate=${selfUpdate !== null} tools=${Object.keys(developmentTools).length}`,
+    `applications=${Object.keys(applications).length} extraCatalog=${extraApplications.length} selfUpdate=${selfUpdate !== null} tools=${Object.keys(developmentTools).length}`,
   );
   if (errors.length > 0) {
-    log(`\n${errors.length} source(s) were skipped and fall back to on-device scraping:`);
+    log(`\n${errors.length} source(s) were skipped and will be unavailable in the feed:`);
     for (const e of errors) log(`  - ${e}`);
   }
 }

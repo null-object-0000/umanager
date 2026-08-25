@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const PLAN_SCHEMA_VERSION: u8 = 1;
+pub const PLAN_SCHEMA_VERSION: u8 = 2;
 pub const MAX_PLAN_LIFETIME_SECONDS: u64 = 15 * 60;
+const MAX_CATALOG_AUTH_BYTES: usize = 256 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +27,14 @@ pub struct PlanPayload {
     pub size: u64,
     pub created_at_unix_seconds: u64,
     pub expires_at_unix_seconds: u64,
+    /// Optional signed catalog carried only for applications that were added by
+    /// the metadata feed (i.e. not compiled into the privileged helper). The
+    /// helper verifies `catalog_signature` over `catalog_json` before accepting
+    /// the application as allowlisted.
+    #[serde(default)]
+    pub catalog_json: Option<String>,
+    #[serde(default)]
+    pub catalog_signature: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -55,6 +64,11 @@ pub struct RemovalPlanPayload {
     pub architecture: String,
     pub created_at_unix_seconds: u64,
     pub expires_at_unix_seconds: u64,
+    /// Signed catalog carried for feed-added applications (see `PlanPayload`).
+    #[serde(default)]
+    pub catalog_json: Option<String>,
+    #[serde(default)]
+    pub catalog_signature: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -149,6 +163,28 @@ fn validate_payload_shape(payload: &PlanPayload) -> Result<(), String> {
     if payload.sha256.len() != 64 || !payload.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("operation plan SHA-256 is invalid".to_owned());
     }
+    validate_catalog_auth(
+        payload.catalog_json.as_deref(),
+        payload.catalog_signature.as_deref(),
+        "operation plan",
+    )?;
+    Ok(())
+}
+
+fn validate_catalog_auth(json: Option<&str>, signature: Option<&str>, kind: &str) -> Result<(), String> {
+    if json.is_some() != signature.is_some() {
+        return Err(format!("{kind} catalog auth fields are incomplete"));
+    }
+    if let Some(json) = json {
+        if json.len() > MAX_CATALOG_AUTH_BYTES || json.contains('\0') {
+            return Err(format!("{kind} catalog payload is invalid"));
+        }
+    }
+    if let Some(signature) = signature {
+        if signature.len() != 128 || !signature.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!("{kind} catalog signature is invalid"));
+        }
+    }
     Ok(())
 }
 
@@ -169,6 +205,11 @@ fn validate_removal_payload_shape(payload: &RemovalPlanPayload) -> Result<(), St
     if !valid_package_name(&payload.package_name) {
         return Err("removal plan package name is invalid".to_owned());
     }
+    validate_catalog_auth(
+        payload.catalog_json.as_deref(),
+        payload.catalog_signature.as_deref(),
+        "removal plan",
+    )?;
     Ok(())
 }
 
@@ -237,6 +278,8 @@ mod tests {
             size: 100,
             created_at_unix_seconds: 1_000,
             expires_at_unix_seconds: 1_900,
+            catalog_json: None,
+            catalog_signature: None,
         }
     }
 
@@ -270,6 +313,8 @@ mod tests {
             architecture: "amd64".to_owned(),
             created_at_unix_seconds: 1_000,
             expires_at_unix_seconds: 1_900,
+            catalog_json: None,
+            catalog_signature: None,
         };
         let mut plan = RemovalPlan::new(payload.clone()).unwrap();
         assert!(plan.verify_integrity().is_ok());

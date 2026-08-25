@@ -21,6 +21,7 @@ on:
       - "main"
     paths:
       - "src-tauri/resources/vendors.json"
+      - "feed-sources.json"
       - "scripts/update-feed.mjs"
       - ".github/workflows/update-feed.yml"
 

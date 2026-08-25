@@ -8,7 +8,7 @@ use umanager_catalog::{Application, Catalog, MetadataFeed};
 const MAX_FEED_BYTES: u64 = 1024 * 1024;
 /// How long a successfully fetched feed is reused before it is refreshed.
 const FEED_TTL: Duration = Duration::from_secs(15 * 60);
-const FEED_SCHEMA_VERSION: u32 = 1;
+const FEED_SCHEMA_VERSION: u32 = 2;
 
 /// Embedded Ed25519 public key (raw 32 bytes, hex) that the feed must be signed
 /// with. The matching private key lives only in the GitHub Actions secret
@@ -23,6 +23,14 @@ pub struct Feed {
     pub generated_at_unix_seconds: u64,
     #[serde(default)]
     pub applications: HashMap<String, FeedApplicationEntry>,
+    /// Signed catalog of feed-added applications. `catalog_json` is the exact
+    /// signed text (a JSON array of `Application`), `catalog_signature` is the
+    /// Ed25519 signature over those bytes. The privileged helper verifies the
+    /// same pair before accepting a feed-added application as allowlisted.
+    #[serde(default)]
+    pub catalog_json: Option<String>,
+    #[serde(default)]
+    pub catalog_signature: Option<String>,
     #[serde(default)]
     pub self_update: Option<FeedApplicationEntry>,
     #[serde(default)]
@@ -76,6 +84,9 @@ struct CachedFeed {
 struct FeedState {
     cache: HashMap<String, CachedFeed>,
     status: FeedStatus,
+    catalog_json: Option<String>,
+    catalog_signature: Option<String>,
+    extra_applications: Vec<Application>,
 }
 
 fn initial_status(catalog: &Catalog) -> FeedStatus {
@@ -112,6 +123,9 @@ fn state_lock() -> &'static Mutex<FeedState> {
         Mutex::new(FeedState {
             cache: HashMap::new(),
             status: initial_status(&catalog),
+            catalog_json: None,
+            catalog_signature: None,
+            extra_applications: Vec::new(),
         })
     })
 }
@@ -144,6 +158,7 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
 
     match fetch(feed_config).await {
         Ok((feed, signature_verified)) => {
+            let extra = parse_extra_applications(&feed)?;
             let mut guard = state_lock().lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
             guard.status = FeedStatus {
                 configured: true,
@@ -156,6 +171,9 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
                 development_tools: feed.development_tools.len(),
                 last_error: None,
             };
+            guard.catalog_json = feed.catalog_json.clone();
+            guard.catalog_signature = feed.catalog_signature.clone();
+            guard.extra_applications = extra;
             guard.cache.insert(
                 feed_config.url.clone(),
                 CachedFeed {
@@ -172,6 +190,48 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
             Err(error)
         }
     }
+}
+
+/// The full set of applications UManager manages: the compiled-in catalog plus
+/// any feed-added applications. Feed-added entries only add new `applicationId`s;
+/// they never replace a compiled-in definition.
+pub async fn effective_applications() -> Result<Vec<Application>, String> {
+    let catalog = Catalog::load()?;
+    let mut applications = catalog.applications.clone();
+    let feed = load(&catalog).await?;
+    let extra = parse_extra_applications(&feed)?;
+    for extra_app in extra {
+        if !applications
+            .iter()
+            .any(|existing| existing.application_id == extra_app.application_id)
+        {
+            applications.push(extra_app);
+        }
+    }
+    Ok(applications)
+}
+
+/// A `Catalog` whose `applications` also include any feed-added entries.
+pub async fn effective_catalog() -> Result<Catalog, String> {
+    let mut catalog = Catalog::load()?;
+    catalog.applications = effective_applications().await?;
+    Ok(catalog)
+}
+
+/// Raw signed catalog bytes for feed-added applications, for inclusion in an
+/// immutable plan so the privileged helper can verify and authorize them.
+pub fn catalog_auth() -> Option<(String, String)> {
+    let guard = state_lock().lock().ok()?;
+    Some((guard.catalog_json.clone()?, guard.catalog_signature.clone()?))
+}
+
+fn parse_extra_applications(feed: &Feed) -> Result<Vec<Application>, String> {
+    let (Some(json), Some(signature)) = (&feed.catalog_json, &feed.catalog_signature) else {
+        return Ok(Vec::new());
+    };
+    verify_ed25519(json.as_bytes(), signature)?;
+    serde_json::from_str(json)
+        .map_err(|error| format!("元数据源目录格式无效：{error}"))
 }
 
 pub async fn entry_for(app: &Application) -> Result<Option<FeedApplicationEntry>, String> {
@@ -298,6 +358,9 @@ fn decode_hex(input: &str) -> Result<Vec<u8>, String> {
 fn validate(feed: &Feed) -> Result<(), String> {
     if feed.schema_version != FEED_SCHEMA_VERSION {
         return Err("不支持的元数据源版本".to_owned());
+    }
+    if feed.catalog_json.is_some() != feed.catalog_signature.is_some() {
+        return Err("元数据源目录字段不完整".to_owned());
     }
     for (id, entry) in &feed.applications {
         validate_application_entry(id, entry).map_err(|error| format!("{id}：{error}"))?;

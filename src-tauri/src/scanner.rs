@@ -58,8 +58,7 @@ pub struct ScanResult {
 /// Lists which managed applications are installed locally. Candidate versions,
 /// update state and the official source URL are no longer resolved here — the
 /// caller fills them from the central metadata feed.
-pub fn scan() -> Result<ScanResult, String> {
-    let catalog = Catalog::load()?;
+pub fn scan(catalog: &Catalog) -> Result<ScanResult, String> {
     let output = locale_stable_command(DPKG_QUERY_BIN)
         .args(["-W", "-f", DPKG_FORMAT])
         .output()

@@ -2,7 +2,6 @@ use crate::scanner::SourceKind;
 use crate::source_engine::{self, DownloadPlan};
 use serde::Serialize;
 use std::path::Path;
-use umanager_catalog::Catalog;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,9 +20,9 @@ pub struct InstallableApplication {
 }
 
 pub async fn load_applications(cache_dir: &Path) -> Result<Vec<InstallableApplication>, String> {
-    let catalog = Catalog::load()?;
+    let applications = crate::feed::effective_applications().await?;
     let mut offers = Vec::new();
-    for application in catalog.applications.iter().filter(|item| item.is_auto_installable()) {
+    for application in applications.iter().filter(|item| item.is_auto_installable()) {
         offers.push(offer_for(cache_dir, application).await?);
     }
     offers.sort_by(|left, right| left.display_name.cmp(&right.display_name));
