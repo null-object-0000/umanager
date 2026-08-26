@@ -721,6 +721,25 @@ async function main() {
     applyVersionTime(entry, previousFeed?.developmentTools?.[id]);
   }
 
+  // For versionEndpoint sources, the feed `downloadUrl` is not always directly
+  // downloadable (QQ: raw URL needs URL-signing; Feishu: signed link expires).
+  // Resolve a fresh downloadable URL so icon extraction reuses the same logic
+  // as entry generation (sign / resolveAtDownload), otherwise these icons 4xx.
+  async function iconDownloadUrl(app, entry) {
+    const source = app.source;
+    if (source?.kind !== "versionEndpoint") return entry.downloadUrl;
+    let url = entry.downloadUrl;
+    if (source.resolveAtDownload) {
+      const text = await fetchTextFallback(buildVersionEndpointUrl(source), source.gatewayUrl);
+      const payload = source.payloadKind === "html"
+        ? null
+        : JSON.parse(source.payloadKind === "jsonInScript" ? extractJsonObject(text) : text);
+      if (payload) url = getJsonPath(payload, source.downloadUrlField);
+    }
+    if (source.sign) url = await applySign(source.sign, url);
+    return url;
+  }
+
   // Extract + publish icons for feed-added applications, and inject the icon
   // URL + SHA-256 into the signed catalog. Built-in apps keep their bundled icons.
   const iconBase = catalog.metadataFeed?.url?.replace(/\/[^/]*$/, "");
@@ -734,7 +753,7 @@ async function main() {
         continue;
       }
       try {
-        const debPath = await downloadTemp(app.applicationId, entry.downloadUrl);
+        const debPath = await downloadTemp(app.applicationId, await iconDownloadUrl(app, entry));
         const icon = extractIcon(debPath);
         rmSync(debPath, { force: true });
         if (!icon) {
