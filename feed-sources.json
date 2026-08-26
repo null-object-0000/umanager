@@ -130,6 +130,28 @@
         "downloadUrlField": "_amd64.deb",
         "downloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"]
       }
+    },
+    {
+      "applicationId": "feishu",
+      "packageName": "bytedance-feishu-stable",
+      "displayName": "飞书",
+      "vendor": "字节跳动",
+      "architecture": "amd64",
+      "description": "字节跳动出品的一站式协作办公平台，整合即时沟通、日历、云文档、音视频会议与工作台。",
+      "homepage": "https://www.feishu.cn/",
+      "icon": "feishu",
+      "accentColor": "#2863f5",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://www.feishu.cn/api/package_info",
+        "versionEndpointHosts": ["www.feishu.cn"],
+        "query": { "platform": 10 },
+        "payloadKind": "json",
+        "downloadUrlField": "data.download_link",
+        "downloadHosts": ["*.feishucdn.com"],
+        "resolveAtDownload": true
+      }
     }
   ]
 }

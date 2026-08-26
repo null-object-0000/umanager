@@ -15,7 +15,7 @@ UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + Reac
 2. **`src-tauri/resources/vendors.json` 编译进主程序和特权 helper**。改动它=需要发新版 App；它是「受管软件有哪些、允许哪些域名、能否卸载」的编译期事实来源。
 3. **新增受管软件只改 `feed-sources.json`**（仓库根目录，CI-only）。CI 会把它抓取并 Ed25519 签名进 `catalogJson`，老版本 App 无需更新。
 4. **特权 helper 只通过「内置公钥 + 计划内已签名 `catalogJson`/`catalogSignature`」授权 feed 新增软件**。不要放宽 helper 白名单去信任计划里的任意未签名字段。
-5. **所有下载域名都是精确白名单**（`*Hosts`），禁止通配/前缀匹配。
+5. **所有下载域名默认都是精确白名单**（`*Hosts`），禁止通配/前缀匹配。**唯一例外**：主机条目写成 `*.<domain>`（如飞书的 `*.feishucdn.com`）时，允许该域名及其子域——这是为 CDN 分片主机名会漂移的厂商（飞书 `lf?-ug-sign.feishucdn.com`）刻意保留的窄例外。`host_matches`（`src-tauri/src/source_engine.rs`）与生成器 `hostAllowedInList`（`scripts/update-feed.mjs`）实现同一语义，且必须同时更新。此例外不削弱其他防线：下载仍限 HTTPS、下载 URL 由厂商签名（`x-signature`/时间戳），`.deb` 仍按签名 feed 的 SHA-256 校验。
 6. **系统命令固定 argv、不经 shell**：`dpkg-query`、`dpkg-deb`、`dpkg --compare-versions`、`dpkg --install`、`dpkg --remove`；不拼接用户输入。
 7. **计划不可变**：`plan_id = SHA-256(payload)`，15 分钟有效期，只读、归属当前用户（`crates/umanager-plan`）。
 8. **私钥只存在于 GitHub Actions secret `FEED_SIGNING_KEY`**；任何提交都不得包含私钥。公钥（hex `57d369…c8f9`）内置在 `src-tauri/src/feed.rs` 与 `crates/umanager-helper/src/main.rs`。

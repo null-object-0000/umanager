@@ -810,11 +810,26 @@ fn debian_version_is_newer(installed: &str, candidate: &str) -> bool {
 // HTTP client and process helpers
 // ---------------------------------------------------------------------------
 
+/// Whether `host` is accepted by `allowed`. A `*.<domain>` allowed entry also
+/// matches the exact domain and any of its subdomains; the leading `.` prevents
+/// suffix collisions (e.g. `*.feishucdn.com` does not accept `evilfeishucdn.com`).
+/// This is the narrow, documented exception for vendors whose download CDN shards
+/// a stable root domain (e.g. Feishu's `lf?-ug-sign.feishucdn.com`).
+pub(crate) fn host_matches(host: &str, allowed: &str) -> bool {
+    if let Some(domain) = allowed.strip_prefix("*.") {
+        let host = host.to_ascii_lowercase();
+        let domain = domain.to_ascii_lowercase();
+        host == domain || host.ends_with(&format!(".{domain}"))
+    } else {
+        host.eq_ignore_ascii_case(allowed)
+    }
+}
+
 pub(crate) fn host_allowed(host: Option<&str>, allowed_hosts: &[String]) -> bool {
     host.is_some_and(|host| {
         allowed_hosts
             .iter()
-            .any(|allowed| allowed.eq_ignore_ascii_case(host))
+            .any(|allowed| host_matches(host, allowed))
     })
 }
 
@@ -836,7 +851,7 @@ pub(crate) fn restricted_client(allowed_hosts: &[String], timeout: Duration) -> 
             if attempt.url().scheme() == "https"
                 && hosts
                     .iter()
-                    .any(|host| attempt.url().host_str() == Some(host.as_str()))
+                    .any(|host| attempt.url().host_str().is_some_and(|h| host_matches(h, host)))
             {
                 attempt.follow()
             } else {
@@ -885,6 +900,27 @@ fn unix_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_allowed_exact_plus_documented_subdomain_exception() {
+        let exact = |h: &str| host_allowed(Some(h), &["qqdl.gtimg.cn".to_owned()]);
+        // Exact whitelist still matches only the exact host.
+        assert!(exact("qqdl.gtimg.cn"));
+        assert!(!exact("sub.qqdl.gtimg.cn"));
+        assert!(!exact("qqdl.gtimg.cn.evil.com"));
+
+        let feishu = |h: &str| host_allowed(Some(h), &["*.feishucdn.com".to_owned()]);
+        // `*.<domain>` accepts the root and any subdomain, but not lookalikes.
+        assert!(feishu("feishucdn.com"));
+        assert!(feishu("lf6-ug-sign.feishucdn.com"));
+        assert!(feishu("lf3-ug-sign.feishucdn.com"));
+        assert!(!feishu("feishucdn.com.evil.com"));
+        assert!(!feishu("notfeishucdn.com"));
+        assert!(!feishu("evilfeishucdn.com"));
+
+        // Redirect policy shares the same matcher via host_matches.
+        assert!(host_matches("LF6-UG-SIGN.FEISHUCDN.COM", "*.feishucdn.com"));
+    }
 
     #[test]
     fn parses_installed_version_and_only_fully_installed_amd64() {

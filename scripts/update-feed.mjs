@@ -503,7 +503,13 @@ function extractHtmlVersion(text, marker) {
 function hostAllowedInList(url, hosts) {
   try {
     const host = new URL(url).hostname;
-    return hosts.some((allowed) => allowed === host);
+    return hosts.some((allowed) => {
+      if (allowed.startsWith("*.")) {
+        const domain = allowed.slice(2);
+        return host === domain || host.endsWith("." + domain);
+      }
+      return allowed === host;
+    });
   } catch {
     return false;
   }
