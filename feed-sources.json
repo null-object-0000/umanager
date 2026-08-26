@@ -39,6 +39,27 @@
         "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
         "allowPrerelease": false
       }
+    },
+    {
+      "applicationId": "bitwarden",
+      "packageName": "bitwarden",
+      "displayName": "Bitwarden",
+      "vendor": "Bitwarden",
+      "architecture": "amd64",
+      "description": "开源密码管理器，跨平台安全存储密码与敏感信息，端到端加密。",
+      "homepage": "https://bitwarden.com/download/",
+      "icon": "bitwarden",
+      "accentColor": "#175ddc",
+      "removable": true,
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://bitwarden.com/download/",
+        "officialPageHosts": ["bitwarden.com"],
+        "downloadUrl": "https://bitwarden.com/download/?app=desktop&platform=linux&variant=deb",
+        "downloadHosts": ["bitwarden.com", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "Bitwarden-2026.8.0-amd64.deb"
+      }
     }
   ]
 }

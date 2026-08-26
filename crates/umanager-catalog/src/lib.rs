@@ -200,8 +200,11 @@ pub enum SourceSpec {
         /// Fixed .deb download endpoint.
         download_url: String,
         download_hosts: Vec<String>,
-        /// HTML marker after which the display version text starts.
-        page_version_marker: String,
+        /// HTML marker after which the display version text starts. When absent,
+        /// the display version is not scraped and the .deb control field's
+        /// `Version` is used (e.g. Bitwarden's version-pinned latest URL).
+        #[serde(default)]
+        page_version_marker: Option<String>,
         /// File name of the download link located on the official page.
         download_link_file_name: String,
         /// Number of dot-separated numeric components in the display version.
@@ -570,5 +573,36 @@ mod tests {
         assert!(!application.is_auto_installable());
         assert!(!application.is_website_download());
         assert!(application.download_hosts().is_empty());
+    }
+
+    #[test]
+    fn stable_download_endpoint_allows_optional_version_marker() {
+        // Bitwarden-style: a version-pinned "latest" URL with no server-rendered
+        // version marker. `pageVersionMarker` is absent and deserializes to None.
+        let json = r#"{
+            "applicationId": "bitwarden",
+            "packageName": "bitwarden",
+            "displayName": "Bitwarden",
+            "vendor": "Bitwarden",
+            "architecture": "amd64",
+            "removable": true,
+            "source": {
+                "kind": "stableDownloadEndpoint",
+                "officialPageUrl": "https://bitwarden.com/download/",
+                "officialPageHosts": ["bitwarden.com"],
+                "downloadUrl": "https://bitwarden.com/download/?app=desktop&platform=linux&variant=deb",
+                "downloadHosts": ["bitwarden.com", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+                "downloadLinkFileName": "Bitwarden-*.deb"
+            }
+        }"#;
+        let application: Application = serde_json::from_str(json).unwrap();
+        assert!(application.is_auto_installable());
+        assert!(application.is_website_download());
+        match &application.source {
+            SourceSpec::StableDownloadEndpoint { page_version_marker, .. } => {
+                assert!(page_version_marker.is_none());
+            }
+            _ => panic!("expected stableDownloadEndpoint"),
+        }
     }
 }

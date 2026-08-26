@@ -247,29 +247,36 @@ async function releaseApiEntry(app, source) {
 }
 
 async function stableDownloadEntry(app, source) {
-  let html;
-  try {
-    html = await fetchText(source.officialPageUrl);
-  } catch (error) {
-    fail(app.applicationId, `读取官网页面失败：${error.message}`);
-    return null;
+  // The version marker is optional: when absent, skip scraping the page and use
+  // the .deb control field's Version as the authoritative version (e.g. Bitwarden's
+  // version-pinned "latest" URL, which has no server-rendered version text).
+  let displayVersion = null;
+  if (source.pageVersionMarker) {
+    let html;
+    try {
+      html = await fetchText(source.officialPageUrl);
+    } catch (error) {
+      fail(app.applicationId, `读取官网页面失败：${error.message}`);
+      return null;
+    }
+    const markerIndex = html.indexOf(source.pageVersionMarker);
+    if (markerIndex < 0) {
+      fail(app.applicationId, "官网页面中未找到版本节点");
+      return null;
+    }
+    const afterMarker = html.slice(markerIndex + source.pageVersionMarker.length);
+    const afterTag = afterMarker.indexOf(">");
+    if (afterTag < 0) {
+      fail(app.applicationId, "官网版本节点格式无效");
+      return null;
+    }
+    displayVersion = afterMarker.slice(afterTag + 1).split("<")[0].trim();
+    if (!displayVersion) {
+      fail(app.applicationId, "官网展示版本解析为空");
+      return null;
+    }
   }
-  const markerIndex = html.indexOf(source.pageVersionMarker);
-  if (markerIndex < 0) {
-    fail(app.applicationId, "官网页面中未找到版本节点");
-    return null;
-  }
-  const afterMarker = html.slice(markerIndex + source.pageVersionMarker.length);
-  const afterTag = afterMarker.indexOf(">");
-  if (afterTag < 0) {
-    fail(app.applicationId, "官网版本节点格式无效");
-    return null;
-  }
-  const displayVersion = afterMarker.slice(afterTag + 1).split("<")[0].trim();
-  if (!displayVersion) {
-    fail(app.applicationId, "官网展示版本解析为空");
-    return null;
-  }
+
   // The vendor's download endpoint is fixed and configured in vendors.json; the
   // page is only used for the display version, not for the download URL.
   const downloadUrl = source.downloadUrl;
