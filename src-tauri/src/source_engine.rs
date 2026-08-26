@@ -360,7 +360,7 @@ fn validate_feed_entry_for_app(app: &Application, entry: &FeedApplicationEntry) 
     }
     let hosts = app.download_hosts();
     let host = https_host(&entry.download_url).ok_or_else(|| "元数据源下载地址格式无效".to_owned())?;
-    if !hosts.iter().any(|allowed| allowed.eq_ignore_ascii_case(host)) {
+    if !hosts.iter().any(|allowed| host_matches(host, allowed)) {
         return Err(format!(
             "元数据源下载地址不属于 {} 的允许域名",
             app.display_name
