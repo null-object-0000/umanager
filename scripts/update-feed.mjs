@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, sign } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -94,6 +95,35 @@ async function downloadTempFallback(label, url, gatewayUrl) {
   const path = `/tmp/umanager-feed-${label}-${process.pid}.deb`;
   writeFileSync(path, buffer);
   return path;
+}
+
+// ---------------------------------------------------------------------------
+// Version-update-time support: fetch the previous published feed as the state
+// reference, and probe .deb Last-Modified for a server-modified timestamp.
+// ---------------------------------------------------------------------------
+
+async function fetchPreviousFeed(url) {
+  if (!url) return null;
+  try {
+    return JSON.parse(await fetchText(url));
+  } catch (error) {
+    log(`  ↻ 读取上一版 feed 失败（${error.message}），按无历史处理`);
+    return null;
+  }
+}
+
+async function lastModifiedOf(url) {
+  try {
+    const response = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      headers: { "User-Agent": "UManager-feed/1.0" },
+    });
+    if (!response.ok) return null;
+    return parseLastModified(response.headers.get("last-modified"));
+  } catch {
+    return null;
+  }
 }
 
 function debControlField(filePath, field) {
@@ -184,7 +214,8 @@ async function aptEntry(app) {
   }
   const chosen = highest(records, "Version");
   const downloadUrl = `${source.repositoryUrl.replace(/\/+$/, "")}/${chosen.Filename.replace(/^\/+/, "")}`;
-  return {
+  const serverModified = await lastModifiedOf(downloadUrl);
+  const entry = {
     packageName: app.packageName,
     version: chosen.Version,
     architecture: app.architecture,
@@ -195,6 +226,10 @@ async function aptEntry(app) {
     assetName: null,
     websiteVersion: null,
   };
+  entry._versionTimeCandidate = serverModified != null
+    ? { time: serverModified, source: "serverModified" }
+    : null;
+  return entry;
 }
 
 async function releaseApiEntry(app, source) {
@@ -233,7 +268,7 @@ async function releaseApiEntry(app, source) {
     fail(app.applicationId, `读取发布资产控制信息失败：${error.message}`);
     return null;
   }
-  return {
+  const entry = {
     packageName: app.packageName,
     version: controlVersion,
     architecture: app.architecture,
@@ -244,6 +279,11 @@ async function releaseApiEntry(app, source) {
     assetName: asset.name,
     websiteVersion: tagVersion,
   };
+  const officialTime = parseUnixSeconds(json.published_at ?? json.created_at);
+  entry._versionTimeCandidate = officialTime != null
+    ? { time: officialTime, source: "official" }
+    : null;
+  return entry;
 }
 
 async function stableDownloadEntry(app, source) {
@@ -293,7 +333,8 @@ async function stableDownloadEntry(app, source) {
     fail(app.applicationId, `读取安装包控制信息失败：${error.message}`);
     return null;
   }
-  return {
+  const serverModified = await lastModifiedOf(downloadUrl);
+  const entry = {
     packageName: app.packageName,
     version: controlVersion,
     architecture: app.architecture,
@@ -304,6 +345,10 @@ async function stableDownloadEntry(app, source) {
     assetName: null,
     websiteVersion: displayVersion,
   };
+  entry._versionTimeCandidate = serverModified != null
+    ? { time: serverModified, source: "serverModified" }
+    : null;
+  return entry;
 }
 
 async function downloadTemp(label, url) {
@@ -539,7 +584,7 @@ async function versionEndpointEntry(app, source) {
     return null;
   }
 
-  return {
+  const entry = {
     packageName: app.packageName,
     version: controlVersion,
     architecture: app.architecture,
@@ -550,22 +595,37 @@ async function versionEndpointEntry(app, source) {
     assetName: null,
     websiteVersion: websiteVersion ? String(websiteVersion) : null,
   };
+  // JSON payload + configured releaseTimeField -> official publish time.
+  entry._versionTimeCandidate = null;
+  if (source.payloadKind !== "html" && source.releaseTimeField && payload) {
+    const releaseTime = parseUnixSeconds(getJsonPath(payload, source.releaseTimeField));
+    if (releaseTime != null) {
+      entry._versionTimeCandidate = { time: releaseTime, source: "official" };
+    }
+  }
+  return entry;
 }
 
 async function toolEntry(tool) {
   const pkg = tool.npmPackage;
-  let json;
+  let doc;
   try {
-    json = JSON.parse(await fetchText(`https://registry.npmjs.org/${encodeURIComponent(pkg)}/latest`));
+    doc = JSON.parse(await fetchText(`https://registry.npmjs.org/${encodeURIComponent(pkg)}`));
   } catch (error) {
-    fail(tool.toolId, `读取 npm 最新版本失败：${error.message}`);
+    fail(tool.toolId, `读取 npm 包信息失败：${error.message}`);
     return null;
   }
-  if (!json.version) {
+  const version = doc?.["dist-tags"]?.latest;
+  if (!version) {
     fail(tool.toolId, `npm ${pkg} 未返回版本`);
     return null;
   }
-  return { npmPackage: pkg, version: String(json.version) };
+  const entry = { npmPackage: pkg, version: String(version) };
+  const publishTime = parseUnixSeconds(doc?.time?.[version]);
+  entry._versionTimeCandidate = publishTime != null
+    ? { time: publishTime, source: "official" }
+    : null;
+  return entry;
 }
 
 async function main() {
@@ -614,6 +674,32 @@ async function main() {
   for (const tool of catalog.developmentTools || []) {
     const entry = await toolEntry(tool);
     if (entry) developmentTools[tool.toolId] = entry;
+  }
+
+  // Merge version-update-time for every app / self-update / dev tool. The
+  // previous published feed is the state reference; entries never carry
+  // `_versionTimeCandidate` into the signed output.
+  const previousFeed = await fetchPreviousFeed(catalog.metadataFeed?.url);
+  const nowUnixSeconds = Math.floor(Date.now() / 1000);
+  const applyVersionTime = (entry, previousEntry) => {
+    if (!entry) return;
+    const candidate = entry._versionTimeCandidate || null;
+    const merged = mergeVersionUpdatedAt(
+      previousEntry ?? null,
+      entry.version,
+      candidate,
+      nowUnixSeconds,
+    );
+    entry.versionUpdatedAtUnixSeconds = merged?.time ?? null;
+    entry.versionUpdatedAtSource = merged?.source ?? null;
+    delete entry._versionTimeCandidate;
+  };
+  for (const [id, entry] of Object.entries(applications)) {
+    applyVersionTime(entry, previousFeed?.applications?.[id]);
+  }
+  if (selfUpdate) applyVersionTime(selfUpdate, previousFeed?.selfUpdate);
+  for (const [id, entry] of Object.entries(developmentTools)) {
+    applyVersionTime(entry, previousFeed?.developmentTools?.[id]);
   }
 
   // Extract + publish icons for feed-added applications, and inject the icon

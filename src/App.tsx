@@ -114,6 +114,24 @@ function formatSpeed(bytesPerSecond: number) {
   return `${(bytesPerSecond / 1024).toFixed(0)} KiB/s`;
 }
 
+const versionSourceLabel: Record<string, string> = {
+  official: "官方发布时间",
+  serverModified: "官方安装包更新时间",
+  observed: "首次采集到该版本",
+};
+
+function formatUpdatedAt(unixSeconds: number | null | undefined) {
+  if (unixSeconds == null) return null;
+  return new Date(unixSeconds * 1000).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function UpdatedAtLine({ seconds, source }: { seconds: number | null | undefined; source: string | null | undefined }) {
+  const text = formatUpdatedAt(seconds);
+  if (!text) return null;
+  const label = source ? (versionSourceLabel[source] ?? "") : "";
+  return <span className="updated-at-line">{label ? `${label}：` : ""}{text}</span>;
+}
+
 function OperationLogPanel({ events, running }: { events: OperationProgressEvent[]; running: boolean }) {
   if (events.length === 0) return null;
   const phases = events.filter((event) => event.kind !== "log");
@@ -473,7 +491,7 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
     {error && <div className="message error"><strong>无法检查 {item.displayName} 更新</strong><span>{error}</span></div>}
     {details && <div className="drawer-content">
       <div className={`trust-banner ${details.trusted ? "trusted" : "needsReview"}`}><Icon name="shield"/><div><strong>{details.trusted ? "来源验证通过" : "来源需要复核"}</strong><span>{isWebsite ? "官网、下载域名、Debian 包名和架构均符合软件源策略" : "包名、架构和官方仓库均符合软件源策略"}</span></div></div>
-      <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div>{details.websiteVersion && <p className="version-source-note">官网/发布标签展示 {details.websiteVersion}；UManager 通过 HTTP Range 读取 `.deb` 控制信息，获得用于比较的完整版本。</p>}</section>
+      <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div><UpdatedAtLine seconds={details.versionUpdatedAtUnixSeconds} source={details.versionUpdatedAtSource}/>{details.websiteVersion && <p className="version-source-note">官网/发布标签展示 {details.websiteVersion}；UManager 通过 HTTP Range 读取 `.deb` 控制信息，获得用于比较的完整版本。</p>}</section>
       <section className="detail-section"><h3>官方来源</h3><div className="path-card"><div><span className={`source-dot ${details.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${item.vendor} 官方 APT 仓库`}</strong></div><code title={details.sourceUrl}>{details.sourceUrl}</code><p>下载地址与所有 HTTPS 重定向都不能离开软件源中声明的允许域名。</p></div></section>
       <section className="detail-section"><h3>官方证据</h3><div className="evidence-list">{details.evidence.map((entry) => <div key={entry.label}><span className={entry.passed ? "check passed" : "check failed"}>{entry.passed ? "✓" : "!"}</span><div><strong>{entry.label}</strong><code>{entry.actual}</code></div></div>)}</div></section>
       <div className={`wechat-update-result ${details.updateState}`}><strong>{hasUpdate ? `发现新版本 ${details.candidateVersion}` : details.updateState === "upToDate" ? "已是最新版本" : "候选版本尚未确认"}</strong><span>{hasUpdate ? "可从官方源下载、校验并生成不可变更新计划。" : "官方完整版本与本机已安装版本相同。"}</span></div>
@@ -553,7 +571,7 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
     <header className="drawer-header"><div className="drawer-app"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div><h2>{offer.displayName}</h2><span>{isWebsite ? "官网直连新安装" : "官方 APT 仓库新安装"}</span>{offer.description && <p className="drawer-description">{offer.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     <div className="drawer-content">
       <div className="trust-banner trusted"><Icon name="shield"/><div><strong>{isWebsite ? "官方通道验证通过" : "官方仓库与候选版本已锁定"}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
-      <section className="detail-section"><h3>新安装目标</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div></section>
+      <section className="detail-section"><h3>新安装目标</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div><UpdatedAtLine seconds={offer.versionUpdatedAtUnixSeconds} source={offer.versionUpdatedAtSource}/></section>
       <section className="detail-section"><h3>安装来源</h3><div className="path-card"><div><span className={`source-dot ${offer.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${offer.vendor} 官方 APT 仓库`}</strong></div><code title={downloadPlan?.downloadUrl}>{downloadPlan?.downloadUrl}</code><p>{isWebsite ? "下载地址与所有 HTTPS 重定向都不能离开允许域名。" : "安装包路径和所有 HTTPS 重定向都不能离开允许域名。"}</p></div></section>
       <section className="detail-section download-section"><h3>官方安装包</h3>
         {downloadPlan && <DownloadCard plan={downloadPlan}/>}

@@ -37,6 +37,14 @@ pub struct Feed {
     pub development_tools: HashMap<String, FeedToolEntry>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum VersionUpdatedAtSource {
+    Official,
+    ServerModified,
+    Observed,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeedApplicationEntry {
@@ -52,6 +60,10 @@ pub struct FeedApplicationEntry {
     pub asset_name: Option<String>,
     #[serde(default)]
     pub website_version: Option<String>,
+    #[serde(default)]
+    pub version_updated_at_unix_seconds: Option<u64>,
+    #[serde(default)]
+    pub version_updated_at_source: Option<VersionUpdatedAtSource>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,6 +71,10 @@ pub struct FeedApplicationEntry {
 pub struct FeedToolEntry {
     pub npm_package: String,
     pub version: String,
+    #[serde(default)]
+    pub version_updated_at_unix_seconds: Option<u64>,
+    #[serde(default)]
+    pub version_updated_at_source: Option<VersionUpdatedAtSource>,
 }
 
 /// Human-readable snapshot of the last metadata-feed fetch, shown in Settings.
@@ -375,8 +391,21 @@ fn validate(feed: &Feed) -> Result<(), String> {
         if entry.version.is_empty() || entry.version.contains('\0') {
             return Err(format!("{id}：版本无效"));
         }
+        validate_version_updated_at(&entry.version_updated_at_unix_seconds, &entry.version_updated_at_source)
+            .map_err(|error| format!("{id}：{error}"))?;
     }
     Ok(())
+}
+
+fn validate_version_updated_at(
+    time: &Option<u64>,
+    source: &Option<VersionUpdatedAtSource>,
+) -> Result<(), String> {
+    match (time, source) {
+        (None, None) => Ok(()),
+        (Some(t), Some(_)) if *t > 0 => Ok(()),
+        _ => Err("版本更新时间与来源必须同时有值且时间大于 0".to_owned()),
+    }
 }
 
 fn validate_application_entry(_id: &str, entry: &FeedApplicationEntry) -> Result<(), String> {
@@ -398,6 +427,10 @@ fn validate_application_entry(_id: &str, entry: &FeedApplicationEntry) -> Result
     if !entry.download_url.starts_with("https://") {
         return Err("下载地址必须为 HTTPS".to_owned());
     }
+    validate_version_updated_at(
+        &entry.version_updated_at_unix_seconds,
+        &entry.version_updated_at_source,
+    )?;
     Ok(())
 }
 

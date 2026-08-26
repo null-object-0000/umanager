@@ -246,6 +246,10 @@ pub enum SourceSpec {
         /// e.g. `info-list.0.version`). HTML mode: text marker before the version.
         #[serde(default)]
         version_field: Option<String>,
+        /// JSON mode: dot-path to the endpoint's publish time for the current
+        /// version (official release timestamp), used by the feed generator.
+        #[serde(default)]
+        release_time_field: Option<String>,
         /// JSON mode: dot-path to the .deb URL (supports array index). HTML mode:
         /// rule selecting the .deb link (e.g. a `.deb` suffix).
         download_url_field: String,

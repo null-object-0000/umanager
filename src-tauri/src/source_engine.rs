@@ -33,6 +33,8 @@ pub struct ApplicationDetails {
     pub metadata_bytes: Option<u64>,
     pub release_tag: Option<String>,
     pub asset_name: Option<String>,
+    pub version_updated_at_unix_seconds: Option<u64>,
+    pub version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
     pub trusted: bool,
     pub evidence: Vec<Evidence>,
 }
@@ -94,6 +96,8 @@ pub(crate) struct Installable {
     pub(crate) installed_version: Option<String>,
     pub(crate) candidate_version: Option<String>,
     pub(crate) download_plan: Option<DownloadPlan>,
+    pub(crate) version_updated_at_unix_seconds: Option<u64>,
+    pub(crate) version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
 }
 
 #[derive(Clone, Debug)]
@@ -131,6 +135,8 @@ pub(crate) async fn load_installable(app: &Application, cache_dir: &Path) -> Res
             installed_version: installed,
             candidate_version: None,
             download_plan: None,
+            version_updated_at_unix_seconds: None,
+            version_updated_at_source: None,
         });
     };
     feed_installable(app, cache_dir, &entry, installed)
@@ -248,6 +254,8 @@ fn feed_details(
         metadata_bytes: None,
         release_tag: entry.release_tag.clone(),
         asset_name: entry.asset_name.clone(),
+        version_updated_at_unix_seconds: entry.version_updated_at_unix_seconds,
+        version_updated_at_source: entry.version_updated_at_source,
         trusted: true,
         evidence: vec![
             Evidence {
@@ -330,12 +338,16 @@ fn feed_installable(
             installed_version: installed,
             candidate_version: Some(entry.version.clone()),
             download_plan: None,
+            version_updated_at_unix_seconds: entry.version_updated_at_unix_seconds,
+            version_updated_at_source: entry.version_updated_at_source,
         });
     }
     Ok(Installable {
         installed_version: None,
         candidate_version: Some(entry.version.clone()),
         download_plan: Some(feed_plan(app, cache_dir, entry)?),
+        version_updated_at_unix_seconds: entry.version_updated_at_unix_seconds,
+        version_updated_at_source: entry.version_updated_at_source,
     })
 }
 
@@ -905,8 +917,10 @@ mod tests {
             release_tag: None,
             asset_name: None,
             website_version: None,
+            version_updated_at_unix_seconds: None,
+            version_updated_at_source: None,
         };
-        assert!(validate_feed_entry_for_app(&code, &good).is_ok());
+        assert!(validate_feed_entry_for_app(&code, &good).is_ok());;
 
         let bad_host = FeedApplicationEntry {
             download_url: "https://evil.example/code.deb".to_owned(),
@@ -935,6 +949,8 @@ mod tests {
             release_tag: None,
             asset_name: None,
             website_version: None,
+            version_updated_at_unix_seconds: None,
+            version_updated_at_source: None,
         };
         let plan = feed_plan(&code, Path::new("/tmp/cache"), &entry).unwrap();
         assert_eq!(plan.version, "1.2.3");

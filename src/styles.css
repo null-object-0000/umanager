@@ -66,6 +66,7 @@ nav { display:grid; gap:3px; }
 .trust-banner div { display:flex; flex-direction:column; gap:3px; } .trust-banner strong { font-size:11px; } .trust-banner span { color:#526b57; font-size:9px; }
 .detail-section { padding:20px 0; border-bottom:1px solid #dedbdd; } .detail-section h3 { margin:0 0 12px; color:#383438; font-size:11px; font-weight:700; }
 .version-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; } .version-pair>div { display:flex; min-width:0; flex-direction:column; gap:5px; padding:11px; border:1px solid #e2dfe1; border-radius:7px; background:white; }
+.updated-at-line { display:block; margin-top:8px; color:#6b666a; font-size:12px; }
 .version-pair span { color:#686267; font-size:8px; } .version-pair strong { overflow:hidden; font:600 9px ui-monospace,SFMono-Regular,Consolas,monospace; text-overflow:ellipsis; white-space:nowrap; }
 .path-card { padding:12px; border:1px solid #dedbde; border-radius:8px; background:white; } .path-card>div { display:flex; align-items:center; gap:8px; margin-bottom:8px; } .path-card strong { font-size:10px; }
 .path-card code,.fallback-url { display:block; overflow:hidden; color:#4d474c; font:9px ui-monospace,SFMono-Regular,Consolas,monospace; text-overflow:ellipsis; white-space:nowrap; }

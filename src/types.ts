@@ -1,5 +1,6 @@
 export type SourceKind = "officialRepository" | "officialWebsite" | "localPackage";
 export type UpdateState = "upToDate" | "updateAvailable" | "unknown";
+export type VersionUpdatedAtSource = "official" | "serverModified" | "observed";
 
 export interface ManagedPackage {
   packageName: string;
@@ -66,6 +67,8 @@ export interface ApplicationDetails {
   metadataBytes: number | null;
   releaseTag: string | null;
   assetName: string | null;
+  versionUpdatedAtUnixSeconds?: number | null;
+  versionUpdatedAtSource?: VersionUpdatedAtSource | null;
   trusted: boolean;
   evidence: Evidence[];
 }
@@ -120,6 +123,8 @@ export interface InstallableApplication {
   installAvailable: boolean;
   unavailableReason: string | null;
   downloadPlan: DownloadPlan | null;
+  versionUpdatedAtUnixSeconds?: number | null;
+  versionUpdatedAtSource?: VersionUpdatedAtSource | null;
 }
 
 export interface OperationPlanPayload {
