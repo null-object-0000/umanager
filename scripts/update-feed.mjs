@@ -43,10 +43,10 @@ function fail(context, message) {
   log(`!! ${context}: ${message}`);
 }
 
-async function fetchBuffer(url) {
+async function fetchBuffer(url, extraHeaders = {}) {
   const response = await fetch(url, {
     redirect: "follow",
-    headers: { "User-Agent": "UManager-feed/1.0" },
+    headers: { "User-Agent": "UManager-feed/1.0", ...extraHeaders },
   });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
@@ -54,8 +54,21 @@ async function fetchBuffer(url) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function fetchText(url) {
-  return (await fetchBuffer(url)).toString("utf8");
+async function fetchText(url, extraHeaders) {
+  return (await fetchBuffer(url, extraHeaders)).toString("utf8");
+}
+
+// GitHub API calls from a CI runner are unauthenticated by default (60/hr) and
+// frequently 403 under runner shared IPs. When GITHUB_TOKEN is available (it is
+// inside GitHub Actions) use it to raise the limit to 5000/hr. This token is
+// never attached to non-GitHub vendor fetches.
+function githubApiHeaders() {
+  return process.env.GITHUB_TOKEN
+    ? {
+        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+      }
+    : {};
 }
 
 async function fetchGz(url) {
@@ -235,7 +248,7 @@ async function aptEntry(app) {
 async function releaseApiEntry(app, source) {
   let json;
   try {
-    json = JSON.parse(await fetchText(source.releaseApiUrl));
+    json = JSON.parse(await fetchText(source.releaseApiUrl, githubApiHeaders()));
   } catch (error) {
     fail(app.applicationId, `读取发布信息失败：${error.message}`);
     return null;

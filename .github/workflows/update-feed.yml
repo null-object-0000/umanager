@@ -53,6 +53,10 @@ jobs:
         run: node scripts/update-feed.mjs
         env:
           FEED_SIGNING_KEY: ${{ secrets.FEED_SIGNING_KEY }}
+          # Authenticated GitHub API calls avoid the unauthenticated 60/hr
+          # runner-IP rate limit (HTTP 403) that intermittently drops
+          # releaseApi sources (FlClash, LocalSend).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
