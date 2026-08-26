@@ -260,23 +260,16 @@
       "toolId": "codex",
       "displayName": "Codex CLI",
       "vendor": "OpenAI",
-      "homepage": "https://learn.chatgpt.com/docs/codex/cli",
+      "homepage": "https://developers.openai.com/codex/cli",
       "icon": "codex",
       "accentColor": "#171918",
       "binaryName": "codex",
       "npmPackage": "@openai/codex",
       "installer": {
-        "kind": "curlScript",
-        "scriptUrl": "https://chatgpt.com/codex/install.sh",
-        "host": "chatgpt.com",
-        "shell": "sh"
+        "kind": "npm"
       },
       "uninstall": {
-        "kind": "removeFiles",
-        "paths": [
-          "~/.local/bin/codex",
-          "~/.local/bin/codex-code-mode-host"
-        ]
+        "kind": "npm"
       },
       "description": "OpenAI 的命令行编程代理，在终端里执行与自动化代码任务。"
     }
