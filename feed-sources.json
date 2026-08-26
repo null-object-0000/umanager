@@ -170,24 +170,6 @@
         "repositoryHosts": ["packages.microsoft.com"],
         "packagesIndexUrl": "https://packages.microsoft.com/repos/edge/dists/stable/main/binary-amd64/Packages.gz"
       }
-    },
-    {
-      "applicationId": "firefox",
-      "packageName": "firefox",
-      "displayName": "Firefox",
-      "vendor": "Mozilla",
-      "architecture": "amd64",
-      "description": "Mozilla 出品的开源浏览器，注重隐私保护与高度可定制，由 Mozilla 官方 apt 仓库分发。",
-      "homepage": "https://www.mozilla.org/firefox/",
-      "icon": "firefox",
-      "accentColor": "#ff9500",
-      "removable": true,
-      "source": {
-        "kind": "aptRepository",
-        "repositoryUrl": "https://packages.mozilla.org/apt",
-        "repositoryHosts": ["packages.mozilla.org"],
-        "packagesIndexUrl": "https://packages.mozilla.org/apt/dists/mozilla/main/binary-amd64/Packages"
-      }
     }
   ]
 }

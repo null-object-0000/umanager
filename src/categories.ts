@@ -27,7 +27,6 @@ const FALLBACK_DEB_BY_ID: Record<string, string> = {
   chatgpt: "ai-tools",
   "google-chrome": "browser",
   "microsoft-edge": "browser",
-  firefox: "browser",
   wechat: "chat",
   qq: "chat",
   wemeet: "office",
