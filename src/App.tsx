@@ -506,7 +506,7 @@ function InstallableRow({ offer, onOpen }: { offer: InstallableApplication; onOp
   const open = () => { if (available) onOpen(); };
   return <div className={`package-row ${available ? "supported" : ""}`} role={available ? "button" : undefined} tabIndex={available ? 0 : undefined} onClick={open} onKeyDown={(event) => { if (available && (event.key === "Enter" || event.key === " ")) onOpen(); }} title={offer.unavailableReason ?? undefined}>
     <div className="app-cell"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div className="app-meta"><strong>{offer.displayName}</strong><span>{offer.vendor} · {offer.packageName}</span></div></div>
-    <div className="version-cell"><strong>{installed ? offer.installedVersion : offer.candidateVersion ?? "未解析"}</strong>{!installed && offer.candidateVersion && <span>新装</span>}</div>
+    <div className="version-cell"><strong>{installed ? offer.installedVersion : "未安装"}</strong>{!installed && offer.candidateVersion && <span>可安装 {offer.candidateVersion}</span>}</div>
     <div className="source-cell"><span className={`source-dot ${offer.sourceKind}`}/><div><strong>{offer.sourceKind === "officialRepository" ? "官方 APT 仓库" : "官网直连"}</strong><span>{offer.architecture}</span></div></div>
     <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><div className="row-actions">{available && <button className="install-package-button" onClick={(event) => { event.stopPropagation(); onOpen(); }}>安装</button>}<span className={`row-arrow ${available ? "" : "placeholder"}`} aria-hidden="true">›</span></div></div>
   </div>;
