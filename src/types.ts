@@ -249,6 +249,31 @@ export interface CategoryCatalog {
   assignments: CategoryAssignments;
 }
 
+export interface ScriptAction {
+  id: string;
+  label: string;
+}
+
+export interface ScriptDefinition {
+  id: string;
+  name: string;
+  description: string;
+  actions: ScriptAction[];
+  userLevel: boolean;
+}
+
+export interface ScriptProgressEvent {
+  scriptId: string;
+  phase: "running" | "completed";
+  stream: "system" | "stdout" | "stderr";
+  message: string;
+}
+
+export interface ScriptRunReport {
+  scriptId: string;
+  success: boolean;
+}
+
 export interface InstallationInfo {
   appVersion: string;
   installationKind: "debianPackage" | "portable" | "development";

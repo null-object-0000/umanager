@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion, listScripts, runScript, stopScript } from "./api";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, UpdateState } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
@@ -863,6 +863,7 @@ function ScriptsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [logScriptId, setLogScriptId] = useState<string | null>(null);
   const [events, setEvents] = useState<ScriptProgressEvent[]>([]);
 
   const refresh = async () => {
@@ -871,10 +872,10 @@ function ScriptsPage() {
   };
   useEffect(() => { void refresh(); }, []);
 
-  const run = async (script: ScriptDefinition, dryRun: boolean) => {
-    setRunningId(script.id); setError(null); setEvents([]);
+  const run = async (script: ScriptDefinition, action: ScriptAction) => {
+    setRunningId(script.id); setError(null); setLogScriptId(script.id); setEvents([]);
     try {
-      await runScript(script.id, dryRun, (event) => setEvents((current) => [...current.slice(-499), event]));
+      await runScript(script.id, action.id, (event) => setEvents((current) => [...current.slice(-499), event]));
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -898,11 +899,12 @@ function ScriptsPage() {
           <span className="status-badge upToDate">用户级 · 无 root</span>
         </div>
         <div className="script-actions">
-          <button className="dev-action-button" disabled={runningId !== null} onClick={() => void run(script, false)}>{runningId === script.id ? "运行中…" : "运行"}</button>
-          {script.supportsDryRun && <button className="secondary-button" disabled={runningId !== null} onClick={() => void run(script, true)}>试运行</button>}
+          {runningId === script.id
+            ? <span className="script-running-label">运行中…</span>
+            : script.actions.map((action) => <button key={action.id} className="dev-action-button" disabled={runningId !== null} onClick={() => void run(script, action)}>{action.label}</button>)}
           {runningId === script.id && <button className="dev-action-button danger" onClick={() => void stop(script.id)}>停止</button>}
         </div>
-        {(runningId === script.id || events.length > 0) && <ScriptLogPanel events={events} running={runningId === script.id}/>}
+        {logScriptId === script.id && events.length > 0 && <ScriptLogPanel events={events} running={runningId === script.id}/>}
       </div>)}
     </section>
   </main>;

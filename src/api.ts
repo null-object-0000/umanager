@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -439,4 +439,23 @@ export function installDevTool(toolId: string, onProgress?: (event: DevToolProgr
 
 export function uninstallDevTool(toolId: string, onProgress?: (event: DevToolProgress) => void): Promise<DevToolReport> {
   return invokeWithDevToolProgress<DevToolReport>("uninstall_dev_tool", toolId, onProgress);
+}
+
+export function listScripts(): Promise<ScriptDefinition[]> {
+  return invoke<ScriptDefinition[]>("list_scripts");
+}
+
+export async function runScript(scriptId: string, actionId: string, onProgress?: (event: ScriptProgressEvent) => void): Promise<ScriptRunReport> {
+  const unlisten = onProgress ? await listen<ScriptProgressEvent>("script-progress", ({ payload }) => {
+    if (payload.scriptId === scriptId) onProgress(payload);
+  }) : null;
+  try {
+    return await invoke<ScriptRunReport>("run_script", { scriptId, actionId });
+  } finally {
+    unlisten?.();
+  }
+}
+
+export function stopScript(scriptId: string): Promise<boolean> {
+  return invoke<boolean>("stop_script", { scriptId });
 }

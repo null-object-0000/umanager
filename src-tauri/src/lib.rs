@@ -8,6 +8,7 @@ mod local_deb;
 mod network;
 mod operation_plan;
 mod scanner;
+mod scripts;
 mod source_engine;
 
 use std::path::PathBuf;
@@ -303,6 +304,25 @@ async fn get_feed_status() -> Result<feed::FeedStatus, String> {
 #[tauri::command]
 async fn get_categories() -> Option<feed::CategoryCatalog> {
     feed::category_catalog().await
+}
+
+#[tauri::command]
+async fn list_scripts() -> Vec<scripts::ScriptDefinition> {
+    scripts::list()
+}
+
+#[tauri::command]
+async fn run_script(
+    app: tauri::AppHandle,
+    script_id: String,
+    action_id: String,
+) -> Result<scripts::ScriptRunReport, String> {
+    scripts::run(app, script_id, action_id).await
+}
+
+#[tauri::command]
+async fn stop_script(script_id: String) -> bool {
+    scripts::stop(script_id).await
 }
 
 #[tauri::command]
@@ -638,6 +658,9 @@ pub fn run() {
             set_network_settings,
             get_feed_status,
             get_categories,
+            list_scripts,
+            run_script,
+            stop_script,
             scan_packages,
             get_software_catalog,
             fetch_app_icon,

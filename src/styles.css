@@ -461,3 +461,17 @@ nav { display:grid; gap:3px; }
 .drawer-title-row h2 { margin:0; }
 .drawer-title-row > span { flex:none; white-space:nowrap; }
 
+/* Built-in maintenance scripts page. */
+.script-panel { overflow:visible; }
+.script-card { padding:16px 19px; border-bottom:1px solid #eeeced; }
+.script-card:last-child { border-bottom:0; }
+.script-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.script-card-head .app-meta { flex:1; }
+.script-card-head .app-meta strong { font-size:14px; }
+.script-card-head .script-meta { color:#999499; font-size:12px; }
+.script-card-head .app-description { margin-top:6px; color:#847e82; font-size:13px; line-height:1.5; white-space:normal; overflow:visible; text-overflow:clip; }
+.script-actions { display:flex; align-items:center; gap:8px; margin-top:12px; }
+.script-actions .secondary-button { min-width:0; height:34px; }
+.script-running-label { display:inline-flex; align-items:center; height:30px; padding:0 12px; color:#4c2341; border-radius:6px; background:#eee7ec; font-size:12px; font-weight:650; }
+.script-system-lines { display:grid; gap:4px; padding:11px 14px; color:#5f595e; font-size:12px; line-height:1.6; border-top:1px solid #eeeced; }
+
