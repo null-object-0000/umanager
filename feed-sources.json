@@ -6,6 +6,7 @@
       "displayName": "GitHub CLI",
       "vendor": "GitHub",
       "architecture": "amd64",
+      "description": "GitHub 官方命令行工具，在终端里直接管理仓库、Issue、PR、Actions。",
       "category": "cli",
       "homepage": "https://cli.github.com/",
       "icon": "github-cli",
@@ -14,12 +15,9 @@
       "source": {
         "kind": "aptRepository",
         "repositoryUrl": "https://cli.github.com/packages",
-        "repositoryHosts": [
-          "cli.github.com"
-        ],
+        "repositoryHosts": ["cli.github.com"],
         "packagesIndexUrl": "https://cli.github.com/packages/dists/stable/main/binary-amd64/Packages.gz"
-      },
-      "description": "GitHub 官方命令行工具，在终端里直接管理仓库、Issue、PR、Actions。"
+      }
     },
     {
       "applicationId": "localsend",
@@ -27,6 +25,7 @@
       "displayName": "LocalSend",
       "vendor": "LocalSend",
       "architecture": "amd64",
+      "description": "开源跨平台局域网文件传输工具，无需互联网即可在设备间安全互传文件，端到端加密。",
       "homepage": "https://localsend.org/",
       "icon": "localsend",
       "accentColor": "#0fa3a3",
@@ -34,110 +33,12 @@
       "source": {
         "kind": "releaseApi",
         "releaseApiUrl": "https://api.github.com/repos/localsend/localsend/releases/latest",
-        "releaseApiHosts": [
-          "api.github.com"
-        ],
+        "releaseApiHosts": ["api.github.com"],
         "assetNamePattern": "LocalSend-{tagVersion}-linux-x86-64.deb",
         "stripTagPrefix": "v",
-        "assetDownloadHosts": [
-          "github.com",
-          "objects.githubusercontent.com",
-          "release-assets.githubusercontent.com"
-        ],
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
         "allowPrerelease": false
-      },
-      "description": "开源跨平台局域网文件传输工具，无需互联网即可在设备间安全互传文件，端到端加密。"
-    },
-    {
-      "applicationId": "qq",
-      "packageName": "linuxqq",
-      "displayName": "QQ",
-      "vendor": "腾讯",
-      "architecture": "amd64",
-      "homepage": "https://im.qq.com/index/#/linux",
-      "icon": "qq",
-      "accentColor": "#12b7f5",
-      "removable": true,
-      "source": {
-        "kind": "versionEndpoint",
-        "versionEndpointUrl": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
-        "versionEndpointHosts": [
-          "qq-web.cdn-go.cn"
-        ],
-        "payloadKind": "json",
-        "versionField": "Linux.version",
-        "downloadUrlField": "Linux.x64DownloadUrl.deb",
-        "downloadHosts": [
-          "qqdl.gtimg.cn"
-        ],
-        "sign": {
-          "kind": "qqUrlSign",
-          "endpointUrl": "https://im.qq.com/http2rpc/gotrpc/noauth/trpc.qqntv2.urlsign.UrlSign/GetSign",
-          "endpointHosts": [
-            "im.qq.com"
-          ],
-          "method": "POST",
-          "headers": {
-            "Content-Type": "application/json",
-            "x-oidb": "{\"uint32_command\":\"0x9b8e\",\"uint32_service_type\":1}"
-          },
-          "bodyTemplate": "{\"url\":\"{downloadUrl}\"}",
-          "signedUrlField": "data.url"
-        }
-      },
-      "description": "腾讯 QQ Linux 桌面版，支持文字、语音、视频聊天与文件传输。"
-    },
-    {
-      "applicationId": "qq-music",
-      "packageName": "qqmusic",
-      "displayName": "QQ 音乐",
-      "vendor": "腾讯",
-      "architecture": "amd64",
-      "homepage": "https://y.qq.com/download/download.html",
-      "icon": "qq-music",
-      "accentColor": "#31c27c",
-      "removable": true,
-      "source": {
-        "kind": "versionEndpoint",
-        "versionEndpointUrl": "https://y.qq.com/download/download.html",
-        "versionEndpointHosts": [
-          "y.qq.com"
-        ],
-        "payloadKind": "html",
-        "downloadUrlField": ".deb",
-        "downloadHosts": [
-          "c.y.qq.com",
-          "dldir.y.qq.com"
-        ],
-        "gatewayUrl": "https://umanager.nichangen.workers.dev"
-      },
-      "description": "腾讯官方音乐客户端，海量曲库与高品质音质，支持歌单与个性化推荐。"
-    },
-    {
-      "applicationId": "obsidian",
-      "packageName": "obsidian",
-      "displayName": "Obsidian",
-      "vendor": "Obsidian",
-      "architecture": "amd64",
-      "homepage": "https://obsidian.md/",
-      "icon": "obsidian",
-      "accentColor": "#7c3aed",
-      "removable": true,
-      "source": {
-        "kind": "versionEndpoint",
-        "versionEndpointUrl": "https://obsidian.md/download",
-        "versionEndpointHosts": [
-          "obsidian.md"
-        ],
-        "payloadKind": "html",
-        "downloadUrlField": "_amd64.deb",
-        "downloadHosts": [
-          "github.com",
-          "objects.githubusercontent.com",
-          "release-assets.githubusercontent.com"
-        ]
-      },
-      "description": "基于 Markdown 的本地知识库笔记应用，用双向链接构建个人知识网络，本地优先、数据自持。"
+      }
     }
   ]
 }
