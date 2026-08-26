@@ -20,8 +20,8 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, sign } from "node:crypto";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -276,6 +276,73 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// ---------------------------------------------------------------------------
+// Icon extraction: pull the app icon out of a vendor .deb without installing it.
+// ---------------------------------------------------------------------------
+
+function sha256Buf(buffer) {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+// Parse the PNG IHDR width/height (big-endian at offsets 16/20) to pick the
+// largest icon resolution among candidates.
+function pngDimensions(buffer) {
+  if (buffer.length < 24 || buffer.readUInt32BE(12) !== 0x49484452) {
+    return null; // not a PNG or missing IHDR
+  }
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+// Extract the best PNG icon from a .deb (dpkg-deb -x, no install). Returns
+// { buffer, width, height } of the largest icon found, or null.
+function extractIcon(debPath) {
+  const extractDir = `/tmp/umanager-feed-icon-${process.pid}`;
+  try {
+    rmSync(extractDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+  const result = spawnSync("dpkg-deb", ["-x", debPath, extractDir], {
+    encoding: "utf8",
+    stdio: "ignore",
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+
+  const candidates = [];
+  for (const base of [
+    join(extractDir, "usr/share/icons/hicolor"),
+    join(extractDir, "usr/share/icons"),
+    join(extractDir, "usr/share/pixmaps"),
+  ]) {
+    if (!existsSync(base)) continue;
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (entry.name.toLowerCase().endsWith(".png")) candidates.push(path);
+      }
+    };
+    walk(base);
+  }
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  let best = null;
+  for (const path of candidates) {
+    const buffer = readFileSync(path);
+    const dimensions = pngDimensions(buffer);
+    if (!dimensions) continue;
+    const area = dimensions.width * dimensions.height;
+    if (!best || area > best.area) {
+      best = { buffer, area, width: dimensions.width, height: dimensions.height };
+    }
+  }
+  return best;
+}
+
 async function toolEntry(tool) {
   const pkg = tool.npmPackage;
   let json;
@@ -335,6 +402,37 @@ async function main() {
   for (const tool of catalog.developmentTools || []) {
     const entry = await toolEntry(tool);
     if (entry) developmentTools[tool.toolId] = entry;
+  }
+
+  // Extract + publish icons for feed-added applications, and inject the icon
+  // URL + SHA-256 into the signed catalog. Built-in apps keep their bundled icons.
+  const iconBase = catalog.metadataFeed?.url?.replace(/\/[^/]*$/, "");
+  const iconsDir = join(dirname(OUT_PATH), "icons");
+  if (iconBase && extraApplications.length > 0) {
+    mkdirSync(iconsDir, { recursive: true });
+    for (const app of extraApplications) {
+      const entry = applications[app.applicationId];
+      if (!entry?.downloadUrl) {
+        log(`  icon: ${app.applicationId} — 无下载地址，跳过`);
+        continue;
+      }
+      try {
+        const debPath = await downloadTemp(app.applicationId, entry.downloadUrl);
+        const icon = extractIcon(debPath);
+        rmSync(debPath, { force: true });
+        if (!icon) {
+          log(`  icon: ${app.applicationId} — 未找到图标`);
+          continue;
+        }
+        const iconPath = join(iconsDir, `${app.applicationId}.png`);
+        writeFileSync(iconPath, icon.buffer);
+        app.icon_url = `${iconBase}/icons/${app.applicationId}.png`;
+        app.icon_sha256 = sha256Buf(icon.buffer);
+        log(`  icon: ${app.applicationId} ✓ (${icon.width}x${icon.height})`);
+      } catch (error) {
+        fail(app.applicationId, `图标提取失败：${error.message}`);
+      }
+    }
   }
 
   const catalogJson = JSON.stringify(extraApplications);
