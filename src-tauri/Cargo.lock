@@ -3911,6 +3911,7 @@ dependencies = [
  "tokio",
  "umanager-catalog",
  "umanager-plan",
+ "url",
 ]
 
 [[package]]

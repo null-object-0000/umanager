@@ -343,6 +343,174 @@ function extractIcon(debPath) {
   return best;
 }
 
+// ---------------------------------------------------------------------------
+// versionEndpoint: resolve a .deb download URL + version from a vendor endpoint
+// that returns JSON / JSON-in-script / HTML.
+// ---------------------------------------------------------------------------
+
+function buildVersionEndpointUrl(source) {
+  const url = new URL(source.versionEndpointUrl);
+  for (const [key, value] of Object.entries(source.query || {})) {
+    url.searchParams.set(key, typeof value === "string" ? value : JSON.stringify(value));
+  }
+  return url.toString();
+}
+
+// Dot-path access with array index support: "info-list.0.url" -> obj["info-list"][0]["url"].
+function getJsonPath(obj, path) {
+  if (!path) return undefined;
+  let current = obj;
+  for (const key of path.split(".")) {
+    if (current == null) return undefined;
+    if (Array.isArray(current) && /^\d+$/.test(key)) current = current[Number(key)];
+    else current = current[key];
+  }
+  return current;
+}
+
+// Extract a balanced JSON object from inside a JS file (e.g. `var params = {...};`).
+function extractJsonObject(text) {
+  const start = text.indexOf("{");
+  if (start < 0) throw new Error("未找到 JSON 对象");
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') {
+      inStr = true;
+    } else if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  throw new Error("JSON 对象不完整");
+}
+
+// Pick the .deb URL out of HTML: prefer a link ending in `.deb`, else the first
+// URL whose path contains `.deb`.
+function extractHtmlDebUrl(text) {
+  const urls = text.match(/https:\/\/[^\s"'<>]+/g) || [];
+  let fallback = null;
+  for (const raw of urls) {
+    const clean = raw.replace(/[),;]+$/, "");
+    if (clean.endsWith(".deb")) return clean;
+    if (!fallback && clean.includes(".deb")) fallback = clean;
+  }
+  return fallback;
+}
+
+// Extract the display version text that follows an HTML marker.
+function extractHtmlVersion(text, marker) {
+  if (!marker) return null;
+  const index = text.indexOf(marker);
+  if (index < 0) return null;
+  return text.slice(index + marker.length).split(/[<"\s]/)[0] || null;
+}
+
+function hostAllowedInList(url, hosts) {
+  try {
+    const host = new URL(url).hostname;
+    return hosts.some((allowed) => allowed === host);
+  } catch {
+    return false;
+  }
+}
+
+// Apply the configured URL-signing step (e.g. QQ's trpc UrlSign) to a raw .deb URL.
+async function applySign(sign, rawUrl) {
+  const headers = { "Content-Type": "application/json", ...(sign.headers || {}) };
+  const body = sign.bodyTemplate.replace("{downloadUrl}", rawUrl);
+  const response = await fetch(sign.endpointUrl, {
+    method: sign.method || "POST",
+    headers,
+    body,
+  });
+  if (!response.ok) {
+    throw new Error(`签名接口返回 HTTP ${response.status}`);
+  }
+  const json = JSON.parse(await response.text());
+  const signed = getJsonPath(json, sign.signedUrlField);
+  if (!signed) {
+    throw new Error("签名接口未返回下载地址");
+  }
+  return signed;
+}
+
+async function versionEndpointEntry(app, source) {
+  let text;
+  try {
+    text = await fetchText(buildVersionEndpointUrl(source));
+  } catch (error) {
+    fail(app.applicationId, `读取版本端点失败：${error.message}`);
+    return null;
+  }
+
+  let rawUrl;
+  let websiteVersion = null;
+  try {
+    if (source.payloadKind === "html") {
+      rawUrl = extractHtmlDebUrl(text);
+      websiteVersion = extractHtmlVersion(text, source.versionField);
+    } else {
+      const payload =
+        source.payloadKind === "jsonInScript" ? JSON.parse(extractJsonObject(text)) : JSON.parse(text);
+      rawUrl = getJsonPath(payload, source.downloadUrlField);
+      websiteVersion = getJsonPath(payload, source.versionField) ?? null;
+    }
+  } catch (error) {
+    fail(app.applicationId, `解析版本端点失败：${error.message}`);
+    return null;
+  }
+
+  if (!rawUrl || !rawUrl.startsWith("https://")) {
+    fail(app.applicationId, "版本端点未解析出有效的下载地址");
+    return null;
+  }
+  if (!hostAllowedInList(rawUrl, source.downloadHosts || [])) {
+    fail(app.applicationId, "下载地址不属于允许域名");
+    return null;
+  }
+
+  let download = rawUrl;
+  if (source.sign) {
+    try {
+      download = await applySign(source.sign, rawUrl);
+    } catch (error) {
+      fail(app.applicationId, `获取签名下载地址失败：${error.message}`);
+      return null;
+    }
+  }
+
+  let debPath;
+  let controlVersion;
+  try {
+    debPath = await downloadTemp(app.applicationId, download);
+    controlVersion = debControlField(debPath, "Version");
+  } catch (error) {
+    fail(app.applicationId, `读取安装包控制信息失败：${error.message}`);
+    return null;
+  }
+
+  return {
+    packageName: app.packageName,
+    version: controlVersion,
+    architecture: app.architecture,
+    size: statSync(debPath).size,
+    sha256: sha256OfFile(debPath),
+    downloadUrl: rawUrl,
+    releaseTag: null,
+    assetName: null,
+    websiteVersion: websiteVersion ? String(websiteVersion) : null,
+  };
+}
+
 async function toolEntry(tool) {
   const pkg = tool.npmPackage;
   let json;
@@ -382,6 +550,9 @@ async function main() {
       if (entry) applications[app.applicationId] = entry;
     } else if (app.source?.kind === "stableDownloadEndpoint") {
       const entry = await stableDownloadEntry(app, app.source);
+      if (entry) applications[app.applicationId] = entry;
+    } else if (app.source?.kind === "versionEndpoint") {
+      const entry = await versionEndpointEntry(app, app.source);
       if (entry) applications[app.applicationId] = entry;
     }
   }

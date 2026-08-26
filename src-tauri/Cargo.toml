@@ -27,5 +27,6 @@ tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["fs", "io-util"] }
 umanager-catalog = { path = "../crates/umanager-catalog" }
 umanager-plan = { path = "../crates/umanager-plan" }
+url = "2"
 
 serde_json = "1"

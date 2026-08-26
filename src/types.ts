@@ -21,7 +21,7 @@ export interface ScanResult {
 }
 
 export interface CatalogSource {
-  kind: "aptRepository" | "stableDownloadEndpoint" | "releaseApi" | "browserImport";
+  kind: "aptRepository" | "stableDownloadEndpoint" | "releaseApi" | "browserImport" | "versionEndpoint";
   [key: string]: unknown;
 }
 

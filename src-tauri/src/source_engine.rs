@@ -366,6 +366,190 @@ fn result_from_verified(
     }
 }
 
+/// Resolve the download URL to actually fetch: re-fetch the version endpoint if
+/// `resolve_at_download` is set (Feishu's links expire), then apply any URL
+/// signing step (QQ). Other sources return the URL unchanged.
+async fn resolve_download_url(app: &Application, raw_url: &str) -> Result<String, String> {
+    let SourceSpec::VersionEndpoint {
+        version_endpoint_url,
+        version_endpoint_hosts,
+        query,
+        payload_kind,
+        download_url_field,
+        download_hosts,
+        sign,
+        resolve_at_download,
+        ..
+    } = &app.source
+    else {
+        return Ok(raw_url.to_owned());
+    };
+
+    let mut url = raw_url.to_owned();
+    if *resolve_at_download {
+        url = re_resolve_endpoint_url(
+            version_endpoint_url,
+            version_endpoint_hosts,
+            query,
+            payload_kind,
+            download_url_field,
+        )
+        .await?;
+    }
+    if let Some(sign_config) = sign {
+        url = sign_url(sign_config, &url).await?;
+    }
+    let hosts = download_hosts;
+    if !url.starts_with("https://") || !host_allowed(https_host(&url), hosts) {
+        return Err("下载地址不属于允许域名".to_owned());
+    }
+    Ok(url)
+}
+
+/// Apply the configured URL-signing step (e.g. QQ's trpc UrlSign) to `raw_url`.
+async fn sign_url(sign: &umanager_catalog::VersionEndpointSign, raw_url: &str) -> Result<String, String> {
+    let client = restricted_client(&sign.endpoint_hosts, Duration::from_secs(20))?;
+    let body = sign.body_template.replace("{downloadUrl}", raw_url);
+    let mut request = client.post(&sign.endpoint_url);
+    request = request.header(reqwest::header::CONTENT_TYPE, "application/json");
+    if let Some(headers) = &sign.headers
+        && let Some(map) = headers.as_object()
+    {
+        for (key, value) in map {
+            if let Some(text) = value.as_str() {
+                request = request.header(key.as_str(), text);
+            }
+        }
+    }
+    let response = request
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| format!("获取签名下载地址失败：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("签名接口返回错误：{error}"))?;
+    if response.url().scheme() != "https"
+        || !host_allowed(response.url().host_str(), &sign.endpoint_hosts)
+    {
+        return Err("签名接口重定向到未授权域名".to_owned());
+    }
+    let body_text = response
+        .text()
+        .await
+        .map_err(|error| format!("读取签名接口响应失败：{error}"))?;
+    let json: serde_json::Value = serde_json::from_str(&body_text)
+        .map_err(|error| format!("签名接口响应无效：{error}"))?;
+    let pointer = format!("/{}", sign.signed_url_field.replace('.', "/"));
+    json.pointer(&pointer)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "签名接口未返回下载地址".to_owned())
+}
+
+// Dot-path access with array-index support, mirroring the generator's getJsonPath.
+fn json_path<'a>(value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let mut current = value;
+    for segment in path.split('.') {
+        if segment.is_empty() {
+            return None;
+        }
+        if let Ok(index) = segment.parse::<usize>() {
+            current = current.get(index)?;
+        } else {
+            current = current.get(segment)?;
+        }
+    }
+    Some(current)
+}
+
+// Extract a balanced JSON object from inside a JS file (e.g. `var params = {...};`).
+fn extract_json_object(text: &str) -> Result<&str, String> {
+    let start = text.find('{').ok_or_else(|| "未找到 JSON 对象".to_owned())?;
+    let bytes = text.as_bytes();
+    let mut depth = 0_i32;
+    let mut in_str = false;
+    let mut esc = false;
+    for (index, &byte) in bytes.iter().enumerate().skip(start) {
+        if in_str {
+            if esc {
+                esc = false;
+            } else if byte == b'\\' {
+                esc = true;
+            } else if byte == b'"' {
+                in_str = false;
+            }
+        } else if byte == b'"' {
+            in_str = true;
+        } else if byte == b'{' {
+            depth += 1;
+        } else if byte == b'}' {
+            depth -= 1;
+            if depth == 0 {
+                return Ok(&text[start..=index]);
+            }
+        }
+    }
+    Err("JSON 对象不完整".to_owned())
+}
+
+// Re-fetch the version endpoint and extract a fresh download URL (Feishu etc.).
+async fn re_resolve_endpoint_url(
+    version_endpoint_url: &str,
+    hosts: &[String],
+    query: &Option<serde_json::Map<String, serde_json::Value>>,
+    payload_kind: &umanager_catalog::VersionEndpointPayload,
+    download_url_field: &str,
+) -> Result<String, String> {
+    let endpoint = build_endpoint_url(version_endpoint_url, query)?;
+    let client = restricted_client(hosts, Duration::from_secs(20))?;
+    let response = client
+        .get(&endpoint)
+        .send()
+        .await
+        .map_err(|error| format!("重新解析下载地址失败：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("版本端点返回错误：{error}"))?;
+    if response.url().scheme() != "https" || !host_allowed(response.url().host_str(), hosts) {
+        return Err("版本端点重定向到未授权域名".to_owned());
+    }
+    let text = response
+        .text()
+        .await
+        .map_err(|error| format!("读取版本端点响应失败：{error}"))?;
+    let payload = match payload_kind {
+        umanager_catalog::VersionEndpointPayload::Json => serde_json::from_str(&text),
+        umanager_catalog::VersionEndpointPayload::JsonInScript => {
+            serde_json::from_str(extract_json_object(&text)?)
+        }
+        umanager_catalog::VersionEndpointPayload::Html => {
+            return Err("HTML 端点不支持下载时重新解析".to_owned());
+        }
+    }
+    .map_err(|error| format!("版本端点响应无效：{error}"))?;
+    json_path(&payload, download_url_field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "版本端点未返回下载地址".to_owned())
+}
+
+fn build_endpoint_url(
+    base: &str,
+    query: &Option<serde_json::Map<String, serde_json::Value>>,
+) -> Result<String, String> {
+    let mut url = url::Url::parse(base).map_err(|error| format!("版本端点地址无效：{error}"))?;
+    if let Some(params) = query {
+        let mut pairs = url.query_pairs_mut();
+        for (key, value) in params {
+            let rendered = match value {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            pairs.append_pair(key, &rendered);
+        }
+    }
+    Ok(url.to_string())
+}
+
 async fn download_plan_file(
     app: &Application,
     plan: &DownloadPlan,
@@ -373,9 +557,10 @@ async fn download_plan_file(
     progress: &ProgressCallback,
 ) -> Result<VerifiedFile, String> {
     let download_hosts = app.download_hosts().into_iter().map(str::to_owned).collect::<Vec<_>>();
+    let download_url = resolve_download_url(app, &plan.download_url).await?;
     let client = restricted_client(&download_hosts, Duration::from_secs(30 * 60))?;
     let mut response = client
-        .get(&plan.download_url)
+        .get(&download_url)
         .send()
         .await
         .map_err(|error| format!("下载 {} 安装包失败：{error}", app.display_name))?

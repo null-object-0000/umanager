@@ -91,7 +91,7 @@ function DevToolLogo({ tool }: { tool: DevTool }) {
 function isAutoInstallable(packageName: string) {
   const entry = catalogByPackage[packageName];
   if (!entry) return false;
-  return ["aptRepository", "stableDownloadEndpoint", "releaseApi"].includes(entry.source.kind);
+  return ["aptRepository", "stableDownloadEndpoint", "releaseApi", "versionEndpoint"].includes(entry.source.kind);
 }
 
 function PackageRow({ item, onOpen, onRemove }: { item: ManagedPackage; onOpen?: () => void; onRemove: () => void }) {

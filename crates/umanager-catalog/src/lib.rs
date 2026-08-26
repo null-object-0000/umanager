@@ -215,6 +215,68 @@ pub enum SourceSpec {
     BrowserImport {
         homepage_url: String,
     },
+    #[serde(rename_all = "camelCase")]
+    VersionEndpoint {
+        /// Stable HTTPS endpoint returning JSON / JSON-in-script / HTML that
+        /// resolves the current version + .deb download URL.
+        version_endpoint_url: String,
+        /// Exact hosts accepted while fetching the endpoint (and redirects).
+        version_endpoint_hosts: Vec<String>,
+        /// Endpoint payload type.
+        payload_kind: VersionEndpointPayload,
+        /// Optional extra query params appended to the endpoint request
+        /// (e.g. Tencent Meeting's `q=[...]`, Feishu's `platform=linux`).
+        #[serde(default)]
+        query: Option<serde_json::Map<String, serde_json::Value>>,
+        /// JSON mode: dot-path to the display version (supports array index,
+        /// e.g. `info-list.0.version`). HTML mode: text marker before the version.
+        #[serde(default)]
+        version_field: Option<String>,
+        /// JSON mode: dot-path to the .deb URL (supports array index). HTML mode:
+        /// rule selecting the .deb link (e.g. a `.deb` suffix).
+        download_url_field: String,
+        /// Exact hosts allowed to serve the .deb download (and redirects).
+        download_hosts: Vec<String>,
+        /// Optional URL-signing step (e.g. QQ's trpc UrlSign) applied to the raw
+        /// download URL before download.
+        #[serde(default)]
+        sign: Option<VersionEndpointSign>,
+        /// When true, the app re-fetches `version_endpoint_url` at download time to
+        /// obtain a fresh download URL (for vendors whose download link expires,
+        /// e.g. Feishu). The feed's stored downloadUrl is then only a hint.
+        #[serde(default)]
+        resolve_at_download: bool,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VersionEndpointPayload {
+    Json,
+    /// Reserved: JSON wrapped in a JS file (e.g. QQ's legacy `linuxConfig.js`).
+    JsonInScript,
+    Html,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionEndpointSign {
+    pub kind: VersionEndpointSignKind,
+    pub endpoint_url: String,
+    pub endpoint_hosts: Vec<String>,
+    pub method: String,
+    #[serde(default)]
+    pub headers: Option<serde_json::Value>,
+    /// Request body template; `{downloadUrl}` is replaced with the raw .deb URL.
+    pub body_template: String,
+    /// Dot-path to the signed URL in the sign API response.
+    pub signed_url_field: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VersionEndpointSignKind {
+    QqUrlSign,
 }
 
 fn default_true() -> bool {
@@ -267,6 +329,7 @@ impl Application {
             SourceSpec::AptRepository { .. }
                 | SourceSpec::StableDownloadEndpoint { .. }
                 | SourceSpec::ReleaseApi { .. }
+                | SourceSpec::VersionEndpoint { .. }
         )
     }
 
@@ -275,7 +338,9 @@ impl Application {
     pub fn is_website_download(&self) -> bool {
         matches!(
             self.source,
-            SourceSpec::StableDownloadEndpoint { .. } | SourceSpec::ReleaseApi { .. }
+            SourceSpec::StableDownloadEndpoint { .. }
+                | SourceSpec::ReleaseApi { .. }
+                | SourceSpec::VersionEndpoint { .. }
         )
     }
 
@@ -311,6 +376,9 @@ impl Application {
             SourceSpec::ReleaseApi {
                 asset_download_hosts, ..
             } => asset_download_hosts.iter().map(String::as_str).collect(),
+            SourceSpec::VersionEndpoint { download_hosts, .. } => {
+                download_hosts.iter().map(String::as_str).collect()
+            }
             SourceSpec::BrowserImport { .. } => Vec::new(),
         }
     }
@@ -418,5 +486,48 @@ mod tests {
         assert!(application.is_website_download());
         assert!(!application.removable);
         assert!(matches!(application.source, SourceSpec::ReleaseApi { .. }));
+    }
+
+    #[test]
+    fn version_endpoint_is_auto_installable_and_reports_download_hosts() {
+        let json = r#"{
+            "applicationId": "qq",
+            "packageName": "linuxqq",
+            "displayName": "QQ",
+            "vendor": "Tencent",
+            "architecture": "amd64",
+            "removable": true,
+            "source": {
+                "kind": "versionEndpoint",
+                "versionEndpointUrl": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
+                "versionEndpointHosts": ["qq-web.cdn-go.cn"],
+                "payloadKind": "json",
+                "versionField": "Linux.version",
+                "downloadUrlField": "Linux.x64DownloadUrl.deb",
+                "downloadHosts": ["qqdl.gtimg.cn"],
+                "sign": {
+                    "kind": "qqUrlSign",
+                    "endpointUrl": "https://im.qq.com/http2rpc/gotrpc/noauth/trpc.qqntv2.urlsign.UrlSign/GetSign",
+                    "endpointHosts": ["im.qq.com"],
+                    "method": "POST",
+                    "bodyTemplate": "{\"url\":\"{downloadUrl}\"}",
+                    "signedUrlField": "data.url"
+                }
+            }
+        }"#;
+        let application: Application = serde_json::from_str(json).unwrap();
+        assert!(application.is_auto_installable());
+        assert!(application.is_website_download());
+        assert_eq!(application.download_hosts(), vec!["qqdl.gtimg.cn"]);
+        match &application.source {
+            SourceSpec::VersionEndpoint { sign, .. } => {
+                assert!(sign.is_some());
+                assert_eq!(
+                    sign.as_ref().unwrap().signed_url_field,
+                    "data.url"
+                );
+            }
+            _ => panic!("expected versionEndpoint"),
+        }
     }
 }
