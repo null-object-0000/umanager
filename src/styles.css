@@ -448,3 +448,16 @@ nav { display:grid; gap:3px; }
 .proxy-saved { color:#3f7249; font-size:12px; font-weight:600; }
 .network-facts { margin-top:18px; }
 
+/* Software page category filter chips (display-only grouping, above the state tabs). */
+.category-bar { display:flex; flex-wrap:wrap; align-items:center; gap:7px; padding:11px 17px 10px; border-bottom:1px solid #f0eeee; background:#fbfafb; }
+.category-chip { height:27px; padding:0 13px; color:#6f6a6f; border:1px solid #dfdcde; border-radius:999px; background:#fff; cursor:pointer; font-size:12px; font-weight:550; }
+.category-chip:hover:not(.active) { border-color:#c7c0c6; background:#faf8f9; }
+.category-chip.active { color:#4c2341; border-color:#c8b7c3; background:#eee7ec; font-weight:700; }
+.category-bar { padding:13px 19px 12px; gap:9px; }
+.category-chip { height:32px; padding-inline:16px; font-size:13px; }
+
+/* Drawer title: keep name and vendor·package meta on one line. */
+.drawer-title-row { display:flex; align-items:baseline; gap:9px; min-width:0; }
+.drawer-title-row h2 { margin:0; }
+.drawer-title-row > span { flex:none; white-space:nowrap; }
+

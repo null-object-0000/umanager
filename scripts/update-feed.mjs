@@ -11,12 +11,15 @@
 // error for the whole run.
 //
 // Output schema:
-//   schemaVersion: 1
+//   schemaVersion: 2
 //   generatedAtUnixSeconds: <seconds>
 //   applications: { [applicationId]: { packageName, version, architecture,
 //                                      size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion? } }
 //   selfUpdate:   { packageName, version, architecture, size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion? }
 //   developmentTools: { [toolId]: { npmPackage, version } }
+//   categories: [ { id, label } ]          // display-only grouping
+//   categoryAssignments: { applications: { [applicationId]: categoryId },
+//                          developmentTools: { [toolId]: categoryId } }
 
 import { spawnSync } from "node:child_process";
 import { createHash, sign } from "node:crypto";
@@ -30,6 +33,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const CATALOG_PATH = resolve(REPO_ROOT, "src-tauri/resources/vendors.json");
 const EXTRA_CATALOG_PATH = resolve(REPO_ROOT, "feed-sources.json");
+const CATEGORY_PATH = resolve(REPO_ROOT, "feed-categories.json");
 const OUT_PATH = process.argv[2] ?? resolve(REPO_ROOT, "dist", "feed.json");
 
 const errors = [];
@@ -41,6 +45,18 @@ function log(message) {
 function fail(context, message) {
   errors.push(`${context}: ${message}`);
   log(`!! ${context}: ${message}`);
+}
+
+// Best-effort read of the display-only category config. Missing/invalid config
+// degrades to an empty block: items simply fall back to the app's built-in
+// mapping or the "其他" bucket — never a fatal error for the feed run.
+function readCategoryConfig() {
+  try {
+    return JSON.parse(readFileSync(CATEGORY_PATH, "utf8"));
+  } catch (error) {
+    if (error.code !== "ENOENT") fail("feed-categories.json", `解析分类配置失败：${error.message}`);
+    return {};
+  }
 }
 
 async function fetchBuffer(url, extraHeaders = {}) {
@@ -660,6 +676,30 @@ async function main() {
   }
   const extraApplications = extra.applications || [];
 
+  const categoryConfig = readCategoryConfig();
+  const categories = (categoryConfig.categories || [])
+    .map((category) => ({ id: String(category?.id ?? ""), label: String(category?.label ?? category?.id ?? "") }))
+    .filter((category) => category.id !== "");
+  const categoryAssignments = {
+    applications: categoryConfig.assignments?.applications ?? {},
+    developmentTools: categoryConfig.assignments?.developmentTools ?? {},
+  };
+
+  const knownCategoryIds = new Set(categories.map((category) => category.id));
+  const missingAssignments = [];
+  for (const app of [...(catalog.applications || []), ...extraApplications]) {
+    if (!categoryAssignments.applications[app.applicationId]) missingAssignments.push(`应用 ${app.applicationId}`);
+  }
+  for (const tool of catalog.developmentTools || []) {
+    if (!categoryAssignments.developmentTools[tool.toolId]) missingAssignments.push(`工具 ${tool.toolId}`);
+  }
+  if (missingAssignments.length > 0) log(`分类缺失：${missingAssignments.join("、")} 将落入「其他」`);
+  const unknownCategoryIds = [
+    ...Object.entries(categoryAssignments.applications).filter(([, id]) => !knownCategoryIds.has(id)).map(([appId, id]) => `应用 ${appId}->${id}`),
+    ...Object.entries(categoryAssignments.developmentTools).filter(([, id]) => !knownCategoryIds.has(id)).map(([toolId, id]) => `工具 ${toolId}->${id}`),
+  ];
+  if (unknownCategoryIds.length > 0) log(`未知分类 id：${unknownCategoryIds.join("、")}`);
+
   const applications = {};
   for (const app of [...(catalog.applications || []), ...extraApplications]) {
     if (app.source?.kind === "aptRepository") {
@@ -791,6 +831,8 @@ async function main() {
     catalogSignature,
     selfUpdate,
     developmentTools,
+    categories,
+    categoryAssignments,
   };
 
   mkdirSync(dirname(OUT_PATH), { recursive: true });

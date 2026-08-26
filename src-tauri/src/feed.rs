@@ -35,6 +35,14 @@ pub struct Feed {
     pub self_update: Option<FeedApplicationEntry>,
     #[serde(default)]
     pub development_tools: HashMap<String, FeedToolEntry>,
+    /// Display-only software categories (grouping labels shown in the store).
+    #[serde(default)]
+    pub categories: Vec<FeedCategory>,
+    /// Which applicationId / toolId belongs to which category id. Purely
+    /// presentational — never consulted by the privileged helper or any
+    /// authorization decision.
+    #[serde(default)]
+    pub category_assignments: FeedCategoryAssignments,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -75,6 +83,34 @@ pub struct FeedToolEntry {
     pub version_updated_at_unix_seconds: Option<u64>,
     #[serde(default)]
     pub version_updated_at_source: Option<VersionUpdatedAtSource>,
+}
+
+/// A display-only software category served by the signed feed.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedCategory {
+    pub id: String,
+    pub label: String,
+}
+
+/// Category assignments keyed by application id / tool id. Values are category
+/// ids (see `FeedCategory`). Purely presentational.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedCategoryAssignments {
+    #[serde(default)]
+    pub applications: HashMap<String, String>,
+    #[serde(default)]
+    pub development_tools: HashMap<String, String>,
+}
+
+/// Categories + assignments returned to the UI. The UI falls back to its
+/// built-in mapping when this is unavailable (older feed or fetch failure).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryCatalog {
+    pub categories: Vec<FeedCategory>,
+    pub assignments: FeedCategoryAssignments,
 }
 
 /// Human-readable snapshot of the last metadata-feed fetch, shown in Settings.
@@ -239,6 +275,21 @@ pub async fn effective_catalog() -> Result<Catalog, String> {
 pub fn catalog_auth() -> Option<(String, String)> {
     let guard = state_lock().lock().ok()?;
     Some((guard.catalog_json.clone()?, guard.catalog_signature.clone()?))
+}
+
+/// Display-only software categories from the signed feed. Returns `None` when
+/// the feed is not configured, cannot be fetched, or carries no categories —
+/// the UI then falls back to its built-in mapping.
+pub async fn category_catalog() -> Option<CategoryCatalog> {
+    let catalog = Catalog::load().ok()?;
+    let feed = load(&catalog).await.ok()?;
+    if feed.categories.is_empty() {
+        return None;
+    }
+    Some(CategoryCatalog {
+        categories: feed.categories,
+        assignments: feed.category_assignments,
+    })
 }
 
 fn parse_extra_applications(feed: &Feed) -> Result<Vec<Application>, String> {
@@ -439,4 +490,44 @@ fn unix_timestamp_now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feed_parses_categories_and_assignments() {
+        let json = r#"{
+            "schemaVersion": 2,
+            "generatedAtUnixSeconds": 1750000000,
+            "applications": {},
+            "categories": [
+                { "id": "dev-tools", "label": "开发工具" },
+                { "id": "ai-tools", "label": "AI 工具" }
+            ],
+            "categoryAssignments": {
+                "applications": { "vscode": "dev-tools" },
+                "developmentTools": { "codex": "ai-tools" }
+            }
+        }"#;
+        let feed: Feed = serde_json::from_str(json).unwrap();
+        assert_eq!(feed.categories.len(), 2);
+        assert_eq!(feed.categories[0].label, "开发工具");
+        assert_eq!(feed.category_assignments.applications["vscode"], "dev-tools");
+        assert_eq!(feed.category_assignments.development_tools["codex"], "ai-tools");
+    }
+
+    #[test]
+    fn feed_without_categories_defaults_to_empty() {
+        let json = r#"{
+            "schemaVersion": 2,
+            "generatedAtUnixSeconds": 1750000000,
+            "applications": {}
+        }"#;
+        let feed: Feed = serde_json::from_str(json).unwrap();
+        assert!(feed.categories.is_empty());
+        assert!(feed.category_assignments.applications.is_empty());
+        assert!(feed.category_assignments.development_tools.is_empty());
+    }
 }

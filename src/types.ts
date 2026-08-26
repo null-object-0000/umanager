@@ -234,6 +234,21 @@ export interface FeedStatus {
   lastError: string | null;
 }
 
+export interface FeedCategory {
+  id: string;
+  label: string;
+}
+
+export interface CategoryAssignments {
+  applications: Record<string, string>;
+  developmentTools: Record<string, string>;
+}
+
+export interface CategoryCatalog {
+  categories: FeedCategory[];
+  assignments: CategoryAssignments;
+}
+
 export interface InstallationInfo {
   appVersion: string;
   installationKind: "debianPackage" | "portable" | "development";

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
-import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, UpdateState } from "./types";
+import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, UpdateState } from "./types";
+import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
 import chromeIcon from "./assets/app-icons/google-chrome.png";
@@ -477,7 +478,7 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
   const hasUpdate = details?.updateState === "updateAvailable";
 
   return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${item.displayName} 详情`}>
-    <header className="drawer-header"><div className="drawer-app"><AppMark item={item}/><div><h2>{item.displayName}</h2>{catalogByPackage[item.packageName]?.description && <p className="drawer-description">{catalogByPackage[item.packageName]?.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <header className="drawer-header"><div className="drawer-app"><AppMark item={item}/><div><div className="drawer-title-row"><h2>{item.displayName}</h2><span>{item.vendor} · {item.packageName}</span></div>{catalogByPackage[item.packageName]?.description && <p className="drawer-description">{catalogByPackage[item.packageName]?.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     {loading && <div className="drawer-loading"><span className="loader"/><p>正在读取官方源与安装包元数据…</p></div>}
     {error && <div className="message error"><strong>无法检查 {item.displayName} 更新</strong><span>{error}</span></div>}
     {details && <div className="drawer-content">
@@ -507,20 +508,6 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
   </aside></div>;
 }
 
-function InstallableRow({ offer, onOpen }: { offer: InstallableApplication; onOpen: () => void }) {
-  const installed = offer.installedVersion !== null;
-  const available = offer.installAvailable;
-  const statusClass = installed ? "upToDate" : available ? "updateAvailable" : "unknown";
-  const statusText = installed ? "已安装" : available ? "可安装" : "暂不可安装";
-  const open = () => { if (available) onOpen(); };
-  return <div className={`package-row ${available ? "supported" : ""}`} role={available ? "button" : undefined} tabIndex={available ? 0 : undefined} onClick={open} onKeyDown={(event) => { if (available && (event.key === "Enter" || event.key === " ")) onOpen(); }} title={offer.unavailableReason ?? undefined}>
-    <div className="app-cell"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div className="app-meta"><strong>{offer.displayName}</strong><span>{offer.vendor} · {offer.packageName}</span>{offer.description && <p className="app-description">{offer.description}</p>}</div></div>
-    <div className="version-cell"><strong>{installed ? offer.installedVersion : "未安装"}</strong>{!installed && offer.candidateVersion && <span>可安装 {offer.candidateVersion}</span>}</div>
-    <div className="source-cell"><span className={`source-dot ${offer.sourceKind}`}/><div><strong>{offer.sourceKind === "officialRepository" ? "官方 APT 仓库" : "官网直连"}</strong><span>{offer.architecture}</span></div></div>
-    <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><div className="row-actions">{available && <button className="install-package-button" onClick={(event) => { event.stopPropagation(); onOpen(); }}>安装</button>}<span className={`row-arrow ${available ? "" : "placeholder"}`} aria-hidden="true">›</span></div></div>
-  </div>;
-}
-
 type MergedSoftware = {
   packageName: string;
   displayName: string;
@@ -538,6 +525,18 @@ type MergedSoftware = {
   offer?: InstallableApplication;
 };
 
+type SoftwareItem = {
+  key: string;
+  kind: "deb" | "devTool";
+  category: string;
+  displayName: string;
+  vendor: string;
+  description: string | null;
+  deb?: MergedSoftware;
+  tool?: DevTool;
+  toolState?: DevToolState | null;
+};
+
 function SoftwareRow({ item, onOpen, onRemove }: { item: MergedSoftware; onOpen: () => void; onRemove: () => void }) {
   const catalogApp = catalogByPackage[item.packageName];
   const autoInstallable = !!catalogApp && isAutoInstallable(item.packageName);
@@ -547,7 +546,7 @@ function SoftwareRow({ item, onOpen, onRemove }: { item: MergedSoftware; onOpen:
     : item.installAvailable ? "可安装" : "暂不可安装";
   const statusClass = item.installed ? item.updateState : item.installAvailable ? "updateAvailable" : "unknown";
   return <div className={`package-row ${canOpen ? "supported" : ""}`} role={canOpen ? "button" : undefined} tabIndex={canOpen ? 0 : undefined} onClick={() => { if (canOpen) onOpen(); }} onKeyDown={(event) => { if (canOpen && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
-    <div className="app-cell"><AppLogo packageName={item.packageName} displayName={item.displayName}/><div className="app-meta"><strong>{item.displayName}</strong><span>{item.vendor} · {item.packageName}</span>{item.description && <p className="app-description">{item.description}</p>}</div></div>
+    <div className="app-cell"><AppLogo packageName={item.packageName} displayName={item.displayName}/><div className="app-meta"><strong>{item.displayName}</strong>{item.description && <p className="app-description">{item.description}</p>}</div></div>
     <div className="version-cell"><strong>{item.installed ? item.installedVersion : "未安装"}</strong>{item.installed && item.updateState === "updateAvailable" && item.candidateVersion && <span>→ {item.candidateVersion}</span>}{!item.installed && item.installAvailable && item.candidateVersion && <span>可安装 {item.candidateVersion}</span>}</div>
     <div className="source-cell"><span className={`source-dot ${item.sourceKind}`}/><div><strong>{sourceText[item.sourceKind as keyof typeof sourceText] ?? item.sourceKind}</strong><span>{item.architecture}</span></div></div>
     <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><div className="row-actions">
@@ -583,7 +582,7 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
   const installAction = (planId: string, onProgress: (event: OperationProgressEvent) => void): Promise<OperationExecutionReport> => installPackage(planId, onProgress);
 
   return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`安装 ${offer.displayName}`}>
-    <header className="drawer-header"><div className="drawer-app"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div><h2>{offer.displayName}</h2>{offer.description && <p className="drawer-description">{offer.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <header className="drawer-header"><div className="drawer-app"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div><div className="drawer-title-row"><h2>{offer.displayName}</h2><span>{offer.vendor} · {offer.packageName}</span></div>{offer.description && <p className="drawer-description">{offer.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     <div className="drawer-content">
       <div className="trust-banner trusted"><Icon name="shield"/><div><strong>来源验证通过 · {sourceText[offer.sourceKind] ?? offer.sourceKind}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
       <section className="detail-section"><h3>新安装目标</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div><UpdatedAtLine seconds={offer.versionUpdatedAtUnixSeconds} source={offer.versionUpdatedAtSource}/></section>
@@ -672,7 +671,7 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
   const installedVersion = (version: string) => state?.installedVersions.some((item) => item.version === version || item.version.startsWith(`${version}-`));
 
   return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${toolchain.displayName} 开发环境详情`}>
-    <header className="drawer-header"><div className="drawer-app"><DevLogo toolchain={toolchain}/><div><h2>{toolchain.displayName}</h2><span>{toolchain.vendor} · {toolchain.manager}</span>{toolchain.description && <p className="drawer-description">{toolchain.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <header className="drawer-header"><div className="drawer-app"><DevLogo toolchain={toolchain}/><div><div className="drawer-title-row"><h2>{toolchain.displayName}</h2><span>{toolchain.vendor} · {toolchain.manager}</span></div>{toolchain.description && <p className="drawer-description">{toolchain.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     <div className="drawer-content">
       {state && !state.managerFound && <div className="message"><strong>未检测到 {state.manager}</strong><span>版本管理器脚本缺失：{toolchain.managerHome}。请先安装 {state.manager}。</span></div>}
       {state?.managerFound && <div className="dev-facts">
@@ -722,16 +721,11 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
 
 const devToolInstallKindText = { npmGlobal: "npm 全局安装", officialInstaller: "官方安装器", onPath: "本机 PATH 中的可执行文件" } as const;
 
-function DevToolRow({ tool, onOpen }: { tool: DevTool; onOpen: () => void }) {
-  const [state, setState] = useState<DevToolState | null>(null);
-  useEffect(() => {
-    setState(null);
-    getDevToolState(tool.toolId).then(setState).catch(() => setState(null));
-  }, [tool.toolId]);
+function DevToolRow({ tool, state, onOpen }: { tool: DevTool; state: DevToolState | null; onOpen: () => void }) {
   const statusClass = state?.updateAvailable ? "updateAvailable" : state?.installed ? "upToDate" : "updateAvailable";
   const statusText = state?.updateAvailable ? "有可用更新" : state?.installed ? "已安装" : "可安装";
   return <div className="package-row supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
-    <div className="app-cell"><DevToolLogo tool={tool}/><div className="app-meta"><strong>{tool.displayName}</strong><span>{tool.vendor} · {tool.binaryName}</span>{tool.description && <p className="app-description">{tool.description}</p>}</div></div>
+    <div className="app-cell"><DevToolLogo tool={tool}/><div className="app-meta"><strong>{tool.displayName}</strong>{tool.description && <p className="app-description">{tool.description}</p>}</div></div>
     <div className="version-cell"><strong>{state?.version ?? (state?.installed ? "已安装" : "未安装")}</strong>{state?.updateAvailable && <span>→ {state.latestVersion}</span>}</div>
     <div className="source-cell"><span className="source-dot officialWebsite"/><div><strong>{tool.installer.kind === "npm" ? "npm 全局" : "官方源"}</strong><span>{state?.installKind ? devToolInstallKindText[state.installKind] : "未安装"}</span></div></div>
     <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><span className="row-arrow" aria-hidden="true">›</span></div>
@@ -752,7 +746,7 @@ function DevToolLogPanel({ events, running }: { events: DevToolProgress[]; runni
   </section>;
 }
 
-function DevToolDrawer({ tool, onClose }: { tool: DevTool; onClose: () => void }) {
+function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: () => void; onChanged?: () => void }) {
   const [state, setState] = useState<DevToolState | null>(null);
   const [busy, setBusy] = useState<"install" | "uninstall" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -769,6 +763,7 @@ function DevToolDrawer({ tool, onClose }: { tool: DevTool; onClose: () => void }
     try {
       await action((event) => setEvents((current) => [...current.slice(-199), event]));
       await refresh();
+      onChanged?.();
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -780,7 +775,7 @@ function DevToolDrawer({ tool, onClose }: { tool: DevTool; onClose: () => void }
   const canInstall = tool.installer.kind === "curlScript" || (state?.npmAvailable ?? false);
 
   return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${tool.displayName} 开发环境详情`}>
-    <header className="drawer-header"><div className="drawer-app"><DevToolLogo tool={tool}/><div><h2>{tool.displayName}</h2><span>{tool.vendor} · {tool.binaryName}</span>{tool.description && <p className="drawer-description">{tool.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <header className="drawer-header"><div className="drawer-app"><DevToolLogo tool={tool}/><div><div className="drawer-title-row"><h2>{tool.displayName}</h2><span>{tool.vendor} · {tool.binaryName}</span></div>{tool.description && <p className="drawer-description">{tool.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     <div className="drawer-content">
       {state && !state.npmAvailable && <div className="message"><strong>未检测到 npm</strong><span>无法读取 npm 最新版本{tool.installer.kind === "npm" ? "，也无法安装该工具" : ""}。请先在“开发环境”安装并设置 Node.js。</span></div>}
       <div className="dev-facts">
@@ -820,49 +815,34 @@ function DevToolDrawer({ tool, onClose }: { tool: DevTool; onClose: () => void }
   </aside></div>;
 }
 
-function DevGroupLabel({ children }: { children: ReactNode }) {
-  return <div className="dev-group-label">{children}</div>;
-}
-
-function DevToolsPage({ cliOffers, onInstall }: { cliOffers: InstallableApplication[] | null; onInstall: (offer: InstallableApplication) => void }) {
+function DevToolsPage() {
   const [toolchains, setToolchains] = useState<DevToolchain[] | null>(null);
-  const [tools, setTools] = useState<DevTool[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedToolchain, setSelectedToolchain] = useState<DevToolchain | null>(null);
-  const [selectedTool, setSelectedTool] = useState<DevTool | null>(null);
   const refresh = async () => {
     setLoading(true); setError(null);
-    const [toolchainOutcome, toolsOutcome] = await Promise.allSettled([getDevToolchains(), getDevTools()]);
-    if (toolchainOutcome.status === "fulfilled") setToolchains(toolchainOutcome.value); else setError(String(toolchainOutcome.reason));
-    if (toolsOutcome.status === "fulfilled") setTools(toolsOutcome.value); else setError(String(toolsOutcome.reason));
-    setLoading(false);
+    try {
+      setToolchains(await getDevToolchains());
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { void refresh(); }, []);
   return <main className="workspace dev-workspace">
-    <header className="workspace-header"><div><h1>开发环境</h1><p>用户级版本管理器 + 命令行 AI 编程工具 + 系统级 CLI 工具</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
+    <header className="workspace-header"><div><h1>开发环境</h1><p>用户级版本管理器（Node.js / Rust）</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
     <section className="software-panel">
       <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
       {error && <div className="message error"><strong>无法读取开发环境</strong><span>{error}</span></div>}
-      {loading && !toolchains && !tools && !cliOffers && <div className="empty-state"><span className="loader"/><p>正在读取开发环境状态…</p></div>}
-      {(toolchains || tools || cliOffers) && <div className="package-list">
-        {toolchains && toolchains.length > 0 && <>
-          <DevGroupLabel>运行时 · 用户级版本管理器</DevGroupLabel>
-          {toolchains.map((toolchain) => <DevToolchainRow toolchain={toolchain} key={toolchain.toolchainId} onOpen={() => setSelectedToolchain(toolchain)}/>)}
-        </>}
-        {tools && tools.length > 0 && <>
-          <DevGroupLabel>命令行 · AI 编程工具</DevGroupLabel>
-          {tools.map((tool) => <DevToolRow tool={tool} key={tool.toolId} onOpen={() => setSelectedTool(tool)}/>)}
-        </>}
-        {cliOffers && cliOffers.length > 0 && <>
-          <DevGroupLabel>系统级 · CLI 工具</DevGroupLabel>
-          {cliOffers.map((offer) => <InstallableRow offer={offer} onOpen={() => onInstall(offer)} key={offer.packageName}/>)}
-        </>}
+      {loading && !toolchains && <div className="empty-state"><span className="loader"/><p>正在读取运行时状态…</p></div>}
+      {toolchains && <div className="package-list">
+        {toolchains.map((toolchain) => <DevToolchainRow toolchain={toolchain} key={toolchain.toolchainId} onOpen={() => setSelectedToolchain(toolchain)}/>)}
       </div>}
-      {toolchains && toolchains.length === 0 && tools && tools.length === 0 && <div className="empty-state"><p>软件源中未配置开发工具。</p></div>}
+      {toolchains && toolchains.length === 0 && <div className="empty-state"><p>软件源中未配置运行时工具链。</p></div>}
     </section>
     {selectedToolchain && <DevToolchainDrawer toolchain={selectedToolchain} onClose={() => setSelectedToolchain(null)}/>}
-    {selectedTool && <DevToolDrawer tool={selectedTool} onClose={() => setSelectedTool(null)}/>}
   </main>;
 }
 
@@ -872,6 +852,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("全部");
   const [query, setQuery] = useState("");
   const [updatePackage, setUpdatePackage] = useState<ManagedPackage | null>(null);
   const [removalPackage, setRemovalPackage] = useState<ManagedPackage | null>(null);
@@ -888,6 +869,11 @@ export default function App() {
   const [pendingLocalDeb, setPendingLocalDeb] = useState<LocalDebInspection | null>(null);
   const [pendingLocalDebError, setPendingLocalDebError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogApplication[] | null>(null);
+  const [categoryCatalog, setCategoryCatalog] = useState<CategoryCatalog | null>(null);
+  const [devTools, setDevTools] = useState<DevTool[] | null>(null);
+  const [devToolStates, setDevToolStates] = useState<Record<string, DevToolState | null>>({});
+  const [devToolsError, setDevToolsError] = useState<string | null>(null);
+  const [selectedDevTool, setSelectedDevTool] = useState<DevTool | null>(null);
 
   useEffect(() => {
     void getSoftwareCatalog().then((entries) => {
@@ -908,78 +894,148 @@ export default function App() {
     setInstallationInfoLoading(true); setInstallationInfoError(null);
     try { setInstallationInfo(await getInstallationInfo()); } catch (reason) { setInstallationInfoError(String(reason)); } finally { setInstallationInfoLoading(false); }
   };
+  const loadCategories = () => {
+    getCategories().then(setCategoryCatalog).catch(() => setCategoryCatalog(null));
+  };
+  const loadDevTools = async () => {
+    setDevToolsError(null);
+    try {
+      const tools = await getDevTools();
+      setDevTools(tools);
+      const states = await Promise.all(tools.map(async (tool) => {
+        try { return [tool.toolId, await getDevToolState(tool.toolId)] as const; }
+        catch { return [tool.toolId, null] as const; }
+      }));
+      setDevToolStates(Object.fromEntries(states));
+    } catch (reason) {
+      setDevToolsError(String(reason));
+    }
+  };
   useEffect(() => {
     void refresh();
     void refreshInstallable();
     void refreshInstallationInfo();
+    void loadDevTools();
+    void loadCategories();
     void getPendingLocalDeb().then(setPendingLocalDeb).catch((reason) => setPendingLocalDebError(String(reason)));
     getVersion().then(setAppVersion).catch(() => { /* 获取编译版本失败时兜底为空 */ });
   }, []);
 
-  const desktopOffers = useMemo(() => (installableOffers ?? []).filter((offer) => offer.category !== "cli"), [installableOffers]);
-  const cliOffers = useMemo(() => (installableOffers ?? []).filter((offer) => offer.category === "cli"), [installableOffers]);
-  const softwareRows = useMemo(() => {
-    const map = new Map<string, MergedSoftware>();
+  const softwareItems = useMemo(() => {
+    const items: SoftwareItem[] = [];
     for (const mg of result?.packages ?? []) {
-      if (catalogByPackage[mg.packageName]?.category === "cli") continue;
-      map.set(mg.packageName, {
-        packageName: mg.packageName, displayName: mg.displayName, vendor: mg.vendor,
+      const applicationId = catalogByPackage[mg.packageName]?.applicationId;
+      items.push({
+        key: `deb-${mg.packageName}`,
+        kind: "deb",
+        category: debCategory(categoryCatalog, applicationId),
+        displayName: mg.displayName,
+        vendor: mg.vendor,
         description: catalogByPackage[mg.packageName]?.description ?? null,
-        architecture: mg.architecture, sourceKind: mg.sourceKind,
-        installed: true, installedVersion: mg.installedVersion, candidateVersion: mg.candidateVersion,
-        updateState: mg.updateState, installAvailable: false, removable: catalogByPackage[mg.packageName]?.removable ?? false,
-        managed: mg, offer: undefined,
+        deb: {
+          packageName: mg.packageName, displayName: mg.displayName, vendor: mg.vendor,
+          description: catalogByPackage[mg.packageName]?.description ?? null,
+          architecture: mg.architecture, sourceKind: mg.sourceKind,
+          installed: true, installedVersion: mg.installedVersion, candidateVersion: mg.candidateVersion,
+          updateState: mg.updateState, installAvailable: false, removable: catalogByPackage[mg.packageName]?.removable ?? false,
+          managed: mg, offer: undefined,
+        },
       });
     }
-    for (const off of desktopOffers) {
-      const existing = map.get(off.packageName);
-      if (existing) {
-        existing.offer = off;
-        existing.description = existing.description ?? off.description ?? null;
-        existing.candidateVersion = existing.candidateVersion ?? off.candidateVersion;
-        existing.architecture = existing.architecture ?? off.architecture;
-        existing.sourceKind = existing.sourceKind ?? off.sourceKind;
-        existing.installAvailable = off.installAvailable;
+    for (const off of installableOffers ?? []) {
+      const existing = items.find((item) => item.kind === "deb" && item.deb?.packageName === off.packageName);
+      if (existing?.deb) {
+        const deb = existing.deb;
+        deb.offer = off;
+        deb.description = deb.description ?? off.description ?? null;
+        deb.candidateVersion = deb.candidateVersion ?? off.candidateVersion;
+        deb.architecture = deb.architecture ?? off.architecture;
+        deb.sourceKind = deb.sourceKind ?? off.sourceKind;
+        deb.installAvailable = off.installAvailable;
       } else {
-        map.set(off.packageName, {
-          packageName: off.packageName, displayName: off.displayName, vendor: off.vendor,
+        items.push({
+          key: `deb-${off.packageName}`,
+          kind: "deb",
+          category: debCategory(categoryCatalog, off.applicationId),
+          displayName: off.displayName,
+          vendor: off.vendor,
           description: off.description ?? catalogByPackage[off.packageName]?.description ?? null,
-          architecture: off.architecture, sourceKind: off.sourceKind,
-          installed: off.installedVersion != null, installedVersion: off.installedVersion, candidateVersion: off.candidateVersion,
-          updateState: "unknown", installAvailable: off.installAvailable, removable: catalogByPackage[off.packageName]?.removable ?? false,
-          managed: undefined, offer: off,
+          deb: {
+            packageName: off.packageName, displayName: off.displayName, vendor: off.vendor,
+            description: off.description ?? catalogByPackage[off.packageName]?.description ?? null,
+            architecture: off.architecture, sourceKind: off.sourceKind,
+            installed: off.installedVersion != null, installedVersion: off.installedVersion, candidateVersion: off.candidateVersion,
+            updateState: "unknown", installAvailable: off.installAvailable, removable: catalogByPackage[off.packageName]?.removable ?? false,
+            managed: undefined, offer: off,
+          },
         });
       }
     }
-    return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName, "zh-CN"));
-  }, [result, desktopOffers]);
-  const updatesCount = useMemo(() => softwareRows.filter((item) => item.updateState === "updateAvailable").length, [softwareRows]);
-  const visibleSoftware = useMemo(() => softwareRows.filter((item) => {
-    const textMatch = `${item.displayName} ${item.vendor} ${item.packageName}`.toLowerCase().includes(query.toLowerCase());
-    const filterMatch = filter === "all" || (filter === "installed" && item.installed) || (filter === "updates" && item.updateState === "updateAvailable") || (filter === "installable" && !item.installed);
-    return textMatch && filterMatch;
-  }), [softwareRows, filter, query]);
-  const openSoftware = (item: MergedSoftware) => {
-    if (item.installed) {
-      if (item.managed && isAutoInstallable(item.packageName)) setUpdatePackage(item.managed);
-    } else if (item.offer) {
-      setInstallOffer(item.offer);
+    for (const tool of devTools ?? []) {
+      items.push({
+        key: `devtool-${tool.toolId}`,
+        kind: "devTool",
+        category: devToolCategory(categoryCatalog, tool.toolId),
+        displayName: tool.displayName,
+        vendor: tool.vendor,
+        description: tool.description ?? null,
+        tool,
+        toolState: devToolStates[tool.toolId] ?? null,
+      });
+    }
+    return items.sort((a, b) => a.displayName.localeCompare(b.displayName, "zh-CN"));
+  }, [result, installableOffers, devTools, devToolStates, categoryCatalog]);
+  const presentCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of softwareItems) set.add(item.category);
+    return set;
+  }, [softwareItems]);
+  const categoryChips = useMemo(() => orderedCategories(categoryCatalog, presentCategories), [categoryCatalog, presentCategories]);
+  const updatesCount = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.toolState?.updateAvailable === true).length, [softwareItems]);
+  const visibleSoftware = useMemo(() => softwareItems.filter((item) => {
+    const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}`.toLowerCase();
+    const textMatch = searchable.includes(query.toLowerCase());
+    const categoryMatch = categoryFilter === "全部" || item.category === categoryFilter;
+    const stateMatch = (() => {
+      if (filter === "all") return true;
+      if (item.kind === "deb") {
+        const deb = item.deb!;
+        if (filter === "installed") return deb.installed;
+        if (filter === "updates") return deb.updateState === "updateAvailable";
+        return !deb.installed;
+      }
+      const state = item.toolState;
+      if (filter === "installed") return state?.installed === true;
+      if (filter === "updates") return state?.updateAvailable === true;
+      return !state || state.installed !== true;
+    })();
+    return textMatch && categoryMatch && stateMatch;
+  }), [softwareItems, filter, query, categoryFilter]);
+  const openSoftware = (item: SoftwareItem) => {
+    if (item.kind === "devTool") {
+      if (item.tool) setSelectedDevTool(item.tool);
+      return;
+    }
+    const deb = item.deb!;
+    if (deb.installed) {
+      if (deb.managed && isAutoInstallable(deb.packageName)) setUpdatePackage(deb.managed);
+    } else if (deb.offer) {
+      setInstallOffer(deb.offer);
     }
   };
-  const refreshAll = () => { void refresh(); void refreshInstallable(); };
+  const refreshAll = () => { void refresh(); void refreshInstallable(); void loadDevTools(); void loadCategories(); };
   const showInstalledPage = () => {
     setPage("installed");
-    setInstallOffer(null); setUpdatePackage(null);
+    setInstallOffer(null); setUpdatePackage(null); setSelectedDevTool(null);
     if (!installableOffers && !installableLoading) void refreshInstallable();
   };
   const showDevToolsPage = () => {
     setPage("dev");
-    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null);
-    if (!installableOffers && !installableLoading) void refreshInstallable();
+    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
   };
   const showSettingsPage = () => {
     setPage("settings");
-    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null);
+    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
     if (!installationInfo && !installationInfoLoading) void refreshInstallationInfo();
   };
 
@@ -998,9 +1054,13 @@ export default function App() {
     </aside>
 
     {page === "installed" ? <main className="workspace">
-      <header className="workspace-header"><div><h1>软件</h1><p>已安装与可安装的受管软件</p></div><div className="header-actions">{result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}<button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button></div></header>
+      <header className="workspace-header"><div><h1>软件</h1><p>桌面应用、命令行工具与 AI 工具</p></div><div className="header-actions">{result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}<button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button></div></header>
       <section className="software-panel">
         {pendingLocalDebError && <div className="message error"><strong>无法打开本地 .deb</strong><span>{pendingLocalDebError}</span></div>}
+        <div className="category-bar">
+          <button className={`category-chip ${categoryFilter === "全部" ? "active" : ""}`} onClick={() => setCategoryFilter("全部")}>全部</button>
+          {categoryChips.map((category) => <button key={category} className={`category-chip ${categoryFilter === category ? "active" : ""}`} onClick={() => setCategoryFilter(category)}>{category}</button>)}
+        </div>
         <div className="panel-toolbar"><div className="filter-tabs">
           <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button>
           <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>已安装</button>
@@ -1010,17 +1070,23 @@ export default function App() {
         <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
         {error && <div className="message error"><strong>无法读取软件信息</strong><span>{error}</span></div>}
         {installableError && <div className="message error"><strong>无法读取可安装软件</strong><span>{installableError}</span></div>}
+        {devToolsError && <div className="message error"><strong>无法读取 CLI 工具</strong><span>{devToolsError}</span></div>}
         {result?.warnings.map((warning) => <div className="message" key={warning}>{warning}</div>)}
-        {!result && !installableOffers && <div className="empty-state"><span className="loader"/><p>正在读取已安装与可安装软件…</p></div>}
+        {!result && !installableOffers && !devTools && <div className="empty-state"><span className="loader"/><p>正在读取已安装与可安装软件…</p></div>}
         {result && visibleSoftware.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
-        <div className="package-list">{visibleSoftware.map((item) => <SoftwareRow item={item} onOpen={() => openSoftware(item)} onRemove={() => { if (item.managed) setRemovalPackage(item.managed); }} key={item.packageName}/>)}</div>
+        <div className="package-list">{visibleSoftware.map((item) => item.kind === "deb"
+          ? <SoftwareRow item={item.deb!} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} key={item.key}/>
+          : <DevToolRow tool={item.tool!} state={item.toolState ?? null} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
       </section>
-    </main> : page === "dev" ? <DevToolsPage cliOffers={cliOffers} onInstall={(offer) => setInstallOffer(offer)}/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
+    </main> : page === "dev" ? <DevToolsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
     {installOffer && (
       <InstallDrawer offer={installOffer} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }}/>
+    )}
+    {selectedDevTool && (
+      <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>
     )}
     {selfRemovalOpen && installationInfo && (
       <SelfRemovalDialog info={installationInfo} onClose={() => setSelfRemovalOpen(false)}/>

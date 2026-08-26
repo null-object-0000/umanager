@@ -1,0 +1,37 @@
+{
+  "categories": [
+    { "id": "dev-tools", "label": "开发工具" },
+    { "id": "ai-tools", "label": "AI 工具" },
+    { "id": "browser", "label": "浏览器" },
+    { "id": "chat", "label": "社交通讯" },
+    { "id": "office", "label": "办公效率" },
+    { "id": "network", "label": "网络工具" },
+    { "id": "security", "label": "安全工具" },
+    { "id": "media", "label": "影音娱乐" }
+  ],
+  "assignments": {
+    "applications": {
+      "vscode": "dev-tools",
+      "github-cli": "dev-tools",
+      "chatgpt": "ai-tools",
+      "google-chrome": "browser",
+      "microsoft-edge": "browser",
+      "firefox": "browser",
+      "wechat": "chat",
+      "qq": "chat",
+      "wemeet": "office",
+      "obsidian": "office",
+      "feishu": "office",
+      "flclash": "network",
+      "localsend": "network",
+      "bitwarden": "security",
+      "qq-music": "media"
+    },
+    "developmentTools": {
+      "claude-code": "ai-tools",
+      "opencode": "ai-tools",
+      "pi": "ai-tools",
+      "codex": "ai-tools"
+    }
+  }
+}
