@@ -8,7 +8,7 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - 读取本机 `apt-cache policy`，识别候选版本和官方仓库来源；
 - 使用 Debian 自身的版本比较规则判断是否有更新；
 - VS Code、Google Chrome 和 ChatGPT Desktop 可从固定白名单中的官方 APT 仓库下载候选版本，实时展示进度与下载速度，校验并生成不可变计划；只有用户完成确认、特权 dry-run 和再次确认后才执行更新（同一登录会话内只弹一次管理员授权）。
-- “软件商店”页支持对 VS Code、Google Chrome、ChatGPT Desktop、微信和 FlClash 的新安装：未安装时从官方源锁定版本、大小与 SHA-256（微信为下载后计算），生成 `installedVersion: null` 的不可变计划。
+- “软件商店”页支持对内置与 feed 新增软件的新安装（VS Code、Google Chrome、ChatGPT Desktop、微信、FlClash、GitHub CLI、LocalSend、Bitwarden 等）：按各来源锁定版本、大小与 SHA-256，生成 `installedVersion: null` 的不可变计划；无法解析的应用会明确显示“不可用”而不是让整个列表不可读。
 - FlClash 通过 GitHub Releases API 读取最新稳定发布，以 GitHub 资产 SHA-256 与 HTTP Range 读出的 `.deb` 控制归档锁定版本，并走完整的下载校验、不可变计划、特权 dry-run 和安装链路。
 - 受管软件卸载使用独立不可变计划、特权 dry-run 和再次确认，仅执行白名单中固定的 `dpkg --remove` 动作。
 - 设置页会核对当前可执行文件与 `dpkg` 安装清单，区分 `.deb` 安装版、便携版和开发版；`.deb` 安装版可通过独立的 `remove-umanager` 计划安全卸载自身。
@@ -16,6 +16,8 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - 最终安装、更新和卸载会显示结构化进度与可展开的实时 `dpkg` 详细日志；日志只读，终端控制序列会被清理，单行与总量均有限制。
 - “开发环境”页通过用户级版本管理器（nvm 用于 Node.js，rustup 用于 Rust）检测、安装、切换和卸载运行时版本，全程无 root。
 - “开发环境”页同时管理单版本的命令行 AI 编程工具（Claude Code、OpenCode、Pi、Codex CLI）：识别 npm / 官方安装器 / PATH 三种安装来源，并通过各工具的官方安装方式安装、更新与卸载，全程无 root。
+- “开发环境”页另设“系统级 CLI 工具”区块，通过白名单 `.deb` 特权链路管理安装在系统层的命令行工具（如 GitHub CLI `gh`）。
+- 各软件在列表与详情中展示一行文字描述；详情/安装/自更新抽屉同时展示版本更新时间与来源（官方发布时间 / 官方安装包更新时间 / 首次采集到该版本）。应用图标可由中央 feed 下发并缓存，新增软件无需改前端打包图标。
 
 ## 安装
 
@@ -101,16 +103,18 @@ cargo test --manifest-path crates/umanager-helper/Cargo.toml
 
 ## 软件源（vendors.json）
 
-UManager 不再为每个软件写死适配器。新增一个软件只需要在 `src-tauri/resources/vendors.json` 的 `applications` 里追加一条记录：
+UManager 不再为每个软件写死适配器。新增一个在 `src-tauri/resources/vendors.json` 里内置的软件，只需要在 `applications` 里追加一条记录；新增 **feed 下发**的软件（免发版）则改在仓库根目录的 `feed-sources.json` 里追加，由 CI 抓取并签名进 `catalogJson`：
 
 - `applicationId` / `packageName` / `displayName` / `vendor` / `architecture`：应用标识与展示信息；
 - `homepage` / `icon` / `accentColor`：可选的首页、图标键与强调色；
+- `description`：一行文字描述，展示在软件列表与详情里；
 - `removable`：是否允许从 UManager 卸载；
-- `source`：下载策略，按 `kind` 分为四类：
-  - `aptRepository`：从官方 APT 仓库索引解析候选版本、大小与 SHA-256（如 VS Code、Google Chrome、ChatGPT Desktop）；
-  - `stableDownloadEndpoint`：从官网固定地址下载，并从官网页面解析展示版本（如微信）；
-  - `releaseApi`：从 GitHub Releases API 选择匹配资产，读取 `sha256:` 摘要（如 FlClash）；
-  - `browserImport`：仅登记本机识别与卸载，不在软件商店提供自动下载（如腾讯会议）。
+- `source`：下载策略，按 `kind` 分为五类：
+  - `aptRepository`：从官方 APT 仓库索引解析候选版本、大小与 SHA-256（如 VS Code、Google Chrome、ChatGPT Desktop、GitHub CLI）；
+  - `stableDownloadEndpoint`：从官网固定地址下载，并从官网页面解析展示版本（如微信、Bitwarden）；
+  - `releaseApi`：从 GitHub Releases API 选择匹配资产，读取 `sha256:` 摘要（如 FlClash、LocalSend）；
+  - `versionEndpoint`：从官网动态下发的“版本 + 下载地址”接口解析（为 QQ、QQ 音乐、腾讯会议、Obsidian、飞书这类无固定直链/无 APT 仓库/无 GitHub Release 的软件预留；接入后即可在商店自动安装）。支持可选的签名/限时地址子步骤；
+  - `browserImport`：仅登记本机识别与卸载，不在软件商店提供自动下载（如腾讯会议，在接入 `versionEndpoint` 之前）。
 
 `source` 中声明的所有 `*Hosts` 都是精确域名白名单：下载与 HTTP 重定向都只接受这些域名，拒绝相似域名。主程序的通用下载引擎（`src-tauri/src/source_engine.rs`）与 helper 的白名单校验都从同一份内置 JSON 生成，因此新增软件不需要改动 Rust 代码，也不需要新增 Tauri command。
 
@@ -260,13 +264,13 @@ Linux `.deb` 包会关联到 UManager。用户在文件管理器中选择“使�
 
 ## 新安装
 
-“软件商店”页会逐一检查五个受管应用的 dpkg 状态与官方源：VS Code、Google Chrome 和 ChatGPT Desktop 走官方 APT 仓库索引，微信走官网固定地址，FlClash 走 GitHub Releases 资产。只有应用未安装、候选版本存在、架构为 amd64 且能拿到大小与 SHA-256（微信下载后计算）时，UI 才开放下载。
+“软件商店”页会逐一检查受管应用的 dpkg 状态与官方源：VS Code、Google Chrome 和 ChatGPT Desktop 走官方 APT 仓库索引，微信走官网固定地址，FlClash 与 LocalSend 走 GitHub Releases 资产，GitHub CLI 走官方 APT 索引，Bitwarden 走固定最新下载入口。只有应用未安装、候选版本存在、架构为 amd64 且能拿到大小与 SHA-256（微信下载后计算）时，UI 才开放下载。
 
 下载后会复核 HTTPS 精确域名、重定向、文件大小、SHA-256 以及 `.deb` 中的包名、版本和架构。特权 helper 在 dry-run 和真正安装前都会再次确认应用仍未安装、当前系统为 amd64，并将计划与官方源记录重新对比，最后只以固定 `/usr/bin/dpkg --install <root-owned-staged-deb>` 参数执行。
 
 ## 卸载
 
-UManager 列表中的六个白名单软件可以卸载。用户核对包名、已安装版本和架构后，应用会生成 15 分钟内有效的独立不可变卸载计划。helper 先在 dry-run 中重新核对计划、白名单和当前 dpkg 状态，只有用户再次确认后才以固定 `/usr/bin/dpkg --remove <package>` 参数执行。
+UManager 列表中的白名单软件可以卸载。用户核对包名、已安装版本和架构后，应用会生成 15 分钟内有效的独立不可变卸载计划。helper 先在 dry-run 中重新核对计划、白名单和当前 dpkg 状态，只有用户再次确认后才以固定 `/usr/bin/dpkg --remove <package>` 参数执行。
 
 卸载不请求 `purge`，不自动移除依赖，也不由 UManager 直接删除用户主目录数据。Debian 包自带的维护脚本仍会以 root 权限运行，反向依赖不允许卸载时会原样报错，UManager 不使用强制参数绕过。
 
