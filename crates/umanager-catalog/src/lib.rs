@@ -149,6 +149,13 @@ pub struct Application {
     pub homepage: Option<String>,
     #[serde(default)]
     pub icon: Option<String>,
+    /// Absolute HTTPS icon URL served from the UManager feed (GitHub Pages). When
+    /// present, the desktop app prefers this remote icon over a bundled asset.
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    /// SHA-256 (hex) of the icon file at `icon_url`, for integrity + cache naming.
+    #[serde(default)]
+    pub icon_sha256: Option<String>,
     #[serde(default)]
     pub accent_color: Option<String>,
     #[serde(default = "default_true")]
@@ -322,6 +329,8 @@ impl SelfUpdateSource {
             architecture: self.architecture.clone(),
             homepage: None,
             icon: None,
+            icon_url: None,
+            icon_sha256: None,
             accent_color: None,
             removable: false,
             source: SourceSpec::ReleaseApi {

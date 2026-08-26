@@ -1,6 +1,7 @@
 mod dev_cli_tools;
 mod dev_tools;
 mod feed;
+mod icon;
 mod installable;
 mod installation;
 mod local_deb;
@@ -72,6 +73,24 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
 #[tauri::command]
 async fn get_software_catalog() -> Result<Vec<umanager_catalog::Application>, String> {
     feed::effective_applications().await
+}
+
+#[tauri::command]
+async fn fetch_app_icon(
+    app: tauri::AppHandle,
+    app_id: String,
+    icon_url: String,
+    icon_sha256: String,
+) -> Result<String, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let catalog = umanager_catalog::Catalog::load()?;
+    let hosts = feed::config(&catalog)
+        .map(|config| config.hosts.clone())
+        .unwrap_or_default();
+    icon::fetch_app_icon(&cache_dir, &app_id, &icon_url, &icon_sha256, &hosts).await
 }
 
 #[tauri::command]
@@ -610,6 +629,7 @@ pub fn run() {
             get_feed_status,
             scan_packages,
             get_software_catalog,
+            fetch_app_icon,
             get_dev_toolchains,
             get_dev_toolchain_state,
             get_dev_releases,

@@ -130,6 +130,11 @@ export function getSoftwareCatalog(): Promise<CatalogApplication[]> {
   return invoke<CatalogApplication[]>("get_software_catalog");
 }
 
+export function getAppIcon(appId: string, iconUrl: string, iconSha256: string): Promise<string> {
+  if (isMock()) return Promise.resolve("");
+  return invoke<string>("fetch_app_icon", { appId, iconUrl, iconSha256 });
+}
+
 export function getApplicationDetails(applicationId: string): Promise<ApplicationDetails> {
   if (isMock()) return Promise.resolve(mockDetails(applicationId));
   return invoke<ApplicationDetails>("get_application_details", { applicationId });

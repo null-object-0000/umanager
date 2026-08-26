@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
+import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
 import { summarizePackages } from "./model";
 import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -30,6 +30,8 @@ function appearance(packageName: string) {
   return {
     iconKey: entry?.icon ?? fallbackIconKey[packageName] ?? null,
     accentColor: entry?.accentColor ?? fallbackColors[packageName] ?? "#555",
+    iconUrl: entry?.iconUrl ?? null,
+    iconSha256: entry?.iconSha256 ?? null,
   };
 }
 
@@ -47,10 +49,22 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "settings" | "se
 }
 
 function AppLogo({ packageName, displayName }: { packageName: string; displayName: string }) {
-  const { iconKey, accentColor } = appearance(packageName);
+  const { iconKey, accentColor, iconUrl, iconSha256 } = appearance(packageName);
   const asset = iconKey ? iconAssets[iconKey] : undefined;
+  const [remoteSrc, setRemoteSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setRemoteSrc(null);
+    if (!asset && iconUrl && iconSha256) {
+      getAppIcon(packageName, iconUrl, iconSha256)
+        .then((dataUrl) => { if (!cancelled && dataUrl) setRemoteSrc(dataUrl); })
+        .catch(() => { /* 拉取失败保持字母头像兜底 */ });
+    }
+    return () => { cancelled = true; };
+  }, [packageName, asset, iconUrl, iconSha256]);
+  const src = asset ?? remoteSrc;
   const letter = displayName === "微信" ? "微" : displayName === "腾讯会议" ? "会" : displayName.slice(0, 1).toUpperCase();
-  return <span className={`app-mark ${asset ? "has-icon" : ""}`} style={{ background: asset ? undefined : accentColor }}>{asset ? <img src={asset} alt=""/> : letter}</span>;
+  return <span className={`app-mark ${src ? "has-icon" : ""}`} style={{ background: src ? undefined : accentColor }}>{src ? <img src={src} alt=""/> : letter}</span>;
 }
 
 function AppMark({ item }: { item: ManagedPackage }) {
@@ -857,6 +871,7 @@ export default function App() {
   };
   useEffect(() => {
     void refresh();
+    void refreshInstallationInfo();
     void getPendingLocalDeb().then(setPendingLocalDeb).catch((reason) => setPendingLocalDebError(String(reason)));
   }, []);
 

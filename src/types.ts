@@ -33,6 +33,8 @@ export interface CatalogApplication {
   architecture: string;
   homepage: string | null;
   icon: string | null;
+  iconUrl?: string | null;
+  iconSha256?: string | null;
   accentColor: string | null;
   removable: boolean;
   source: CatalogSource;
