@@ -657,7 +657,7 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
   const installedVersion = (version: string) => state?.installedVersions.some((item) => item.version === version || item.version.startsWith(`${version}-`));
 
   return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${toolchain.displayName} 开发环境详情`}>
-    <header className="drawer-header"><div className="drawer-app"><DevLogo toolchain={toolchain}/><div><h2>{toolchain.displayName}</h2><span>{toolchain.vendor} · {toolchain.manager}</span></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <header className="drawer-header"><div className="drawer-app"><DevLogo toolchain={toolchain}/><div><h2>{toolchain.displayName}</h2><span>{toolchain.vendor} · {toolchain.manager}</span>{toolchain.description && <p className="drawer-description">{toolchain.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     <div className="drawer-content">
       {state && !state.managerFound && <div className="message"><strong>未检测到 {state.manager}</strong><span>版本管理器脚本缺失：{toolchain.managerHome}。请先安装 {state.manager}。</span></div>}
       {state?.managerFound && <div className="dev-facts">
@@ -765,7 +765,7 @@ function DevToolDrawer({ tool, onClose }: { tool: DevTool; onClose: () => void }
   const canInstall = tool.installer.kind === "curlScript" || (state?.npmAvailable ?? false);
 
   return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${tool.displayName} 开发环境详情`}>
-    <header className="drawer-header"><div className="drawer-app"><DevToolLogo tool={tool}/><div><h2>{tool.displayName}</h2><span>{tool.vendor} · {tool.binaryName}</span></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <header className="drawer-header"><div className="drawer-app"><DevToolLogo tool={tool}/><div><h2>{tool.displayName}</h2><span>{tool.vendor} · {tool.binaryName}</span>{tool.description && <p className="drawer-description">{tool.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     <div className="drawer-content">
       {state && !state.npmAvailable && <div className="message"><strong>未检测到 npm</strong><span>无法读取 npm 最新版本{tool.installer.kind === "npm" ? "，也无法安装该工具" : ""}。请先在“开发环境”安装并设置 Node.js。</span></div>}
       <div className="dev-facts">
