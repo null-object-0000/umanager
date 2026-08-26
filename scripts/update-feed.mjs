@@ -62,6 +62,40 @@ async function fetchGz(url) {
   return (url.endsWith(".gz") ? gunzipSync(buffer) : buffer).toString("utf8");
 }
 
+// ---------------------------------------------------------------------------
+// Gateway fallback: some vendor endpoints are only reachable from a China IP,
+// so when a `gatewayUrl` is configured on a source and a direct fetch fails,
+// retry through the Cloudflare Worker fetch proxy (`{gatewayUrl}/fetch?url=<url>`).
+// Used only by the CI metadata generator — the desktop app never uses it.
+// ---------------------------------------------------------------------------
+
+function gatewayFetchUrl(gatewayUrl, url) {
+  return `${gatewayUrl.replace(/\/+$/, "")}/fetch?url=${encodeURIComponent(url)}`;
+}
+
+async function fetchBufferFallback(url, gatewayUrl) {
+  if (!gatewayUrl) return fetchBuffer(url);
+  try {
+    return await fetchBuffer(url);
+  } catch (directError) {
+    let host = url;
+    try { host = new URL(url).hostname; } catch { /* keep raw */ }
+    log(`  ↻ 直连失败（${directError.message}），改用网关抓取 ${host}`);
+    return fetchBuffer(gatewayFetchUrl(gatewayUrl, url));
+  }
+}
+
+async function fetchTextFallback(url, gatewayUrl) {
+  return (await fetchBufferFallback(url, gatewayUrl)).toString("utf8");
+}
+
+async function downloadTempFallback(label, url, gatewayUrl) {
+  const buffer = await fetchBufferFallback(url, gatewayUrl);
+  const path = `/tmp/umanager-feed-${label}-${process.pid}.deb`;
+  writeFileSync(path, buffer);
+  return path;
+}
+
 function debControlField(filePath, field) {
   const result = spawnSync("dpkg-deb", ["--field", filePath, field], {
     encoding: "utf8",
@@ -446,7 +480,7 @@ async function applySign(sign, rawUrl) {
 async function versionEndpointEntry(app, source) {
   let text;
   try {
-    text = await fetchText(buildVersionEndpointUrl(source));
+    text = await fetchTextFallback(buildVersionEndpointUrl(source), source.gatewayUrl);
   } catch (error) {
     fail(app.applicationId, `读取版本端点失败：${error.message}`);
     return null;
@@ -491,7 +525,7 @@ async function versionEndpointEntry(app, source) {
   let debPath;
   let controlVersion;
   try {
-    debPath = await downloadTemp(app.applicationId, download);
+    debPath = await downloadTempFallback(app.applicationId, download, source.gatewayUrl);
     controlVersion = debControlField(debPath, "Version");
   } catch (error) {
     fail(app.applicationId, `读取安装包控制信息失败：${error.message}`);
@@ -605,6 +639,12 @@ async function main() {
         fail(app.applicationId, `图标提取失败：${error.message}`);
       }
     }
+  }
+
+  // `gatewayUrl` is a CI-only config; strip it from the signed catalog so the
+  // desktop app / helper never see the private gateway endpoint.
+  for (const app of extraApplications) {
+    if (app.source && "gatewayUrl" in app.source) delete app.source.gatewayUrl;
   }
 
   const catalogJson = JSON.stringify(extraApplications);

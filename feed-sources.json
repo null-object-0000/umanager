@@ -86,7 +86,8 @@
         "versionEndpointHosts": ["y.qq.com"],
         "payloadKind": "html",
         "downloadUrlField": ".deb",
-        "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"]
+        "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"],
+        "gatewayUrl": "https://umanager.nichangen.workers.dev"
       }
     },
     {
