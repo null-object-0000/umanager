@@ -60,6 +60,36 @@
         "pageVersionMarker": "",
         "downloadLinkFileName": "Bitwarden-2026.8.0-amd64.deb"
       }
+    },
+    {
+      "applicationId": "qq",
+      "packageName": "linuxqq",
+      "displayName": "QQ",
+      "vendor": "腾讯",
+      "architecture": "amd64",
+      "description": "腾讯 QQ Linux 桌面版，支持文字、语音、视频聊天与文件传输。",
+      "homepage": "https://im.qq.com/index/#/linux",
+      "icon": "qq",
+      "accentColor": "#12b7f5",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
+        "versionEndpointHosts": ["qq-web.cdn-go.cn"],
+        "payloadKind": "json",
+        "versionField": "Linux.version",
+        "downloadUrlField": "Linux.x64DownloadUrl.deb",
+        "downloadHosts": ["qqdl.gtimg.cn"],
+        "sign": {
+          "kind": "qqUrlSign",
+          "endpointUrl": "https://im.qq.com/http2rpc/gotrpc/noauth/trpc.qqntv2.urlsign.UrlSign/GetSign",
+          "endpointHosts": ["im.qq.com"],
+          "method": "POST",
+          "headers": { "x-oidb": "{\"uint32_command\":\"0x9b8e\",\"uint32_service_type\":1}" },
+          "bodyTemplate": "{\"url\":\"{downloadUrl}\"}",
+          "signedUrlField": "data.url"
+        }
+      }
     }
   ]
 }
