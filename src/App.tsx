@@ -18,7 +18,7 @@ import codexIcon from "./assets/app-icons/codex.svg?no-inline";
 import githubCliIcon from "./assets/app-icons/github-cli.svg?no-inline";
 import feishuIcon from "./assets/app-icons/feishu.png";
 
-type Filter = "all" | "installed" | "updates";
+type Filter = "all" | "installed" | "updates" | "installable";
 type Page = "installed" | "dev" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
@@ -954,9 +954,10 @@ export default function App() {
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName, "zh-CN"));
   }, [result, desktopOffers]);
   const updatesCount = useMemo(() => softwareRows.filter((item) => item.updateState === "updateAvailable").length, [softwareRows]);
+  const installableCount = useMemo(() => softwareRows.filter((item) => !item.installed && item.installAvailable).length, [softwareRows]);
   const visibleSoftware = useMemo(() => softwareRows.filter((item) => {
     const textMatch = `${item.displayName} ${item.vendor} ${item.packageName}`.toLowerCase().includes(query.toLowerCase());
-    const filterMatch = filter === "all" || (filter === "installed" && item.installed) || (filter === "updates" && item.updateState === "updateAvailable");
+    const filterMatch = filter === "all" || (filter === "installed" && item.installed) || (filter === "updates" && item.updateState === "updateAvailable") || (filter === "installable" && !item.installed);
     return textMatch && filterMatch;
   }), [softwareRows, filter, query]);
   const openSoftware = (item: MergedSoftware) => {
@@ -1005,6 +1006,7 @@ export default function App() {
           <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button>
           <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>已安装</button>
           <button className={filter === "updates" ? "active" : ""} onClick={() => setFilter("updates")}>可更新 {updatesCount > 0 && <b>{updatesCount}</b>}</button>
+          <button className={filter === "installable" ? "active" : ""} onClick={() => setFilter("installable")}>可安装 {installableCount > 0 && <b>{installableCount}</b>}</button>
         </div><label className="search-box"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索软件"/></label></div>
         <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
         {error && <div className="message error"><strong>无法读取软件信息</strong><span>{error}</span></div>}
