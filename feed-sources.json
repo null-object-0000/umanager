@@ -90,6 +90,46 @@
           "signedUrlField": "data.url"
         }
       }
+    },
+    {
+      "applicationId": "qq-music",
+      "packageName": "qqmusic",
+      "displayName": "QQ 音乐",
+      "vendor": "腾讯",
+      "architecture": "amd64",
+      "description": "腾讯官方音乐客户端，海量曲库与高品质音质，支持歌单与个性化推荐。",
+      "homepage": "https://y.qq.com/download/download.html",
+      "icon": "qq-music",
+      "accentColor": "#31c27c",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://y.qq.com/download/download.html",
+        "versionEndpointHosts": ["y.qq.com"],
+        "payloadKind": "html",
+        "downloadUrlField": ".deb",
+        "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"]
+      }
+    },
+    {
+      "applicationId": "obsidian",
+      "packageName": "obsidian",
+      "displayName": "Obsidian",
+      "vendor": "Obsidian",
+      "architecture": "amd64",
+      "description": "基于 Markdown 的本地知识库笔记应用，用双向链接构建个人知识网络，本地优先、数据自持。",
+      "homepage": "https://obsidian.md/",
+      "icon": "obsidian",
+      "accentColor": "#7c3aed",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://obsidian.md/download",
+        "versionEndpointHosts": ["obsidian.md"],
+        "payloadKind": "html",
+        "downloadUrlField": "_amd64.deb",
+        "downloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"]
+      }
     }
   ]
 }
