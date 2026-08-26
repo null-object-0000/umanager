@@ -441,6 +441,22 @@ function extractIcon(debPath) {
     };
     walk(base);
   }
+
+  // Chromium-family browsers (Chrome, Edge) ship their icon as
+  // /opt/<vendor>/<product>/product_logo_<size>.png instead of the standard
+  // hicolor/pixmaps paths. Only match that narrow, well-known file pattern so
+  // unrelated PNGs elsewhere under /opt are never picked up.
+  const optBase = join(extractDir, "opt");
+  if (existsSync(optBase)) {
+    const walkLogos = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walkLogos(path);
+        else if (/^product_logo_\d+\.png$/i.test(entry.name)) candidates.push(path);
+      }
+    };
+    walkLogos(optBase);
+  }
   if (candidates.length === 0) {
     return null;
   }
