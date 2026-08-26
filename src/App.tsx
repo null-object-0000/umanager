@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, UpdateState } from "./types";
+import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion, listScripts, runScript, stopScript } from "./api";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
@@ -20,7 +20,7 @@ import githubCliIcon from "./assets/app-icons/github-cli.svg?no-inline";
 import feishuIcon from "./assets/app-icons/feishu.png";
 
 type Filter = "all" | "installed" | "updates" | "installable";
-type Page = "installed" | "dev" | "settings";
+type Page = "installed" | "dev" | "scripts" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet" };
@@ -38,7 +38,7 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "settings" | "search" | "shield" | "dev" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "settings" | "search" | "shield" | "dev" | "script" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
@@ -47,6 +47,7 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "settings" | "se
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></>,
     dev: <><path d="M8 6 3 12l5 6M16 6l5 6-5 6M14 4l-4 16"/></>,
+    script: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -846,6 +847,67 @@ function DevToolsPage() {
   </main>;
 }
 
+function ScriptLogPanel({ events, running }: { events: ScriptProgressEvent[]; running: boolean }) {
+  if (events.length === 0) return null;
+  const system = events.filter((event) => event.stream === "system");
+  const lines = events.filter((event) => event.stream !== "system");
+  return <section className="operation-progress-panel" aria-live="polite">
+    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "脚本正在运行" : "脚本已结束"}</strong><span>输出只读，脚本以当前用户身份运行，不经 root</span></div></div></header>
+    {system.length > 0 && <div className="script-system-lines">{system.map((event, index) => <div key={index}>{event.message}</div>)}</div>}
+    <div className="operation-terminal" role="log">{lines.length === 0 ? <span className="terminal-placeholder">等待脚本输出…</span> : lines.map((event, index) => <div className={event.stream} key={index}><span>{event.stream === "stderr" ? "ERR" : "OUT"}</span><code>{event.message}</code></div>)}</div>
+  </section>;
+}
+
+function ScriptsPage() {
+  const [scripts, setScripts] = useState<ScriptDefinition[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [runningId, setRunningId] = useState<string | null>(null);
+  const [events, setEvents] = useState<ScriptProgressEvent[]>([]);
+
+  const refresh = async () => {
+    setLoading(true); setError(null);
+    try { setScripts(await listScripts()); } catch (reason) { setError(String(reason)); } finally { setLoading(false); }
+  };
+  useEffect(() => { void refresh(); }, []);
+
+  const run = async (script: ScriptDefinition, dryRun: boolean) => {
+    setRunningId(script.id); setError(null); setEvents([]);
+    try {
+      await runScript(script.id, dryRun, (event) => setEvents((current) => [...current.slice(-499), event]));
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setRunningId((current) => (current === script.id ? null : current));
+    }
+  };
+
+  const stop = async (scriptId: string) => {
+    try { await stopScript(scriptId); } catch (reason) { setError(String(reason)); }
+  };
+
+  return <main className="workspace scripts-workspace">
+    <header className="workspace-header"><div><h1>维护脚本</h1><p>内置维护脚本 · 以当前用户身份运行，不需要 root</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "读取中…" : "重新读取"}</button></div></header>
+    <section className="software-panel script-panel">
+      {error && <div className="message error"><strong>无法读取脚本</strong><span>{error}</span></div>}
+      {loading && !scripts && <div className="empty-state"><span className="loader"/><p>正在读取内置脚本…</p></div>}
+      {scripts && scripts.length === 0 && <div className="empty-state"><p>没有可用的内置脚本。</p></div>}
+      {scripts && scripts.map((script) => <div className="script-card" key={script.id}>
+        <div className="script-card-head">
+          <div className="app-meta"><strong>{script.name}</strong><span className="script-meta">{script.id}</span>{script.description && <p className="app-description">{script.description}</p>}</div>
+          <span className="status-badge upToDate">用户级 · 无 root</span>
+        </div>
+        <div className="script-actions">
+          <button className="dev-action-button" disabled={runningId !== null} onClick={() => void run(script, false)}>{runningId === script.id ? "运行中…" : "运行"}</button>
+          {script.supportsDryRun && <button className="secondary-button" disabled={runningId !== null} onClick={() => void run(script, true)}>试运行</button>}
+          {runningId === script.id && <button className="dev-action-button danger" onClick={() => void stop(script.id)}>停止</button>}
+        </div>
+        {(runningId === script.id || events.length > 0) && <ScriptLogPanel events={events} running={runningId === script.id}/>}
+      </div>)}
+    </section>
+  </main>;
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>("installed");
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -1033,6 +1095,10 @@ export default function App() {
     setPage("dev");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
   };
+  const showScriptsPage = () => {
+    setPage("scripts");
+    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
+  };
   const showSettingsPage = () => {
     setPage("settings");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
@@ -1043,7 +1109,8 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">U</span><strong>UManager</strong></div>
       <nav aria-label="主导航">
-        <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件</button>
+        <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件管家</button>
+        <button className={`nav-item ${page === "scripts" ? "active" : ""}`} onClick={showScriptsPage}><Icon name="script"/>维护脚本</button>
         <button className={`nav-item ${page === "dev" ? "active" : ""}`} onClick={showDevToolsPage}><Icon name="dev"/>开发环境</button>
         <button className="nav-item" disabled><Icon name="history"/>操作记录<span className="later">稍后</span></button>
       </nav>
@@ -1054,7 +1121,7 @@ export default function App() {
     </aside>
 
     {page === "installed" ? <main className="workspace">
-      <header className="workspace-header"><div><h1>软件</h1><p>桌面应用、命令行工具与 AI 工具</p></div><div className="header-actions">{result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}<button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button></div></header>
+      <header className="workspace-header"><div><h1>软件管家</h1><p>桌面应用、命令行工具与 AI 工具</p></div><div className="header-actions">{result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}<button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button></div></header>
       <section className="software-panel">
         {pendingLocalDebError && <div className="message error"><strong>无法打开本地 .deb</strong><span>{pendingLocalDebError}</span></div>}
         <div className="category-bar">
@@ -1078,7 +1145,7 @@ export default function App() {
           ? <SoftwareRow item={item.deb!} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} key={item.key}/>
           : <DevToolRow tool={item.tool!} state={item.toolState ?? null} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
       </section>
-    </main> : page === "dev" ? <DevToolsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
+    </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
