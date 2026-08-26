@@ -8,7 +8,7 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - 读取本机 `apt-cache policy`，识别候选版本和官方仓库来源；
 - 使用 Debian 自身的版本比较规则判断是否有更新；
 - VS Code、Google Chrome 和 ChatGPT Desktop 可从固定白名单中的官方 APT 仓库下载候选版本，实时展示进度与下载速度，校验并生成不可变计划；只有用户完成确认、特权 dry-run 和再次确认后才执行更新（同一登录会话内只弹一次管理员授权）。
-- “软件商店”页支持对内置与 feed 新增软件的新安装（VS Code、Google Chrome、ChatGPT Desktop、微信、FlClash、GitHub CLI、LocalSend、Bitwarden 等）：按各来源锁定版本、大小与 SHA-256，生成 `installedVersion: null` 的不可变计划；无法解析的应用会明确显示“不可用”而不是让整个列表不可读。
+- “软件”页合并展示已安装与可安装的受管软件，用“全部 / 已安装 / 可更新”三个 Tab 区分；未安装但有官方源的软件可直接安装（VS Code、Google Chrome、ChatGPT Desktop、微信、FlClash、GitHub CLI、LocalSend、Bitwarden、QQ、Obsidian 等）：按各来源锁定版本、大小与 SHA-256，生成 `installedVersion: null` 的不可变计划；无法解析的应用会明确显示“不可用”而不是让整个列表不可读。已安装且官方源有新版本的应用可一键更新。
 - FlClash 通过 GitHub Releases API 读取最新稳定发布，以 GitHub 资产 SHA-256 与 HTTP Range 读出的 `.deb` 控制归档锁定版本，并走完整的下载校验、不可变计划、特权 dry-run 和安装链路。
 - 受管软件卸载使用独立不可变计划、特权 dry-run 和再次确认，仅执行白名单中固定的 `dpkg --remove` 动作。
 - 设置页会核对当前可执行文件与 `dpkg` 安装清单，区分 `.deb` 安装版、便携版和开发版；`.deb` 安装版可通过独立的 `remove-umanager` 计划安全卸载自身。
@@ -264,7 +264,7 @@ Linux `.deb` 包会关联到 UManager。用户在文件管理器中选择“使�
 
 ## 新安装
 
-“软件商店”页会逐一检查受管应用的 dpkg 状态与官方源：VS Code、Google Chrome 和 ChatGPT Desktop 走官方 APT 仓库索引，微信走官网固定地址，FlClash 与 LocalSend 走 GitHub Releases 资产，GitHub CLI 走官方 APT 索引，Bitwarden 走固定最新下载入口。只有应用未安装、候选版本存在、架构为 amd64 且能拿到大小与 SHA-256（微信下载后计算）时，UI 才开放下载。
+“软件”页的“全部”Tab 会逐一检查受管应用的 dpkg 状态与官方源：VS Code、Google Chrome 和 ChatGPT Desktop 走官方 APT 仓库索引，微信走官网固定地址，FlClash 与 LocalSend 走 GitHub Releases 资产，GitHub CLI 走官方 APT 索引，Bitwarden 走固定最新下载入口，QQ / Obsidian 走官网动态下发接口。只有应用未安装、候选版本存在、架构为 amd64 且能拿到大小与 SHA-256（微信下载后计算）时，UI 才开放下载。
 
 下载后会复核 HTTPS 精确域名、重定向、文件大小、SHA-256 以及 `.deb` 中的包名、版本和架构。特权 helper 在 dry-run 和真正安装前都会再次确认应用仍未安装、当前系统为 amd64，并将计划与官方源记录重新对比，最后只以固定 `/usr/bin/dpkg --install <root-owned-staged-deb>` 参数执行。
 

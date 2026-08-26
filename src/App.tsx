@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
-import { summarizePackages } from "./model";
-import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
+import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, UpdateState } from "./types";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
 import chromeIcon from "./assets/app-icons/google-chrome.png";
@@ -18,8 +17,8 @@ import piIcon from "./assets/app-icons/pi.svg?no-inline";
 import codexIcon from "./assets/app-icons/codex.svg?no-inline";
 import githubCliIcon from "./assets/app-icons/github-cli.svg?no-inline";
 
-type Filter = "all" | "updates" | "local";
-type Page = "installed" | "installable" | "dev" | "settings";
+type Filter = "all" | "installed" | "updates";
+type Page = "installed" | "dev" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, "github-cli": githubCliIcon };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet" };
@@ -93,16 +92,6 @@ function isAutoInstallable(packageName: string) {
   const entry = catalogByPackage[packageName];
   if (!entry) return false;
   return ["aptRepository", "stableDownloadEndpoint", "releaseApi", "versionEndpoint"].includes(entry.source.kind);
-}
-
-function PackageRow({ item, onOpen, onRemove }: { item: ManagedPackage; onOpen?: () => void; onRemove: () => void }) {
-  const hasUpdate = item.updateState === "updateAvailable";
-  return <div className={`package-row ${onOpen ? "supported" : ""}`} role={onOpen ? "button" : undefined} tabIndex={onOpen ? 0 : undefined} onClick={onOpen} onKeyDown={(event) => { if (onOpen && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
-    <div className="app-cell"><AppMark item={item}/><div className="app-meta"><strong>{item.displayName}</strong><span>{item.vendor} · {item.packageName}</span></div></div>
-    <div className="version-cell"><strong>{item.installedVersion}</strong>{hasUpdate && <span>→ {item.candidateVersion}</span>}</div>
-    <div className="source-cell"><span className={`source-dot ${item.sourceKind}`}/><div><strong>{sourceText[item.sourceKind]}</strong><span>{item.architecture}</span></div></div>
-    <div className="status-cell"><span className={`status-badge ${item.updateState}`}>{hasUpdate ? "有可用更新" : item.updateState === "upToDate" ? "已是最新" : "需手动检查"}</span><div className="row-actions"><button className="remove-package-button" onClick={(event) => { event.stopPropagation(); onRemove(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`卸载 ${item.displayName}`}>卸载</button><span className={`row-arrow ${onOpen ? "" : "placeholder"}`} aria-hidden="true">›</span></div></div>
-  </div>;
 }
 
 function formatBytes(bytes: number) {
@@ -531,17 +520,41 @@ function InstallableRow({ offer, onOpen }: { offer: InstallableApplication; onOp
   </div>;
 }
 
-function InstallableSoftwarePage({ offers, loading, error, onRefresh, onInstall }: { offers: InstallableApplication[] | null; loading: boolean; error: string | null; onRefresh: () => void; onInstall: (offer: InstallableApplication) => void }) {
-  return <main className="workspace installable-workspace">
-    <header className="workspace-header"><div><h1>软件商店</h1><p>从已验证的厂商官方源安全安装</p></div><div className="header-actions"><button className="primary-button" onClick={onRefresh} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
-    <section className="software-panel">
-      <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
-      {error && <div className="message error"><strong>无法读取可安装软件</strong><span>{error}</span></div>}
-      {loading && !offers && <div className="empty-state"><span className="loader"/><p>正在检查官方仓库与发布资产…</p></div>}
-      {offers && offers.length === 0 && <div className="empty-state"><p>暂无可安装的软件</p></div>}
-      {offers && <div className="package-list">{offers.map((offer) => <InstallableRow offer={offer} onOpen={() => onInstall(offer)} key={offer.packageName}/>)}</div>}
-    </section>
-  </main>;
+type MergedSoftware = {
+  packageName: string;
+  displayName: string;
+  vendor: string;
+  description: string | null;
+  architecture: string;
+  sourceKind: string;
+  installed: boolean;
+  installedVersion: string | null;
+  candidateVersion: string | null;
+  updateState: UpdateState;
+  installAvailable: boolean;
+  removable: boolean;
+  managed?: ManagedPackage;
+  offer?: InstallableApplication;
+};
+
+function SoftwareRow({ item, onOpen, onRemove }: { item: MergedSoftware; onOpen: () => void; onRemove: () => void }) {
+  const catalogApp = catalogByPackage[item.packageName];
+  const autoInstallable = !!catalogApp && isAutoInstallable(item.packageName);
+  const canOpen = item.installed ? autoInstallable : item.installAvailable;
+  const statusText = item.installed
+    ? item.updateState === "updateAvailable" ? "有可用更新" : item.updateState === "upToDate" ? "已是最新" : "需手动检查"
+    : item.installAvailable ? "可安装" : "暂不可安装";
+  const statusClass = item.installed ? item.updateState : item.installAvailable ? "updateAvailable" : "unknown";
+  return <div className={`package-row ${canOpen ? "supported" : ""}`} role={canOpen ? "button" : undefined} tabIndex={canOpen ? 0 : undefined} onClick={() => { if (canOpen) onOpen(); }} onKeyDown={(event) => { if (canOpen && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
+    <div className="app-cell"><AppLogo packageName={item.packageName} displayName={item.displayName}/><div className="app-meta"><strong>{item.displayName}</strong><span>{item.vendor} · {item.packageName}</span>{item.description && <p className="app-description">{item.description}</p>}</div></div>
+    <div className="version-cell"><strong>{item.installed ? item.installedVersion : "未安装"}</strong>{item.installed && item.updateState === "updateAvailable" && item.candidateVersion && <span>→ {item.candidateVersion}</span>}{!item.installed && item.installAvailable && item.candidateVersion && <span>可安装 {item.candidateVersion}</span>}</div>
+    <div className="source-cell"><span className={`source-dot ${item.sourceKind}`}/><div><strong>{sourceText[item.sourceKind as keyof typeof sourceText] ?? item.sourceKind}</strong><span>{item.architecture}</span></div></div>
+    <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><div className="row-actions">
+      {item.installed && item.removable && <button className="remove-package-button" onClick={(event) => { event.stopPropagation(); onRemove(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`卸载 ${item.displayName}`}>卸载</button>}
+      {!item.installed && item.installAvailable && <button className="install-package-button" onClick={(event) => { event.stopPropagation(); onOpen(); }}>安装</button>}
+      <span className={`row-arrow ${canOpen ? "" : "placeholder"}`} aria-hidden="true">›</span>
+    </div></div>
+  </div>;
 }
 
 function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableApplication; onClose: () => void; onInstalled: () => void }) {
@@ -896,23 +909,66 @@ export default function App() {
   };
   useEffect(() => {
     void refresh();
+    void refreshInstallable();
     void refreshInstallationInfo();
     void getPendingLocalDeb().then(setPendingLocalDeb).catch((reason) => setPendingLocalDebError(String(reason)));
     getVersion().then(setAppVersion).catch(() => { /* 获取编译版本失败时兜底为空 */ });
   }, []);
 
-  const stats = useMemo(() => summarizePackages(result?.packages ?? []), [result]);
   const desktopOffers = useMemo(() => (installableOffers ?? []).filter((offer) => offer.category !== "cli"), [installableOffers]);
   const cliOffers = useMemo(() => (installableOffers ?? []).filter((offer) => offer.category === "cli"), [installableOffers]);
-  const visible = useMemo(() => (result?.packages ?? []).filter((item) => {
+  const softwareRows = useMemo(() => {
+    const map = new Map<string, MergedSoftware>();
+    for (const mg of result?.packages ?? []) {
+      if (catalogByPackage[mg.packageName]?.category === "cli") continue;
+      map.set(mg.packageName, {
+        packageName: mg.packageName, displayName: mg.displayName, vendor: mg.vendor,
+        description: catalogByPackage[mg.packageName]?.description ?? null,
+        architecture: mg.architecture, sourceKind: mg.sourceKind,
+        installed: true, installedVersion: mg.installedVersion, candidateVersion: mg.candidateVersion,
+        updateState: mg.updateState, installAvailable: false, removable: catalogByPackage[mg.packageName]?.removable ?? false,
+        managed: mg, offer: undefined,
+      });
+    }
+    for (const off of desktopOffers) {
+      const existing = map.get(off.packageName);
+      if (existing) {
+        existing.offer = off;
+        existing.description = existing.description ?? off.description ?? null;
+        existing.candidateVersion = existing.candidateVersion ?? off.candidateVersion;
+        existing.architecture = existing.architecture ?? off.architecture;
+        existing.sourceKind = existing.sourceKind ?? off.sourceKind;
+        existing.installAvailable = off.installAvailable;
+      } else {
+        map.set(off.packageName, {
+          packageName: off.packageName, displayName: off.displayName, vendor: off.vendor,
+          description: off.description ?? catalogByPackage[off.packageName]?.description ?? null,
+          architecture: off.architecture, sourceKind: off.sourceKind,
+          installed: off.installedVersion != null, installedVersion: off.installedVersion, candidateVersion: off.candidateVersion,
+          updateState: "unknown", installAvailable: off.installAvailable, removable: catalogByPackage[off.packageName]?.removable ?? false,
+          managed: undefined, offer: off,
+        });
+      }
+    }
+    return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName, "zh-CN"));
+  }, [result, desktopOffers]);
+  const updatesCount = useMemo(() => softwareRows.filter((item) => item.updateState === "updateAvailable").length, [softwareRows]);
+  const visibleSoftware = useMemo(() => softwareRows.filter((item) => {
     const textMatch = `${item.displayName} ${item.vendor} ${item.packageName}`.toLowerCase().includes(query.toLowerCase());
-    const filterMatch = filter === "all" || (filter === "updates" && item.updateState === "updateAvailable") || (filter === "local" && item.sourceKind === "localPackage");
+    const filterMatch = filter === "all" || (filter === "installed" && item.installed) || (filter === "updates" && item.updateState === "updateAvailable");
     return textMatch && filterMatch;
-  }), [filter, query, result]);
-  const showInstalledPage = () => { setPage("installed"); setInstallOffer(null); setUpdatePackage(null); };
-  const showInstallablePage = () => {
-    setPage("installable");
-    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null);
+  }), [softwareRows, filter, query]);
+  const openSoftware = (item: MergedSoftware) => {
+    if (item.installed) {
+      if (item.managed && isAutoInstallable(item.packageName)) setUpdatePackage(item.managed);
+    } else if (item.offer) {
+      setInstallOffer(item.offer);
+    }
+  };
+  const refreshAll = () => { void refresh(); void refreshInstallable(); };
+  const showInstalledPage = () => {
+    setPage("installed");
+    setInstallOffer(null); setUpdatePackage(null);
     if (!installableOffers && !installableLoading) void refreshInstallable();
   };
   const showDevToolsPage = () => {
@@ -930,8 +986,7 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">U</span><strong>UManager</strong></div>
       <nav aria-label="主导航">
-        <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>我的软件</button>
-        <button className={`nav-item ${page === "installable" ? "active" : ""}`} onClick={showInstallablePage}><Icon name="source"/>软件商店</button>
+        <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件</button>
         <button className={`nav-item ${page === "dev" ? "active" : ""}`} onClick={showDevToolsPage}><Icon name="dev"/>开发环境</button>
         <button className="nav-item" disabled><Icon name="history"/>操作记录<span className="later">稍后</span></button>
       </nav>
@@ -942,22 +997,23 @@ export default function App() {
     </aside>
 
     {page === "installed" ? <main className="workspace">
-      <header className="workspace-header"><div><h1>我的软件</h1><p>来自厂商官网的已安装应用</p></div><div className="header-actions">{result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}<button className="primary-button" onClick={() => void refresh()} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "扫描中…" : "检查更新"}</button></div></header>
+      <header className="workspace-header"><div><h1>软件</h1><p>已安装与可安装的受管软件</p></div><div className="header-actions">{result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}<button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button></div></header>
       <section className="software-panel">
         {pendingLocalDebError && <div className="message error"><strong>无法打开本地 .deb</strong><span>{pendingLocalDebError}</span></div>}
         <div className="panel-toolbar"><div className="filter-tabs">
           <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button>
-          <button className={filter === "updates" ? "active" : ""} onClick={() => setFilter("updates")}>可更新 {stats.updates > 0 && <b>{stats.updates}</b>}</button>
-          <button className={filter === "local" ? "active" : ""} onClick={() => setFilter("local")}>本地安装</button>
+          <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>已安装</button>
+          <button className={filter === "updates" ? "active" : ""} onClick={() => setFilter("updates")}>可更新 {updatesCount > 0 && <b>{updatesCount}</b>}</button>
         </div><label className="search-box"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索软件"/></label></div>
         <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
         {error && <div className="message error"><strong>无法读取软件信息</strong><span>{error}</span></div>}
+        {installableError && <div className="message error"><strong>无法读取可安装软件</strong><span>{installableError}</span></div>}
         {result?.warnings.map((warning) => <div className="message" key={warning}>{warning}</div>)}
-        {!result && !error && <div className="empty-state"><span className="loader"/><p>正在读取 dpkg 与 APT 缓存…</p></div>}
-        {result && visible.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
-        <div className="package-list">{visible.map((item) => <PackageRow item={item} onRemove={() => setRemovalPackage(item)} onOpen={isAutoInstallable(item.packageName) ? () => setUpdatePackage(item) : undefined} key={item.packageName}/>)}</div>
+        {!result && !installableOffers && <div className="empty-state"><span className="loader"/><p>正在读取已安装与可安装软件…</p></div>}
+        {result && visibleSoftware.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
+        <div className="package-list">{visibleSoftware.map((item) => <SoftwareRow item={item} onOpen={() => openSoftware(item)} onRemove={() => { if (item.managed) setRemovalPackage(item.managed); }} key={item.packageName}/>)}</div>
       </section>
-    </main> : page === "installable" ? <InstallableSoftwarePage offers={desktopOffers} loading={installableLoading} error={installableError} onRefresh={() => void refreshInstallable()} onInstall={(offer) => setInstallOffer(offer)}/> : page === "dev" ? <DevToolsPage cliOffers={cliOffers} onInstall={(offer) => setInstallOffer(offer)}/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
+    </main> : page === "dev" ? <DevToolsPage cliOffers={cliOffers} onInstall={(offer) => setInstallOffer(offer)}/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
