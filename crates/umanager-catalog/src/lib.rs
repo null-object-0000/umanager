@@ -258,6 +258,12 @@ pub enum SourceSpec {
         #[serde(default)]
         resolve_at_download: bool,
     },
+    /// Catch-all for source kinds introduced by newer app versions. Deserializing
+    /// an unknown `kind` no longer aborts the whole catalog (and the app); such
+    /// an entry is simply not auto-installable. This keeps older app builds from
+    /// breaking when the feed gains new source kinds.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -391,6 +397,7 @@ impl Application {
                 download_hosts.iter().map(String::as_str).collect()
             }
             SourceSpec::BrowserImport { .. } => Vec::new(),
+            SourceSpec::Unknown => Vec::new(),
         }
     }
 }
@@ -542,5 +549,26 @@ mod tests {
             }
             _ => panic!("expected versionEndpoint"),
         }
+    }
+
+    #[test]
+    fn unknown_source_kind_deserializes_to_unknown_and_is_not_installable() {
+        // A feed entry introducing a brand-new source kind must not abort the
+        // whole catalog; it deserializes to `Unknown` and is simply not
+        // auto-installable. This is what keeps older app builds from crashing.
+        let json = r#"{
+            "applicationId": "future-app",
+            "packageName": "future",
+            "displayName": "Future",
+            "vendor": "Future",
+            "architecture": "amd64",
+            "removable": true,
+            "source": { "kind": "someBrandNewKind", "foo": "bar" }
+        }"#;
+        let application: Application = serde_json::from_str(json).unwrap();
+        assert!(matches!(application.source, SourceSpec::Unknown));
+        assert!(!application.is_auto_installable());
+        assert!(!application.is_website_download());
+        assert!(application.download_hosts().is_empty());
     }
 }
