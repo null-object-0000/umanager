@@ -145,6 +145,10 @@ pub struct Application {
     pub display_name: String,
     pub vendor: String,
     pub architecture: String,
+    /// UI grouping: `"cli"` for system-level command-line tools (shown in the
+    /// Dev Environment page), absent for normal desktop apps (shown in the store).
+    #[serde(default)]
+    pub category: Option<String>,
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
@@ -395,6 +399,7 @@ impl SelfUpdateSource {
             display_name: self.display_name.clone(),
             vendor: self.vendor.clone(),
             architecture: self.architecture.clone(),
+            category: None,
             homepage: None,
             icon: None,
             icon_url: None,

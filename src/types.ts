@@ -31,6 +31,7 @@ export interface CatalogApplication {
   displayName: string;
   vendor: string;
   architecture: string;
+  category?: string | null;
   homepage: string | null;
   icon: string | null;
   iconUrl?: string | null;
@@ -110,6 +111,7 @@ export interface InstallableApplication {
   displayName: string;
   vendor: string;
   architecture: string;
+  category?: string | null;
   sourceKind: "officialRepository" | "officialWebsite";
   installedVersion: string | null;
   candidateVersion: string | null;

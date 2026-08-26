@@ -791,7 +791,7 @@ function DevGroupLabel({ children }: { children: ReactNode }) {
   return <div className="dev-group-label">{children}</div>;
 }
 
-function DevToolsPage() {
+function DevToolsPage({ cliOffers, onInstall }: { cliOffers: InstallableApplication[] | null; onInstall: (offer: InstallableApplication) => void }) {
   const [toolchains, setToolchains] = useState<DevToolchain[] | null>(null);
   const [tools, setTools] = useState<DevTool[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -807,12 +807,12 @@ function DevToolsPage() {
   };
   useEffect(() => { void refresh(); }, []);
   return <main className="workspace dev-workspace">
-    <header className="workspace-header"><div><h1>开发环境</h1><p>用户级版本管理器 + 命令行 AI 编程工具（无 root）</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
+    <header className="workspace-header"><div><h1>开发环境</h1><p>用户级版本管理器 + 命令行 AI 编程工具 + 系统级 CLI 工具</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
     <section className="software-panel">
       <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
       {error && <div className="message error"><strong>无法读取开发环境</strong><span>{error}</span></div>}
-      {loading && !toolchains && !tools && <div className="empty-state"><span className="loader"/><p>正在读取开发环境状态…</p></div>}
-      {(toolchains || tools) && <div className="package-list">
+      {loading && !toolchains && !tools && !cliOffers && <div className="empty-state"><span className="loader"/><p>正在读取开发环境状态…</p></div>}
+      {(toolchains || tools || cliOffers) && <div className="package-list">
         {toolchains && toolchains.length > 0 && <>
           <DevGroupLabel>运行时 · 用户级版本管理器</DevGroupLabel>
           {toolchains.map((toolchain) => <DevToolchainRow toolchain={toolchain} key={toolchain.toolchainId} onOpen={() => setSelectedToolchain(toolchain)}/>)}
@@ -820,6 +820,10 @@ function DevToolsPage() {
         {tools && tools.length > 0 && <>
           <DevGroupLabel>命令行 · AI 编程工具</DevGroupLabel>
           {tools.map((tool) => <DevToolRow tool={tool} key={tool.toolId} onOpen={() => setSelectedTool(tool)}/>)}
+        </>}
+        {cliOffers && cliOffers.length > 0 && <>
+          <DevGroupLabel>系统级 · CLI 工具</DevGroupLabel>
+          {cliOffers.map((offer) => <InstallableRow offer={offer} onOpen={() => onInstall(offer)} key={offer.packageName}/>)}
         </>}
       </div>}
       {toolchains && toolchains.length === 0 && tools && tools.length === 0 && <div className="empty-state"><p>软件源中未配置开发工具。</p></div>}
@@ -879,6 +883,8 @@ export default function App() {
   }, []);
 
   const stats = useMemo(() => summarizePackages(result?.packages ?? []), [result]);
+  const desktopOffers = useMemo(() => (installableOffers ?? []).filter((offer) => offer.category !== "cli"), [installableOffers]);
+  const cliOffers = useMemo(() => (installableOffers ?? []).filter((offer) => offer.category === "cli"), [installableOffers]);
   const visible = useMemo(() => (result?.packages ?? []).filter((item) => {
     const textMatch = `${item.displayName} ${item.vendor} ${item.packageName}`.toLowerCase().includes(query.toLowerCase());
     const filterMatch = filter === "all" || (filter === "updates" && item.updateState === "updateAvailable") || (filter === "local" && item.sourceKind === "localPackage");
@@ -893,6 +899,7 @@ export default function App() {
   const showDevToolsPage = () => {
     setPage("dev");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null);
+    if (!installableOffers && !installableLoading) void refreshInstallable();
   };
   const showSettingsPage = () => {
     setPage("settings");
@@ -931,7 +938,7 @@ export default function App() {
         {result && visible.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
         <div className="package-list">{visible.map((item) => <PackageRow item={item} onRemove={() => setRemovalPackage(item)} onOpen={isAutoInstallable(item.packageName) ? () => setUpdatePackage(item) : undefined} key={item.packageName}/>)}</div>
       </section>
-    </main> : page === "installable" ? <InstallableSoftwarePage offers={installableOffers} loading={installableLoading} error={installableError} onRefresh={() => void refreshInstallable()} onInstall={(offer) => setInstallOffer(offer)}/> : page === "dev" ? <DevToolsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
+    </main> : page === "installable" ? <InstallableSoftwarePage offers={desktopOffers} loading={installableLoading} error={installableError} onRefresh={() => void refreshInstallable()} onInstall={(offer) => setInstallOffer(offer)}/> : page === "dev" ? <DevToolsPage cliOffers={cliOffers} onInstall={(offer) => setInstallOffer(offer)}/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}

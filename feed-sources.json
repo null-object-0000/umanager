@@ -1,6 +1,24 @@
 {
   "applications": [
     {
+      "applicationId": "github-cli",
+      "packageName": "gh",
+      "displayName": "GitHub CLI",
+      "vendor": "GitHub",
+      "architecture": "amd64",
+      "category": "cli",
+      "homepage": "https://cli.github.com/",
+      "icon": "github-cli",
+      "accentColor": "#24292e",
+      "removable": true,
+      "source": {
+        "kind": "aptRepository",
+        "repositoryUrl": "https://cli.github.com/packages",
+        "repositoryHosts": ["cli.github.com"],
+        "packagesIndexUrl": "https://cli.github.com/packages/dists/stable/main/binary-amd64/Packages.gz"
+      }
+    },
+    {
       "applicationId": "localsend",
       "packageName": "localsend",
       "displayName": "LocalSend",
