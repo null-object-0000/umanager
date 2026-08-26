@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion } from "./api";
 import { summarizePackages } from "./model";
 import type { ApplicationDetails, CatalogApplication, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult } from "./types";
@@ -844,6 +845,7 @@ export default function App() {
   const [installationInfo, setInstallationInfo] = useState<InstallationInfo | null>(null);
   const [installationInfoLoading, setInstallationInfoLoading] = useState(false);
   const [installationInfoError, setInstallationInfoError] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const [selfRemovalOpen, setSelfRemovalOpen] = useState(false);
   const [selfUpdateOpen, setSelfUpdateOpen] = useState(false);
   const [pendingLocalDeb, setPendingLocalDeb] = useState<LocalDebInspection | null>(null);
@@ -873,6 +875,7 @@ export default function App() {
     void refresh();
     void refreshInstallationInfo();
     void getPendingLocalDeb().then(setPendingLocalDeb).catch((reason) => setPendingLocalDebError(String(reason)));
+    getVersion().then(setAppVersion).catch(() => { /* 获取编译版本失败时兜底为空 */ });
   }, []);
 
   const stats = useMemo(() => summarizePackages(result?.packages ?? []), [result]);
@@ -909,7 +912,7 @@ export default function App() {
       <div className="sidebar-spacer"/>
       <div className="safety-card"><Icon name="shield"/><div><strong>安全更新</strong><span>仅在确认授权后更改系统</span></div></div>
       <button className={`nav-item settings ${page === "settings" ? "active" : ""}`} onClick={showSettingsPage}><Icon name="settings"/>设置</button>
-      <div className="version-label">UManager {installationInfo?.appVersion ?? "0.1.0"}</div>
+      <div className="version-label">UManager {installationInfo?.appVersion ?? appVersion ?? ""}</div>
     </aside>
 
     {page === "installed" ? <main className="workspace">
