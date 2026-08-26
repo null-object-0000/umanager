@@ -325,18 +325,21 @@ async fn get_installation_info() -> Result<installation::InstallationInfo, Strin
 /// Relaunch UManager and exit the current process. Used after a self-update,
 /// where the on-disk binary has already been replaced by dpkg but the running
 /// process still holds the old image.
+///
+/// Self-update is only possible for a `.deb` install, whose new binary dpkg has
+/// just placed at `/usr/bin/umanager`. Launch that path directly when it exists
+/// instead of resolving the current executable: after `dpkg --install` replaces a
+/// running binary, `/proc/self/exe` points at the deleted inode, so any detection
+/// based on it is inherently fragile. Fall back to the current executable only for
+/// dev/portable launches (where the restart button cannot normally be reached).
 #[tauri::command]
 async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
-    let info = tauri::async_runtime::spawn_blocking(installation::detect)
-        .await
-        .map_err(|error| format!("安装形态检测任务异常结束：{error}"))??;
-    let executable = if matches!(
-        info.installation_kind,
-        installation::InstallationKind::DebianPackage
-    ) {
-        PathBuf::from("/usr/bin/umanager")
+    let installed = PathBuf::from("/usr/bin/umanager");
+    let executable = if installed.exists() {
+        installed
     } else {
-        PathBuf::from(&info.executable_path)
+        std::env::current_exe()
+            .map_err(|error| format!("无法确定 UManager 可执行文件位置：{error}"))?
     };
     Command::new(&executable)
         .stdin(Stdio::null())
