@@ -30,6 +30,7 @@ export interface CatalogApplication {
   packageName: string;
   displayName: string;
   vendor: string;
+  description?: string | null;
   architecture: string;
   category?: string | null;
   homepage: string | null;
@@ -110,6 +111,7 @@ export interface InstallableApplication {
   packageName: string;
   displayName: string;
   vendor: string;
+  description?: string | null;
   architecture: string;
   category?: string | null;
   sourceKind: "officialRepository" | "officialWebsite";
@@ -248,6 +250,7 @@ export interface DevToolchain {
   toolchainId: string;
   displayName: string;
   vendor: string;
+  description?: string | null;
   homepage: string;
   icon: string | null;
   accentColor: string | null;
@@ -307,6 +310,7 @@ export interface DevTool {
   toolId: string;
   displayName: string;
   vendor: string;
+  description?: string | null;
   homepage: string;
   icon: string | null;
   accentColor: string | null;

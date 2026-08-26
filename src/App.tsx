@@ -505,7 +505,7 @@ function InstallableRow({ offer, onOpen }: { offer: InstallableApplication; onOp
   const statusText = installed ? "已安装" : available ? "可安装" : "暂不可安装";
   const open = () => { if (available) onOpen(); };
   return <div className={`package-row ${available ? "supported" : ""}`} role={available ? "button" : undefined} tabIndex={available ? 0 : undefined} onClick={open} onKeyDown={(event) => { if (available && (event.key === "Enter" || event.key === " ")) onOpen(); }} title={offer.unavailableReason ?? undefined}>
-    <div className="app-cell"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div className="app-meta"><strong>{offer.displayName}</strong><span>{offer.vendor} · {offer.packageName}</span></div></div>
+    <div className="app-cell"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div className="app-meta"><strong>{offer.displayName}</strong><span>{offer.vendor} · {offer.packageName}</span>{offer.description && <p className="app-description">{offer.description}</p>}</div></div>
     <div className="version-cell"><strong>{installed ? offer.installedVersion : "未安装"}</strong>{!installed && offer.candidateVersion && <span>可安装 {offer.candidateVersion}</span>}</div>
     <div className="source-cell"><span className={`source-dot ${offer.sourceKind}`}/><div><strong>{offer.sourceKind === "officialRepository" ? "官方 APT 仓库" : "官网直连"}</strong><span>{offer.architecture}</span></div></div>
     <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><div className="row-actions">{available && <button className="install-package-button" onClick={(event) => { event.stopPropagation(); onOpen(); }}>安装</button>}<span className={`row-arrow ${available ? "" : "placeholder"}`} aria-hidden="true">›</span></div></div>
@@ -550,7 +550,7 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
   const installAction = (planId: string, onProgress: (event: OperationProgressEvent) => void): Promise<OperationExecutionReport> => installPackage(planId, onProgress);
 
   return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`安装 ${offer.displayName}`}>
-    <header className="drawer-header"><div className="drawer-app"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div><h2>{offer.displayName}</h2><span>{isWebsite ? "官网直连新安装" : "官方 APT 仓库新安装"}</span></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+    <header className="drawer-header"><div className="drawer-app"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div><h2>{offer.displayName}</h2><span>{isWebsite ? "官网直连新安装" : "官方 APT 仓库新安装"}</span>{offer.description && <p className="drawer-description">{offer.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
     <div className="drawer-content">
       <div className="trust-banner trusted"><Icon name="shield"/><div><strong>{isWebsite ? "官方通道验证通过" : "官方仓库与候选版本已锁定"}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
       <section className="detail-section"><h3>新安装目标</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div></section>
@@ -599,7 +599,7 @@ function DevToolchainRow({ toolchain, onOpen }: { toolchain: DevToolchain; onOpe
   const statusClass = state && !state.managerFound ? "unknown" : state && installedCount > 0 ? "upToDate" : "updateAvailable";
   const statusText = state && !state.managerFound ? `未检测到 ${state.manager}` : state && installedCount > 0 ? `已安装 ${installedCount} 个版本` : "可安装";
   return <div className="package-row supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
-    <div className="app-cell"><DevLogo toolchain={toolchain}/><div className="app-meta"><strong>{toolchain.displayName}</strong><span>{toolchain.vendor} · {toolchain.manager}</span></div></div>
+    <div className="app-cell"><DevLogo toolchain={toolchain}/><div className="app-meta"><strong>{toolchain.displayName}</strong><span>{toolchain.vendor} · {toolchain.manager}</span>{toolchain.description && <p className="app-description">{toolchain.description}</p>}</div></div>
     <div className="version-cell"><strong>{state?.defaultVersion ?? (state && !state.managerFound ? "未检测到" : "未设置")}</strong></div>
     <div className="source-cell"><span className="source-dot officialWebsite"/><div><strong>用户级版本管理器</strong><span>{toolchain.manager}</span></div></div>
     <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span>{error && <span className="row-arrow placeholder" aria-hidden="true">›</span>}</div>
@@ -698,7 +698,7 @@ function DevToolRow({ tool, onOpen }: { tool: DevTool; onOpen: () => void }) {
   const statusClass = state?.updateAvailable ? "updateAvailable" : state?.installed ? "upToDate" : "updateAvailable";
   const statusText = state?.updateAvailable ? "有可用更新" : state?.installed ? "已安装" : "可安装";
   return <div className="package-row supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
-    <div className="app-cell"><DevToolLogo tool={tool}/><div className="app-meta"><strong>{tool.displayName}</strong><span>{tool.vendor} · {tool.binaryName}</span></div></div>
+    <div className="app-cell"><DevToolLogo tool={tool}/><div className="app-meta"><strong>{tool.displayName}</strong><span>{tool.vendor} · {tool.binaryName}</span>{tool.description && <p className="app-description">{tool.description}</p>}</div></div>
     <div className="version-cell"><strong>{state?.version ?? (state?.installed ? "已安装" : "未安装")}</strong>{state?.updateAvailable && <span>→ {state.latestVersion}</span>}</div>
     <div className="source-cell"><span className="source-dot officialWebsite"/><div><strong>{tool.installer.kind === "npm" ? "npm 全局" : "官方源"}</strong><span>{state?.installKind ? devToolInstallKindText[state.installKind] : "未安装"}</span></div></div>
     <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><span className="row-arrow" aria-hidden="true">›</span></div>

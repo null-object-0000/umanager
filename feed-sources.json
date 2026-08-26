@@ -14,9 +14,12 @@
       "source": {
         "kind": "aptRepository",
         "repositoryUrl": "https://cli.github.com/packages",
-        "repositoryHosts": ["cli.github.com"],
+        "repositoryHosts": [
+          "cli.github.com"
+        ],
         "packagesIndexUrl": "https://cli.github.com/packages/dists/stable/main/binary-amd64/Packages.gz"
-      }
+      },
+      "description": "GitHub 官方命令行工具，在终端里直接管理仓库、Issue、PR、Actions。"
     },
     {
       "applicationId": "localsend",
@@ -31,12 +34,19 @@
       "source": {
         "kind": "releaseApi",
         "releaseApiUrl": "https://api.github.com/repos/localsend/localsend/releases/latest",
-        "releaseApiHosts": ["api.github.com"],
+        "releaseApiHosts": [
+          "api.github.com"
+        ],
         "assetNamePattern": "LocalSend-{tagVersion}-linux-x86-64.deb",
         "stripTagPrefix": "v",
-        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "assetDownloadHosts": [
+          "github.com",
+          "objects.githubusercontent.com",
+          "release-assets.githubusercontent.com"
+        ],
         "allowPrerelease": false
-      }
+      },
+      "description": "开源跨平台局域网文件传输工具，无需互联网即可在设备间安全互传文件，端到端加密。"
     },
     {
       "applicationId": "qq",
@@ -51,15 +61,21 @@
       "source": {
         "kind": "versionEndpoint",
         "versionEndpointUrl": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
-        "versionEndpointHosts": ["qq-web.cdn-go.cn"],
+        "versionEndpointHosts": [
+          "qq-web.cdn-go.cn"
+        ],
         "payloadKind": "json",
         "versionField": "Linux.version",
         "downloadUrlField": "Linux.x64DownloadUrl.deb",
-        "downloadHosts": ["qqdl.gtimg.cn"],
+        "downloadHosts": [
+          "qqdl.gtimg.cn"
+        ],
         "sign": {
           "kind": "qqUrlSign",
           "endpointUrl": "https://im.qq.com/http2rpc/gotrpc/noauth/trpc.qqntv2.urlsign.UrlSign/GetSign",
-          "endpointHosts": ["im.qq.com"],
+          "endpointHosts": [
+            "im.qq.com"
+          ],
           "method": "POST",
           "headers": {
             "Content-Type": "application/json",
@@ -68,7 +84,8 @@
           "bodyTemplate": "{\"url\":\"{downloadUrl}\"}",
           "signedUrlField": "data.url"
         }
-      }
+      },
+      "description": "腾讯 QQ Linux 桌面版，支持文字、语音、视频聊天与文件传输。"
     },
     {
       "applicationId": "qq-music",
@@ -83,12 +100,18 @@
       "source": {
         "kind": "versionEndpoint",
         "versionEndpointUrl": "https://y.qq.com/download/download.html",
-        "versionEndpointHosts": ["y.qq.com"],
+        "versionEndpointHosts": [
+          "y.qq.com"
+        ],
         "payloadKind": "html",
         "downloadUrlField": ".deb",
-        "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"],
+        "downloadHosts": [
+          "c.y.qq.com",
+          "dldir.y.qq.com"
+        ],
         "gatewayUrl": "https://umanager.nichangen.workers.dev"
-      }
+      },
+      "description": "腾讯官方音乐客户端，海量曲库与高品质音质，支持歌单与个性化推荐。"
     },
     {
       "applicationId": "obsidian",
@@ -103,11 +126,18 @@
       "source": {
         "kind": "versionEndpoint",
         "versionEndpointUrl": "https://obsidian.md/download",
-        "versionEndpointHosts": ["obsidian.md"],
+        "versionEndpointHosts": [
+          "obsidian.md"
+        ],
         "payloadKind": "html",
         "downloadUrlField": "_amd64.deb",
-        "downloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"]
-      }
+        "downloadHosts": [
+          "github.com",
+          "objects.githubusercontent.com",
+          "release-assets.githubusercontent.com"
+        ]
+      },
+      "description": "基于 Markdown 的本地知识库笔记应用，用双向链接构建个人知识网络，本地优先、数据自持。"
     }
   ]
 }

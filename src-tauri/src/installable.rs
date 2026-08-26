@@ -10,6 +10,7 @@ pub struct InstallableApplication {
     pub package_name: String,
     pub display_name: String,
     pub vendor: String,
+    pub description: Option<String>,
     pub architecture: String,
     /// `"cli"` for system-level command-line tools, absent for desktop apps.
     pub category: Option<String>,
@@ -58,6 +59,7 @@ async fn offer_for(
         package_name: application.package_name.clone(),
         display_name: application.display_name.clone(),
         vendor: application.vendor.clone(),
+        description: application.description.clone(),
         architecture: application.architecture.clone(),
         category: application.category.clone(),
         source_kind,

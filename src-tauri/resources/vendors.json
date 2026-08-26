@@ -2,7 +2,9 @@
   "schemaVersion": 1,
   "metadataFeed": {
     "url": "https://null-object-0000.github.io/umanager/feed.json",
-    "hosts": ["null-object-0000.github.io"]
+    "hosts": [
+      "null-object-0000.github.io"
+    ]
   },
   "applications": [
     {
@@ -18,10 +20,13 @@
       "source": {
         "kind": "aptRepository",
         "repositoryUrl": "https://packages.microsoft.com/repos/code",
-        "repositoryHosts": ["packages.microsoft.com"],
+        "repositoryHosts": [
+          "packages.microsoft.com"
+        ],
         "packagesIndexUrl": "https://packages.microsoft.com/repos/code/dists/stable/main/binary-amd64/Packages.gz",
         "fallbackDownloadUrl": "https://update.code.visualstudio.com/latest/linux-deb-x64/stable"
-      }
+      },
+      "description": "微软出品的跨平台代码编辑器，内置 Git、智能补全与海量插件生态，是主流开发语言的首要选择。"
     },
     {
       "applicationId": "google-chrome",
@@ -36,9 +41,12 @@
       "source": {
         "kind": "aptRepository",
         "repositoryUrl": "https://dl.google.com/linux/chrome-stable/deb",
-        "repositoryHosts": ["dl.google.com"],
+        "repositoryHosts": [
+          "dl.google.com"
+        ],
         "packagesIndexUrl": "https://dl.google.com/linux/chrome-stable/deb/dists/stable/main/binary-amd64/Packages.gz"
-      }
+      },
+      "description": "谷歌官方浏览器，渲染快、安全，支持丰富扩展与跨设备同步。"
     },
     {
       "applicationId": "chatgpt",
@@ -53,9 +61,12 @@
       "source": {
         "kind": "aptRepository",
         "repositoryUrl": "https://persistent.oaistatic.com/codex-app-prod/linux/deb",
-        "repositoryHosts": ["persistent.oaistatic.com"],
+        "repositoryHosts": [
+          "persistent.oaistatic.com"
+        ],
         "packagesIndexUrl": "https://persistent.oaistatic.com/codex-app-prod/linux/deb/dists/stable/main/binary-amd64/Packages.gz"
-      }
+      },
+      "description": "OpenAI 官方桌面客户端，把 ChatGPT 作为独立应用使用，无需依赖浏览器标签页。"
     },
     {
       "applicationId": "flclash",
@@ -70,12 +81,19 @@
       "source": {
         "kind": "releaseApi",
         "releaseApiUrl": "https://api.github.com/repos/chen08209/FlClash/releases/latest",
-        "releaseApiHosts": ["api.github.com"],
+        "releaseApiHosts": [
+          "api.github.com"
+        ],
         "assetNamePattern": "FlClash-{tagVersion}-linux-amd64.deb",
         "stripTagPrefix": "v",
-        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "assetDownloadHosts": [
+          "github.com",
+          "objects.githubusercontent.com",
+          "release-assets.githubusercontent.com"
+        ],
         "allowPrerelease": false
-      }
+      },
+      "description": "基于 Clash 内核的图形化代理客户端，管理订阅与节点，GitHub 官方发布。"
     },
     {
       "applicationId": "wechat",
@@ -90,13 +108,18 @@
       "source": {
         "kind": "stableDownloadEndpoint",
         "officialPageUrl": "https://linux.weixin.qq.com/",
-        "officialPageHosts": ["linux.weixin.qq.com"],
+        "officialPageHosts": [
+          "linux.weixin.qq.com"
+        ],
         "downloadUrl": "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb",
-        "downloadHosts": ["dldir1v6.qq.com"],
+        "downloadHosts": [
+          "dldir1v6.qq.com"
+        ],
         "pageVersionMarker": "main-section__bd-version\"",
         "downloadLinkFileName": "WeChatLinux_x86_64.deb",
         "pageVersionSegments": 3
-      }
+      },
+      "description": "腾讯微信 Linux 桌面版，支持聊天、文件传输、公众号等日常功能。"
     },
     {
       "applicationId": "wemeet",
@@ -111,7 +134,8 @@
       "source": {
         "kind": "browserImport",
         "homepageUrl": "https://meeting.tencent.com/download/"
-      }
+      },
+      "description": "腾讯官方视频会议软件，支持云会议、屏幕共享、会议录制。"
     }
   ],
   "selfUpdate": {
@@ -121,10 +145,16 @@
     "vendor": "UManager contributors",
     "architecture": "amd64",
     "releaseApiUrl": "https://api.github.com/repos/null-object-0000/umanager/releases/latest",
-    "releaseApiHosts": ["api.github.com"],
+    "releaseApiHosts": [
+      "api.github.com"
+    ],
     "assetNamePattern": "UManager_{tagVersion}_amd64.deb",
     "stripTagPrefix": "v",
-    "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"]
+    "assetDownloadHosts": [
+      "github.com",
+      "objects.githubusercontent.com",
+      "release-assets.githubusercontent.com"
+    ]
   },
   "developmentToolchains": [
     {
@@ -138,7 +168,8 @@
       "managerKind": "shell",
       "managerHome": "~/.nvm",
       "managerScript": "nvm.sh",
-      "versionsDirectory": "~/.nvm/versions/node"
+      "versionsDirectory": "~/.nvm/versions/node",
+      "description": "JavaScript 运行时，前后端与工具链开发的基础，通过 nvm 管理多版本。"
     },
     {
       "toolchainId": "rust",
@@ -151,7 +182,8 @@
       "managerKind": "binary",
       "managerHome": "~/.rustup",
       "managerBinary": "~/.cargo/bin/rustup",
-      "versionsDirectory": "~/.rustup/toolchains"
+      "versionsDirectory": "~/.rustup/toolchains",
+      "description": "系统级编程语言，兼顾高性能与内存安全，通过 rustup 管理工具链。"
     }
   ],
   "developmentTools": [
@@ -172,8 +204,11 @@
       },
       "uninstall": {
         "kind": "removeFiles",
-        "paths": ["~/.local/bin/claude"]
-      }
+        "paths": [
+          "~/.local/bin/claude"
+        ]
+      },
+      "description": "Anthropic 的终端 AI 编程助手，在命令行与 Claude 协作完成编码任务。"
     },
     {
       "toolId": "opencode",
@@ -192,8 +227,11 @@
       },
       "uninstall": {
         "kind": "removeFiles",
-        "paths": ["~/.opencode/bin/opencode"]
-      }
+        "paths": [
+          "~/.opencode/bin/opencode"
+        ]
+      },
+      "description": "开源终端 AI 编程代理，在命令行中驱动 AI 完成编码任务。"
     },
     {
       "toolId": "pi",
@@ -212,8 +250,11 @@
       },
       "uninstall": {
         "kind": "removeFiles",
-        "paths": ["~/.local/bin/pi"]
-      }
+        "paths": [
+          "~/.local/bin/pi"
+        ]
+      },
+      "description": "开源终端编程代理，交互式命令行 AI 编码助手。"
     },
     {
       "toolId": "codex",
@@ -229,7 +270,8 @@
       },
       "uninstall": {
         "kind": "npm"
-      }
+      },
+      "description": "OpenAI 的命令行编程代理，在终端里执行与自动化代码任务。"
     }
   ]
 }

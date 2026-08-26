@@ -71,6 +71,8 @@ pub struct DevelopmentToolchain {
     pub toolchain_id: String,
     pub display_name: String,
     pub vendor: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub homepage: String,
     #[serde(default)]
     pub icon: Option<String>,
@@ -98,6 +100,8 @@ pub struct DevelopmentTool {
     pub tool_id: String,
     pub display_name: String,
     pub vendor: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub homepage: String,
     #[serde(default)]
     pub icon: Option<String>,
@@ -145,6 +149,9 @@ pub struct Application {
     pub display_name: String,
     pub vendor: String,
     pub architecture: String,
+    /// One-line description shown in the store / detail views.
+    #[serde(default)]
+    pub description: Option<String>,
     /// UI grouping: `"cli"` for system-level command-line tools (shown in the
     /// Dev Environment page), absent for normal desktop apps (shown in the store).
     #[serde(default)]
@@ -399,6 +406,7 @@ impl SelfUpdateSource {
             display_name: self.display_name.clone(),
             vendor: self.vendor.clone(),
             architecture: self.architecture.clone(),
+            description: None,
             category: None,
             homepage: None,
             icon: None,
