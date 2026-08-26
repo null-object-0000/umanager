@@ -1,3 +1,24 @@
 {
-  "applications": []
+  "applications": [
+    {
+      "applicationId": "localsend",
+      "packageName": "localsend",
+      "displayName": "LocalSend",
+      "vendor": "LocalSend",
+      "architecture": "amd64",
+      "homepage": "https://localsend.org/",
+      "icon": "localsend",
+      "accentColor": "#0fa3a3",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/localsend/localsend/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "LocalSend-{tagVersion}-linux-x86-64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    }
+  ]
 }
