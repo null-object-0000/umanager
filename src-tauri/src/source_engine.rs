@@ -123,8 +123,16 @@ pub async fn build_download_plan(app: &Application, cache_dir: &Path) -> Result<
 }
 
 pub(crate) async fn load_installable(app: &Application, cache_dir: &Path) -> Result<Installable, String> {
-    let entry = required_feed_entry(app).await?;
     let installed = installed_package_version_optional(app)?;
+    let Some(entry) = optional_feed_entry(app).await? else {
+        // No version data in the feed yet (e.g. CI couldn't scrape a vendor site);
+        // mark it as not installable so it never breaks the whole store list.
+        return Ok(Installable {
+            installed_version: installed,
+            candidate_version: None,
+            download_plan: None,
+        });
+    };
     feed_installable(app, cache_dir, &entry, installed)
 }
 
@@ -185,13 +193,17 @@ pub async fn verify_cached(app: &Application, cache_dir: &Path) -> Result<Downlo
 // Feed-backed details / plan construction
 // ---------------------------------------------------------------------------
 
-async fn required_feed_entry(app: &Application) -> Result<FeedApplicationEntry, String> {
-    let result = if app.application_id == "umanager" {
+async fn optional_feed_entry(app: &Application) -> Result<Option<FeedApplicationEntry>, String> {
+    if app.application_id == "umanager" {
         crate::feed::self_update_entry().await
     } else {
         crate::feed::entry_for(app).await
-    };
-    result?
+    }
+}
+
+async fn required_feed_entry(app: &Application) -> Result<FeedApplicationEntry, String> {
+    optional_feed_entry(app)
+        .await?
         .ok_or_else(|| format!("元数据源中缺少 {} 的最新版本信息", app.display_name))
 }
 
