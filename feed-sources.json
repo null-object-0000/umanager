@@ -19,6 +19,76 @@
         "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
         "allowPrerelease": false
       }
+    },
+    {
+      "applicationId": "qq",
+      "packageName": "linuxqq",
+      "displayName": "QQ",
+      "vendor": "腾讯",
+      "architecture": "amd64",
+      "homepage": "https://im.qq.com/index/#/linux",
+      "icon": "qq",
+      "accentColor": "#12b7f5",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
+        "versionEndpointHosts": ["qq-web.cdn-go.cn"],
+        "payloadKind": "json",
+        "versionField": "Linux.version",
+        "downloadUrlField": "Linux.x64DownloadUrl.deb",
+        "downloadHosts": ["qqdl.gtimg.cn"],
+        "sign": {
+          "kind": "qqUrlSign",
+          "endpointUrl": "https://im.qq.com/http2rpc/gotrpc/noauth/trpc.qqntv2.urlsign.UrlSign/GetSign",
+          "endpointHosts": ["im.qq.com"],
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-oidb": "{\"uint32_command\":\"0x9b8e\",\"uint32_service_type\":1}"
+          },
+          "bodyTemplate": "{\"url\":\"{downloadUrl}\"}",
+          "signedUrlField": "data.url"
+        }
+      }
+    },
+    {
+      "applicationId": "qq-music",
+      "packageName": "qqmusic",
+      "displayName": "QQ 音乐",
+      "vendor": "腾讯",
+      "architecture": "amd64",
+      "homepage": "https://y.qq.com/download/download.html",
+      "icon": "qq-music",
+      "accentColor": "#31c27c",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://y.qq.com/download/download.html",
+        "versionEndpointHosts": ["y.qq.com"],
+        "payloadKind": "html",
+        "downloadUrlField": ".deb",
+        "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"]
+      }
+    },
+    {
+      "applicationId": "obsidian",
+      "packageName": "obsidian",
+      "displayName": "Obsidian",
+      "vendor": "Obsidian",
+      "architecture": "amd64",
+      "homepage": "https://obsidian.md/",
+      "icon": "obsidian",
+      "accentColor": "#7c3aed",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://obsidian.md/download",
+        "versionEndpointHosts": ["obsidian.md"],
+        "payloadKind": "html",
+        "downloadUrlField": "_amd64.deb",
+        "downloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"]
+      }
     }
   ]
 }
