@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const PACKAGE_NAME: &str = "u-manager";
@@ -30,6 +30,7 @@ pub struct InstallationInfo {
 pub fn detect() -> Result<InstallationInfo, String> {
     let executable = std::env::current_exe()
         .map_err(|error| format!("无法确定 UManager 可执行文件位置：{error}"))?;
+    let executable = normalize_executable_path(executable);
     let executable_path = executable.to_string_lossy().into_owned();
     let package = query_package_state();
     let owned = package
@@ -96,6 +97,31 @@ fn package_owns_path(path: &Path) -> Result<bool, String> {
         .any(|entry| Path::new(entry) == path))
 }
 
+/// On Linux, when a running binary's on-disk file is replaced — as `dpkg --install`
+/// does during a UManager self-update — `/proc/self/exe` resolves to
+/// `<path> (deleted)`. Strip that suffix so the path still refers to the real
+/// on-disk binary: it must match the file that `dpkg-query -L` reports and be the
+/// path relaunched after an update. Without this, the updated process would be
+/// detected as "portable" and relaunching `… (deleted)` would fail with ENOENT.
+#[cfg(target_os = "linux")]
+fn normalize_executable_path(path: PathBuf) -> PathBuf {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    const DELETED_SUFFIX: &[u8] = b" (deleted)";
+    let raw = path.as_os_str().as_bytes();
+    if raw.ends_with(DELETED_SUFFIX) {
+        PathBuf::from(OsStr::from_bytes(&raw[..raw.len() - DELETED_SUFFIX.len()]))
+    } else {
+        path
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn normalize_executable_path(path: PathBuf) -> PathBuf {
+    path
+}
+
 fn clean_command(program: &str) -> Command {
     let mut command = Command::new(program);
     command
@@ -119,5 +145,18 @@ mod tests {
         );
         assert_eq!(parse_package_state("rc \t0.1.0\tamd64"), None);
         assert_eq!(parse_package_state("ii \t0.1.0"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn strips_deleted_suffix_from_executable_path() {
+        assert_eq!(
+            normalize_executable_path(PathBuf::from("/usr/bin/umanager (deleted)")),
+            PathBuf::from("/usr/bin/umanager")
+        );
+        assert_eq!(
+            normalize_executable_path(PathBuf::from("/usr/bin/umanager")),
+            PathBuf::from("/usr/bin/umanager")
+        );
     }
 }

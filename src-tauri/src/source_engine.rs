@@ -956,7 +956,7 @@ mod tests {
             version_updated_at_unix_seconds: None,
             version_updated_at_source: None,
         };
-        assert!(validate_feed_entry_for_app(&code, &good).is_ok());;
+        assert!(validate_feed_entry_for_app(&code, &good).is_ok());
 
         let bad_host = FeedApplicationEntry {
             download_url: "https://evil.example/code.deb".to_owned(),
