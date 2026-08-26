@@ -426,8 +426,9 @@ async function main() {
         }
         const iconPath = join(iconsDir, `${app.applicationId}.png`);
         writeFileSync(iconPath, icon.buffer);
-        app.icon_url = `${iconBase}/icons/${app.applicationId}.png`;
-        app.icon_sha256 = sha256Buf(icon.buffer);
+        // catalogJson uses camelCase to match the serde Application model.
+        app.iconUrl = `${iconBase}/icons/${app.applicationId}.png`;
+        app.iconSha256 = sha256Buf(icon.buffer);
         log(`  icon: ${app.applicationId} ✓ (${icon.width}x${icon.height})`);
       } catch (error) {
         fail(app.applicationId, `图标提取失败：${error.message}`);
