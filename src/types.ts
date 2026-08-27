@@ -232,6 +232,7 @@ export interface FeedStatus {
   applications: number;
   developmentTools: number;
   lastError: string | null;
+  servingFromCache: boolean;
 }
 
 export interface FeedCategory {

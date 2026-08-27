@@ -301,6 +301,15 @@ async fn get_feed_status() -> Result<feed::FeedStatus, String> {
     Ok(feed::status())
 }
 
+/// Force a metadata-feed refresh right now (used by the Settings "立即刷新"
+/// button) and return the updated status. The fetch error itself is surfaced via
+/// `FeedStatus.last_error`, so the caller always gets a coherent snapshot.
+#[tauri::command]
+async fn refresh_feed() -> Result<feed::FeedStatus, String> {
+    let _ = feed::refresh_once(true).await;
+    Ok(feed::status())
+}
+
 #[tauri::command]
 async fn get_categories() -> Option<feed::CategoryCatalog> {
     feed::category_catalog().await
@@ -649,6 +658,7 @@ pub fn run() {
         .manage(local_deb::LocalDebState::from_process_arguments())
         .setup(|app| {
             network::initialize(app.handle());
+            feed::initialize(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -657,6 +667,7 @@ pub fn run() {
             get_network_settings,
             set_network_settings,
             get_feed_status,
+            refresh_feed,
             get_categories,
             list_scripts,
             run_script,

@@ -1,14 +1,20 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::Manager;
 use umanager_catalog::{Application, Catalog, MetadataFeed};
 
 /// Upper bound for the feed response; the feed is a tiny curated JSON document.
 const MAX_FEED_BYTES: u64 = 1024 * 1024;
 /// How long a successfully fetched feed is reused before it is refreshed.
 const FEED_TTL: Duration = Duration::from_secs(15 * 60);
+/// How often the background refresher wakes up to check for a newer feed.
+const FEED_REFRESH_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const FEED_SCHEMA_VERSION: u32 = 2;
+/// Path (relative to the app cache dir) of the persisted, signature-verified feed.
+const FEED_CACHE_FILE: &str = "feed/feed-cache.json";
 
 /// Embedded Ed25519 public key (raw 32 bytes, hex) that the feed must be signed
 /// with. The matching private key lives only in the GitHub Actions secret
@@ -126,11 +132,21 @@ pub struct FeedStatus {
     pub applications: usize,
     pub development_tools: usize,
     pub last_error: Option<String>,
+    /// Whether the feed currently in memory came from the local disk cache
+    /// (offline / stale copy) rather than a fresh network fetch this session.
+    pub serving_from_cache: bool,
 }
 
 struct CachedFeed {
-    fetched_at: Instant,
+    /// Unix time when this feed was actually fetched and verified from the
+    /// network (not when it was read from disk into memory).
+    fetched_at_unix_seconds: u64,
     feed: Feed,
+}
+
+/// Whether the in-memory feed is recent enough to skip a network refresh.
+fn cached_feed_is_fresh(entry: &CachedFeed) -> bool {
+    unix_timestamp_now().saturating_sub(entry.fetched_at_unix_seconds) < FEED_TTL.as_secs()
 }
 
 struct FeedState {
@@ -153,6 +169,7 @@ fn initial_status(catalog: &Catalog) -> FeedStatus {
         applications: 0,
         development_tools: 0,
         last_error: None,
+        serving_from_cache: false,
     }
 }
 
@@ -182,6 +199,49 @@ fn state_lock() -> &'static Mutex<FeedState> {
     })
 }
 
+/// App cache directory, set once during startup. `None` means persistence and
+/// background refresh are unavailable (the feed then behaves as before: network
+/// only, in-memory TTL).
+static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn cache_dir() -> Option<&'static Path> {
+    CACHE_DIR.get().and_then(|value| value.as_deref())
+}
+
+fn cached_feed_path(cache_dir: &Path) -> PathBuf {
+    cache_dir.join(FEED_CACHE_FILE)
+}
+
+/// Serializes network fetches (including background/manual refreshes) so at most
+/// one metadata-feed request is in flight. Unlike `state_lock` (a `std` Mutex),
+/// this can be held across `.await`.
+fn fetch_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+/// Everything a successful network fetch produced, including the exact signed
+/// bytes and signature needed to persist a re-verifiable local copy.
+struct FetchedFeed {
+    feed: Feed,
+    raw_json: String,
+    signature_hex: String,
+    signature_verified: bool,
+}
+
+/// On-disk representation of the last known-good feed. The raw `feed.json` text
+/// and signature hex are preserved verbatim so the embedded Ed25519 public key
+/// can re-verify the copy on every load; a corrupted or tampered cache is simply
+/// discarded and re-fetched.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedFeed {
+    fetched_at_unix_seconds: u64,
+    generated_at_unix_seconds: u64,
+    feed_json: String,
+    signature_hex: String,
+}
+
 /// Current status of the metadata feed (safe to clone and return to the UI).
 pub fn status() -> FeedStatus {
     state_lock()
@@ -195,45 +255,174 @@ pub fn config(catalog: &Catalog) -> Option<&MetadataFeed> {
     catalog.metadata_feed.as_ref()
 }
 
-/// Fetch and return the metadata feed, reusing a cached copy for up to `FEED_TTL`.
-pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
-    let feed_config = config(catalog).ok_or_else(|| "软件源未配置元数据源".to_owned())?;
-    {
+/// Initialize the metadata-feed subsystem once during app startup: remember the
+/// cache directory and launch the periodic background refresher. Must be called
+/// before any `load` so the feed can be persisted and refreshed.
+pub fn initialize(app: &tauri::AppHandle) {
+    let directory = app.path().app_cache_dir().ok();
+    let _ = CACHE_DIR.set(directory);
+    tauri::async_runtime::spawn(run_background_refresher());
+}
+
+/// Periodic refresher that keeps the persisted feed reasonably fresh. It runs in
+/// the background so the UI never blocks on it; a failed refresh only updates the
+/// status's `last_error`. Each tick fetches only when the persisted copy is
+/// missing or stale, so a fresh cache never triggers a startup network hit.
+async fn run_background_refresher() {
+    loop {
+        if should_refresh_now() {
+            let _ = refresh_once(false).await;
+        }
+        tokio::time::sleep(FEED_REFRESH_INTERVAL).await;
+    }
+}
+
+/// Whether the on-disk feed cache is missing or past its freshness TTL.
+fn should_refresh_now() -> bool {
+    let Some(cache_dir) = cache_dir() else {
+        return true;
+    };
+    let Ok(bytes) = std::fs::read(cached_feed_path(cache_dir)) else {
+        return true;
+    };
+    let Ok(persisted) = serde_json::from_slice::<PersistedFeed>(&bytes) else {
+        return true;
+    };
+    unix_timestamp_now().saturating_sub(persisted.fetched_at_unix_seconds) >= FEED_TTL.as_secs()
+}
+
+/// Refresh the feed from the network, unless `force` is false and the in-memory
+/// copy is still fresh enough. Serialized with every other fetch via `fetch_lock`.
+pub async fn refresh_once(force: bool) -> Result<Feed, String> {
+    let catalog = Catalog::load()?;
+    let feed_config = config(&catalog).ok_or_else(|| "软件源未配置元数据源".to_owned())?;
+    let _guard = fetch_lock().lock().await;
+    if !force {
         let state = state_lock();
         let guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
         if let Some(entry) = guard.cache.get(&feed_config.url)
-            && entry.fetched_at.elapsed() < FEED_TTL
+            && cached_feed_is_fresh(entry)
         {
             return Ok(entry.feed.clone());
         }
     }
+    fetch_and_store(feed_config).await
+}
 
-    match fetch(feed_config).await {
-        Ok((feed, signature_verified)) => {
-            let extra = parse_extra_applications(&feed)?;
-            let mut guard = state_lock().lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+/// Fetch and return the metadata feed. Preference order: whatever is already in
+/// memory this session (serving stale copies while a background refresh runs), the
+/// persisted on-disk copy (re-verified against the embedded public key), and
+/// finally the network.
+pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
+    let feed_config = config(catalog).ok_or_else(|| "软件源未配置元数据源".to_owned())?;
+    let feed_url = feed_config.url.clone();
+
+    // 1. In-memory copy — the common fast path once the app is running. Serve it
+    // as-is (stale-while-revalidate) and let a background refresh update it.
+    {
+        let state = state_lock();
+        let guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+        if let Some(entry) = guard.cache.get(&feed_url) {
+            let stale = !cached_feed_is_fresh(entry);
+            let feed = entry.feed.clone();
+            drop(guard);
+            if stale {
+                tauri::async_runtime::spawn(async move {
+                    let _ = refresh_once(false).await;
+                });
+            }
+            return Ok(feed);
+        }
+    }
+
+    // 2. Persisted copy — re-verify the signature, serve it immediately, and
+    // refresh in the background if it is stale.
+    if let Some(cache_dir) = cache_dir()
+        && let Some((feed, fetched_at, extra)) = load_disk_feed(cache_dir)
+    {
+        let stale = unix_timestamp_now().saturating_sub(fetched_at) >= FEED_TTL.as_secs();
+        {
+            let state = state_lock();
+            let mut guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
             guard.status = FeedStatus {
                 configured: true,
-                url: Some(feed_config.url.clone()),
+                url: Some(feed_url.clone()),
                 signature_enforced: true,
-                signature_verified,
-                last_success_at_unix_seconds: Some(unix_timestamp_now()),
+                signature_verified: true,
+                last_success_at_unix_seconds: Some(fetched_at),
                 generated_at_unix_seconds: Some(feed.generated_at_unix_seconds),
                 applications: feed.applications.len(),
                 development_tools: feed.development_tools.len(),
                 last_error: None,
+                serving_from_cache: true,
             };
             guard.catalog_json = feed.catalog_json.clone();
             guard.catalog_signature = feed.catalog_signature.clone();
             guard.extra_applications = extra;
             guard.cache.insert(
-                feed_config.url.clone(),
+                feed_url.clone(),
                 CachedFeed {
-                    fetched_at: Instant::now(),
+                    fetched_at_unix_seconds: fetched_at,
                     feed: feed.clone(),
                 },
             );
-            Ok(feed)
+        }
+        if stale {
+            tauri::async_runtime::spawn(async move {
+                let _ = refresh_once(false).await;
+            });
+        }
+        return Ok(feed);
+    }
+
+    // 3. Network — serialized so concurrent startup requests don't double-fetch.
+    let _guard = fetch_lock().lock().await;
+    {
+        let state = state_lock();
+        let guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+        if let Some(entry) = guard.cache.get(&feed_url) {
+            return Ok(entry.feed.clone());
+        }
+    }
+    fetch_and_store(feed_config).await
+}
+
+/// Fetch from the network, validate, persist to disk and update the shared state.
+/// Also used by the background and manual refresh paths.
+async fn fetch_and_store(feed_config: &MetadataFeed) -> Result<Feed, String> {
+    match fetch(feed_config).await {
+        Ok(fetched) => {
+            let extra = parse_extra_applications(&fetched.feed)?;
+            let network_time = unix_timestamp_now();
+            if let Some(cache_dir) = cache_dir() {
+                // Best-effort: a persistence failure must not fail the fetch —
+                // the freshly verified feed is still usable in memory.
+                let _ = persist_feed(cache_dir, &fetched, network_time).await;
+            }
+            let mut guard = state_lock().lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+            guard.status = FeedStatus {
+                configured: true,
+                url: Some(feed_config.url.clone()),
+                signature_enforced: true,
+                signature_verified: fetched.signature_verified,
+                last_success_at_unix_seconds: Some(network_time),
+                generated_at_unix_seconds: Some(fetched.feed.generated_at_unix_seconds),
+                applications: fetched.feed.applications.len(),
+                development_tools: fetched.feed.development_tools.len(),
+                last_error: None,
+                serving_from_cache: false,
+            };
+            guard.catalog_json = fetched.feed.catalog_json.clone();
+            guard.catalog_signature = fetched.feed.catalog_signature.clone();
+            guard.extra_applications = extra;
+            guard.cache.insert(
+                feed_config.url.clone(),
+                CachedFeed {
+                    fetched_at_unix_seconds: network_time,
+                    feed: fetched.feed.clone(),
+                },
+            );
+            Ok(fetched.feed)
         }
         Err(error) => {
             if let Ok(mut guard) = state_lock().lock() {
@@ -242,6 +431,51 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
             Err(error)
         }
     }
+}
+
+/// Read, re-verify and decode the persisted feed. Returns `None` if there is no
+/// usable copy — a missing, corrupted, unverifiable or stale-schema cache is
+/// silently ignored and the caller falls back to the network.
+fn load_disk_feed(cache_dir: &Path) -> Option<(Feed, u64, Vec<Application>)> {
+    let path = cached_feed_path(cache_dir);
+    let bytes = std::fs::read(&path).ok()?;
+    let persisted: PersistedFeed = serde_json::from_slice(&bytes).ok()?;
+    verify_ed25519(persisted.feed_json.as_bytes(), persisted.signature_hex.trim()).ok()?;
+    let feed: Feed = serde_json::from_str(&persisted.feed_json).ok()?;
+    if validate(&feed).is_err() {
+        return None;
+    }
+    if feed.generated_at_unix_seconds != persisted.generated_at_unix_seconds {
+        return None;
+    }
+    let extra = parse_extra_applications(&feed).ok()?;
+    Some((feed, persisted.fetched_at_unix_seconds, extra))
+}
+
+/// Atomically persist the just-fetched, already-verified feed. Failures here must
+/// not fail the fetch itself, so the error is surfaced through `last_error` but
+/// the caller keeps serving the in-memory copy.
+async fn persist_feed(cache_dir: &Path, fetched: &FetchedFeed, network_time: u64) -> Result<(), String> {
+    let persisted = PersistedFeed {
+        fetched_at_unix_seconds: network_time,
+        generated_at_unix_seconds: fetched.feed.generated_at_unix_seconds,
+        feed_json: fetched.raw_json.clone(),
+        signature_hex: fetched.signature_hex.clone(),
+    };
+    let bytes = serde_json::to_vec(&persisted).map_err(|error| format!("无法序列化元数据缓存：{error}"))?;
+    let path = cached_feed_path(cache_dir);
+    let directory = path.parent().ok_or_else(|| "元数据缓存路径无效".to_owned())?;
+    tokio::fs::create_dir_all(directory)
+        .await
+        .map_err(|error| format!("无法创建元数据缓存目录：{error}"))?;
+    let temporary = directory.join("feed-cache.json.tmp");
+    tokio::fs::write(&temporary, &bytes)
+        .await
+        .map_err(|error| format!("无法写入元数据缓存：{error}"))?;
+    tokio::fs::rename(&temporary, &path)
+        .await
+        .map_err(|error| format!("无法替换元数据缓存：{error}"))?;
+    Ok(())
 }
 
 /// The full set of applications UManager manages: the compiled-in catalog plus
@@ -316,7 +550,7 @@ pub async fn self_update_entry() -> Result<Option<FeedApplicationEntry>, String>
     Ok(load(&catalog).await?.self_update.clone())
 }
 
-async fn fetch(feed_config: &MetadataFeed) -> Result<(Feed, bool), String> {
+async fn fetch(feed_config: &MetadataFeed) -> Result<FetchedFeed, String> {
     let hosts = feed_config.hosts.clone();
     let client = crate::source_engine::restricted_client(&hosts, Duration::from_secs(20))?;
 
@@ -346,11 +580,18 @@ async fn fetch(feed_config: &MetadataFeed) -> Result<(Feed, bool), String> {
         return Err("元数据源响应大小异常".to_owned());
     }
 
-    let signature_verified = verify_feed_signature(&client, &feed_config.url, &hosts, &bytes).await?;
-    let feed: Feed = serde_json::from_slice(&bytes)
+    let signature_hex = verify_feed_signature(&client, &feed_config.url, &hosts, &bytes).await?;
+    let raw_json = String::from_utf8(bytes.to_vec())
+        .map_err(|_| "元数据源内容不是有效的 UTF-8".to_owned())?;
+    let feed: Feed = serde_json::from_str(&raw_json)
         .map_err(|error| format!("元数据源格式无效：{error}"))?;
     validate(&feed)?;
-    Ok((feed, signature_verified))
+    Ok(FetchedFeed {
+        feed,
+        raw_json,
+        signature_hex,
+        signature_verified: true,
+    })
 }
 
 async fn verify_feed_signature(
@@ -358,7 +599,7 @@ async fn verify_feed_signature(
     feed_url: &str,
     hosts: &[String],
     message: &[u8],
-) -> Result<bool, String> {
+) -> Result<String, String> {
     let signature_url = format!("{feed_url}.sig");
     let response = client
         .get(&signature_url)
@@ -376,8 +617,9 @@ async fn verify_feed_signature(
         .text()
         .await
         .map_err(|error| format!("读取元数据源签名内容失败：{error}"))?;
-    verify_ed25519(message, signature_hex.trim())?;
-    Ok(true)
+    let signature_hex = signature_hex.trim().to_owned();
+    verify_ed25519(message, &signature_hex)?;
+    Ok(signature_hex)
 }
 
 fn verify_ed25519(message: &[u8], signature_hex: &str) -> Result<(), String> {

@@ -13,6 +13,7 @@ UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），�
 - **`feed.json` 是软件信息的唯一来源**（候选版本、大小、SHA-256、下载地址、发布 tag、展示版本）。
 - feed 由 GitHub Actions 定时/按需抓取厂商来源后生成，**用 Ed25519 签名**发布到 GitHub Pages。
 - App 只拉取 `feed.json` + `feed.json.sig`，验签、校验 HTTPS 精确域名与字段格式后使用。
+- 每次验签成功后把 `feed.json` 原文 + 签名原子写入应用缓存（`feed/feed-cache.json`）；之后读取优先本地缓存，每次用内置公钥重新验签，过期则 stale-while-revalidate（先返回缓存、后台刷新，30 分钟周期 + 设置页手动刷新）。
 - 真正的安装路径不变：按 feed 中的下载地址下载 `.deb` → 核对域名、大小、SHA-256、`.deb` 包名/版本/架构 → 生成不可变计划 → 特权 helper 复核 → 固定 `dpkg --install` / `dpkg --remove`。
 
 发布地址：
@@ -91,7 +92,7 @@ https://null-object-0000.github.io/umanager/feed.json.sig
 | `crates/umanager-catalog/src/lib.rs` | 清单/来源/feed 配置的数据模型 |
 | `crates/umanager-plan/src/lib.rs` | 不可变计划 schema（v2，含签名目录字段） |
 | `crates/umanager-helper/src/main.rs` | 特权 helper：白名单、验签、固定 dpkg 命令 |
-| `src-tauri/src/feed.rs` | feed 拉取/验签/缓存/合并新增软件/状态 |
+| `src-tauri/src/feed.rs` | feed 拉取/验签/磁盘缓存 + SWR + 后台刷新/合并新增软件/状态 |
 | `src-tauri/src/source_engine.rs` | feed → `ApplicationDetails`/`DownloadPlan` + 下载校验 |
 | `src-tauri/src/scanner.rs` | 本机已安装包扫描（候选版本由 feed 填） |
 | `src-tauri/src/operation_plan.rs` | 安装/卸载/自更新计划的生成 |

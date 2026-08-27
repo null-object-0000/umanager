@@ -124,12 +124,14 @@ UManager 不再为每个软件写死适配器。新增一个在 `src-tauri/resou
 
 UManager 的软件/版本信息**只依赖一份中央 feed**，不再在用户机器上抓取官网、调用发布 API 或解析本机 `apt-cache policy`。GitHub Actions 定时爬取厂商来源，把「最新版本 + 大小 + SHA-256 + 下载地址」整理成单个 `feed.json`，用 Ed25519 签名后发布到 GitHub Pages；应用只拉取这个文件（外加 `feed.json.sig`），验签通过后把候选版本交给下载与安装链路。`vendors.json` 顶层的 `metadataFeed` 声明了 feed 的 URL 与精确域名白名单（加入白名单的域名会经过 HTTPS 精确匹配才能被接受）。
 
+每次验签成功后，feed 原文 + 签名会原子写入应用缓存（`feed/feed-cache.json`）。之后读取**优先使用本地缓存**（每次读出都用内置公钥重新验签），过期时先返回缓存、后台再刷新；后台任务每 30 分钟检查一次，设置页也提供「立即刷新」。断网或拉取失败时，只要本地缓存可用，应用仍展示最近一次成功的数据，并在「设置 → 软件信息源」标注“本地缓存 + 失败原因”。
+
 - 触发：`.github/workflows/update-feed.yml` 定时（每 6 小时）、手动触发，以及 `vendors.json` / `feed-sources.json` / `scripts/update-feed.mjs` / workflow 变更时；
 - 生成：`scripts/update-feed.mjs` 读取 `vendors.json`（内置基础清单）+ `feed-sources.json`（可新增软件的清单），逐个解析 `aptRepository` 的 `Packages` 索引、官网固定地址、GitHub Releases 资产和 npm registry，产出 `feed.json`；
 - 签名：用 GitHub Actions secret `FEED_SIGNING_KEY` 对 `feed.json` 原文做 Ed25519 签名产出 `feed.json.sig`，并对 `catalogJson` 单独签名（`catalogSignature`），供特权 helper 授权 feed 新增的软件；私钥只存在 CI 秘密里，App 与 helper 内置对应公钥；
 - 发布：用 `actions/configure-pages` + `actions/upload-pages-artifact` + `actions/deploy-pages` 部署到 GitHub Pages，托管地址为 `https://<owner>.github.io/<repo>/feed.json`。
 
-要让该地址生效，需要在仓库 Settings → Pages 的 Build and deployment → Source 选择「GitHub Actions」；也可以直接运行一次 `update-feed` workflow（`configure-pages` 会自动启用 Pages）。应用会校验 feed 的 HTTPS 精确域名、大小上限、Ed25519 签名与字段格式；一旦抓取失败或签名不符，对应应用的候选版本会显示为不可用，并在「设置 → 软件信息源」里展示最近抓取时间与失败原因。
+要让该地址生效，需要在仓库 Settings → Pages 的 Build and deployment → Source 选择「GitHub Actions」；也可以直接运行一次 `update-feed` workflow（`configure-pages` 会自动启用 Pages）。应用会校验 feed 的 HTTPS 精确域名、大小上限、Ed25519 签名与字段格式；抓取失败或签名不符时，若存在本地缓存则回退到最近一次成功的数据，否则对应应用的候选版本显示为不可用，并在「设置 → 软件信息源」里展示最近抓取时间与失败原因。
 
 `feed.json` 只影响「展示哪个是最新版本 / 候选版本」；真正的安装路径不变——应用仍按 feed 里的下载地址下载 `.deb`，核对 HTTPS 精确域名、响应大小、SHA-256 与 `.deb` 的包名/版本/架构，再生成不可变计划并经特权 helper 复核后才 `dpkg --install`。
 
@@ -153,7 +155,7 @@ UManager 的软件/版本信息**只依赖一份中央 feed**，不再在用户�
 }
 ```
 
-应用侧 `src-tauri/src/feed.rs` 负责解析与校验（HTTPS、精确域名、大小上限、SHA-256 格式、Ed25519 签名、`catalogJson` 目录签名），`src-tauri/src/source_engine.rs` 负责把它转换成现有的 `ApplicationDetails` / `DownloadPlan`，从而完全复用既有的下载校验与不可变计划链路。
+应用侧 `src-tauri/src/feed.rs` 负责解析与校验（HTTPS、精确域名、大小上限、SHA-256 格式、Ed25519 签名、`catalogJson` 目录签名），以及磁盘缓存 / 后台刷新（stale-while-revalidate）；`src-tauri/src/source_engine.rs` 负责把它转换成现有的 `ApplicationDetails` / `DownloadPlan`，从而完全复用既有的下载校验与不可变计划链路。
 
 ### 新增软件（无需更新 App）
 

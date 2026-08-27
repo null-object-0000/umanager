@@ -102,9 +102,15 @@ export function getFeedStatus(): Promise<FeedStatus> {
       applications: 5,
       developmentTools: 4,
       lastError: null,
+      servingFromCache: false,
     });
   }
   return invoke<FeedStatus>("get_feed_status");
+}
+
+export function refreshFeed(): Promise<FeedStatus> {
+  if (isMock()) return getFeedStatus();
+  return invoke<FeedStatus>("refresh_feed");
 }
 
 export function getCategories(): Promise<CategoryCatalog | null> {

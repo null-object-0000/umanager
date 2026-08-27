@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion, listScripts, runScript, stopScript } from "./api";
+import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion, listScripts, runScript, stopScript } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -370,6 +370,7 @@ function NetworkSettingsPanel() {
 function FeedStatusPanel() {
   const [status, setStatus] = useState<FeedStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = () => {
@@ -382,19 +383,36 @@ function FeedStatusPanel() {
 
   useEffect(() => { load(); }, []);
 
+  const refresh = () => {
+    setRefreshing(true); setError(null);
+    refreshFeed()
+      .then((value) => setStatus(value))
+      .catch((reason) => setError(String(reason)))
+      .finally(() => setRefreshing(false));
+  };
+
   const healthy = status?.configured && !status.lastError;
+  const servingCache = status?.servingFromCache;
   const formatTime = (seconds: number | null) => seconds
     ? new Date(seconds * 1000).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     : "—";
 
   return <section className="settings-panel network-panel">
-    <div className="settings-section-heading"><div><div><h2>软件信息源</h2><p>候选版本、大小与 SHA-256 来自 UManager 官方采集镜像（GitHub Actions → Pages）</p></div></div><span className={`install-kind-badge ${healthy ? "" : "unknown"}`}>{healthy ? "已连接" : (status?.configured ? "不可用" : "未配置")}</span></div>
+    <div className="settings-section-heading">
+      <div><div><h2>软件信息源</h2><p>候选版本、大小与 SHA-256 来自 UManager 官方采集镜像（GitHub Actions → Pages）</p></div></div>
+      <div>
+        <span className={`install-kind-badge ${healthy ? "" : "unknown"}`}>{healthy ? "已连接" : (status?.configured ? "不可用" : "未配置")}</span>
+        <button className="secondary-button" onClick={refresh} disabled={refreshing || loading}>{refreshing ? "刷新中…" : "立即刷新"}</button>
+      </div>
+    </div>
     {loading && <div className="settings-loading"><span className="loader"/><span>正在读取软件信息源状态…</span></div>}
     {!loading && <>
-      {status?.lastError && <div className="inline-error">{status.lastError}</div>}
+      {servingCache && <div className="inline-note">当前展示本地缓存（上次成功获取 {formatTime(status?.lastSuccessAtUnixSeconds ?? null)}），后台正在尝试更新。</div>}
+      {status?.lastError && <div className="inline-error">{servingCache ? `${status.lastError}（仍展示本地缓存）` : status.lastError}</div>}
       {error && <div className="inline-error">{error}</div>}
       <dl className="installation-facts network-facts">
         <div><dt>地址</dt><dd title={status?.url ?? ""}>{status?.url ?? "未配置"}</dd></div>
+        <div><dt>数据来源</dt><dd>{servingCache ? "本地缓存" : (status?.signatureVerified ? "本次联网获取" : "—")}</dd></div>
         <div><dt>最近成功</dt><dd>{formatTime(status?.lastSuccessAtUnixSeconds ?? null)}</dd></div>
         <div><dt>抓取时间</dt><dd>{formatTime(status?.generatedAtUnixSeconds ?? null)}</dd></div>
         <div><dt>覆盖</dt><dd>{status ? `${status.applications} 个应用 · ${status.developmentTools} 个开发工具` : "—"}</dd></div>

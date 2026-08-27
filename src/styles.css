@@ -216,6 +216,7 @@ nav { display:grid; gap:3px; }
 .download-success strong { font-size:13px; }
 .download-success p { margin:0; font-size:12px; }
 .inline-error { margin:0 0 11px; padding:10px 12px; color:#a23e27; border-radius:6px; background:#fff0ec; font-size:12px; line-height:1.5; }
+.inline-note { margin:0 0 11px; padding:10px 12px; color:#6d5a39; border-radius:6px; background:#f8f3e8; font-size:12px; line-height:1.5; }
 
 /* Keep drawer text crisp and high-contrast in WebKitGTK. */
 .detail-drawer { width:min(600px,calc(100vw - 226px)); }
