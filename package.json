@@ -1,7 +1,7 @@
 {
   "name": "umanager",
   "private": true,
-  "version": "0.7.1",
+  "version": "0.7.2",
   "type": "module",
   "packageManager": "npm@11.17.0",
   "engines": {

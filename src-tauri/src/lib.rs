@@ -587,6 +587,11 @@ async fn get_self_update_status(
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    // "检查更新" must reflect the live feed, not a stale-while-revalidate
+    // cache copy that can sit up to 30 minutes behind a newly published release.
+    // Force a refresh first; a failed fetch is non-fatal (the status and the
+    // on-disk cache still serve a consistent snapshot).
+    let _ = feed::refresh_once(true).await;
     source_engine::load_details(&application, &cache_dir).await
 }
 
