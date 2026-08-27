@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion, listScripts, runScript, stopScript } from "./api";
+import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion, listScripts, notifyDownloadComplete, runScript, stopScript } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -260,7 +260,7 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
   const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
   const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
   const [busy, setBusy] = useState<"check" | null>(null);
-  const [phase, setPhase] = useState<"idle" | "downloading" | "planning" | "dry-run" | "installing" | "done">("idle");
+  const [phase, setPhase] = useState<"idle" | "downloading" | "ready" | "planning" | "dry-run" | "installing" | "done">("idle");
   const [error, setError] = useState<string | null>(null);
   const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
 
@@ -272,7 +272,7 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
   useEffect(() => { void check(); }, []);
 
   const updateAvailable = status?.updateState === "updateAvailable";
-  const running = phase !== "idle" && phase !== "done";
+  const running = phase === "downloading" || phase === "planning" || phase === "dry-run" || phase === "installing";
 
   const start = async () => {
     setError(null);
@@ -282,6 +282,19 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
       const download = await downloadSelfUpdate(setDownloadProgress);
       setDownloaded(download);
       if (!download.verified) throw new Error("更新包校验未通过，已停止，未更改系统。");
+      setPhase("ready");
+      if (!document.hasFocus()) {
+        void notifyDownloadComplete("UManager 更新包下载完成", "安装包已通过校验，回到 UManager 继续更新（需系统授权）。").catch(() => { /* 通知失败不影响流程 */ });
+      }
+    } catch (reason) {
+      setError(String(reason));
+      setPhase("idle");
+    }
+  };
+
+  const install = async () => {
+    setError(null);
+    try {
       setPhase("planning");
       const lockedPlan = await createSelfUpdateOperationPlan();
       setPlan(lockedPlan);
@@ -295,7 +308,7 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
       setPhase("done");
     } catch (reason) {
       setError(String(reason));
-      setPhase("idle");
+      setPhase("ready");
     }
   };
 
@@ -303,7 +316,7 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
     <section className="local-deb-dialog removal-dialog self-update-dialog" role="dialog" aria-modal="true" aria-label="更新 UManager">
       <header><div><span className="brand-mark">U</span><div><h2>更新 UManager</h2><p>{info.packageName} · {info.packageVersion}{status?.candidateVersion ? ` → ${status.candidateVersion}` : ""}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null || running} aria-label="关闭">×</button></header>
       <div className="local-deb-content">
-        <div className="removal-warning"><strong>自更新会用新 `.deb` 替换当前程序</strong><span>安装包来自 UManager 官方 GitHub Release；SHA-256 与发布摘要一致后，自动生成不可变计划、特权复核并安装。</span></div>
+        <div className="removal-warning"><strong>自更新会用新 `.deb` 替换当前程序</strong><span>安装包来自 UManager 官方 GitHub Release；SHA-256 与发布摘要一致后，再确认才会生成不可变计划、特权复核并安装。</span></div>
         {error && <div className="inline-error removal-error">{error}</div>}
         {busy === "check" && !status && <div className="settings-loading"><span className="loader"/><span>正在读取最新发布…</span></div>}
         {status && <dl className="local-deb-facts">
@@ -315,7 +328,8 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
         {status && !updateAvailable && <div className="dry-run-success"><strong>✓ 已是最新版本</strong><span>当前 `.deb` 安装的 UManager 与最新发布一致，无需更新。</span></div>}
         {status && updateAvailable && <>
           {phase === "idle" && <button className="download-button" disabled={busy !== null} onClick={() => void start()}>更新到 {status.candidateVersion ?? "最新版本"}</button>}
-          {phase !== "idle" && phase !== "done" && <button className="download-button" disabled>{phase === "downloading" ? "正在下载并校验…" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : "正在安装更新…"}</button>}
+          {phase === "ready" && <button className="download-button" disabled={busy !== null} onClick={() => void install()}>继续更新（需系统授权）</button>}
+          {phase !== "idle" && phase !== "ready" && phase !== "done" && <button className="download-button" disabled>{phase === "downloading" ? "正在下载并校验…" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : "正在安装更新…"}</button>}
           <button className="secondary-button" style={{ marginTop: 10 }} disabled={busy !== null || running} onClick={check}>重新检查</button>
         </>}
         {phase === "downloading" && downloadProgress && <DownloadProgressCard progress={downloadProgress} displayName="UManager"/>}
@@ -498,7 +512,7 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
   const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
   const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
   const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
-  const [phase, setPhase] = useState<"idle" | "downloading" | "planning" | "dry-run" | "installing" | "done">("idle");
+  const [phase, setPhase] = useState<"idle" | "downloading" | "ready" | "planning" | "dry-run" | "installing" | "done">("idle");
   const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
 
   useEffect(() => {
@@ -513,7 +527,7 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
 
   const isWebsite = details?.sourceKind === "officialWebsite";
   const hasUpdate = details?.updateState === "updateAvailable";
-  const running = phase !== "idle" && phase !== "done";
+  const running = phase === "downloading" || phase === "planning" || phase === "dry-run" || phase === "installing";
   const targetVersion = details?.candidateVersion ?? downloadPlan?.version ?? "";
 
   const start = async () => {
@@ -525,8 +539,21 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
       const download = await downloadPackage(applicationId, setDownloadProgress);
       setDownloadResult(download);
       if (!download.verified) throw new Error("安装包校验未通过，已停止，未更改系统。");
+      setPhase("ready");
+      if (!document.hasFocus()) {
+        void notifyDownloadComplete(`${item.displayName} 下载完成`, `安装包已通过校验，回到 UManager 继续更新 ${targetVersion}（需系统授权）。`).catch(() => { /* 通知失败不影响流程 */ });
+      }
+    } catch (reason) {
+      setError(String(reason));
+      setPhase("idle");
+    }
+  };
+
+  const install = async () => {
+    setError(null);
+    try {
       setPhase("planning");
-      const plan = await createOperationPlan(applicationId);
+      const plan = await createOperationPlan(applicationId!);
       setOperationPlan(plan);
       setPhase("dry-run");
       const dry = await runOperationDryRun(plan.plan.planId);
@@ -538,7 +565,7 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
       setPhase("done");
     } catch (reason) {
       setError(String(reason));
-      setPhase("idle");
+      setPhase("ready");
     }
   };
 
@@ -551,14 +578,14 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
       <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div><UpdatedAtLine seconds={details.versionUpdatedAtUnixSeconds} source={details.versionUpdatedAtSource}/>{details.websiteVersion && <p className="version-source-note">官网/发布标签展示 {details.websiteVersion}；UManager 通过 HTTP Range 读取 `.deb` 控制信息，获得用于比较的完整版本。</p>}</section>
       <section className="detail-section"><h3>官方来源</h3><div className="path-card"><div><span className={`source-dot ${details.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${item.vendor} 官方 APT 仓库`}</strong></div><code title={details.sourceUrl}>{details.sourceUrl}</code><p>下载地址与所有 HTTPS 重定向都不能离开软件源中声明的允许域名。</p></div></section>
       <section className="detail-section"><h3>官方证据</h3><div className="evidence-list">{details.evidence.map((entry) => <div key={entry.label}><span className={entry.passed ? "check passed" : "check failed"}>{entry.passed ? "✓" : "!"}</span><div><strong>{entry.label}</strong><code>{entry.actual}</code></div></div>)}</div></section>
-      <div className={`wechat-update-result ${details.updateState}`}><strong>{hasUpdate ? `发现新版本 ${details.candidateVersion}` : details.updateState === "upToDate" ? "已是最新版本" : "候选版本尚未确认"}</strong><span>{hasUpdate ? "点击下方按钮，UManager 会自动完成下载校验、不可变计划、特权复核与安装。" : "官方完整版本与本机已安装版本相同。"}</span></div>
+      <div className={`wechat-update-result ${details.updateState}`}><strong>{hasUpdate ? `发现新版本 ${details.candidateVersion}` : details.updateState === "upToDate" ? "已是最新版本" : "候选版本尚未确认"}</strong><span>{hasUpdate ? "点击下方按钮下载并校验官方包，校验通过后再确认安装。" : "官方完整版本与本机已安装版本相同。"}</span></div>
       <section className="detail-section download-section"><h3>官方安装包</h3>
         {downloadPlan && <DownloadCard plan={downloadPlan}/>}
         {phase === "downloading" && downloadProgress && <DownloadProgressCard progress={downloadProgress} displayName={item.displayName}/>}
         {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
         {error && details && <div className="inline-error">{error}</div>}
-        {hasUpdate && phase !== "done" && <button className="download-button" disabled={running || !downloadPlan} onClick={() => void start()}>{phase === "downloading" ? "正在下载并校验…" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : phase === "installing" ? "正在安装更新…" : `更新到 ${targetVersion}`}</button>}
-        <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。后续步骤自动执行，仅在真正更改系统前请求系统授权。</p>
+        {hasUpdate && phase !== "done" && <button className="download-button" disabled={running || (phase === "idle" && !downloadPlan)} onClick={() => { if (phase === "ready") void install(); else void start(); }}>{phase === "downloading" ? "正在下载并校验…" : phase === "ready" ? "继续更新（需系统授权）" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : phase === "installing" ? "正在安装更新…" : `更新到 ${targetVersion}`}</button>}
+        <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。</p>
       </section>
       {downloadResult?.verified && <section className="detail-section final-plan-section"><h3>最终更新计划</h3>
         <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{item.packageName} · {item.architecture}</dd></div><div><dt>版本</dt><dd>{item.installedVersion} → {downloadResult.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult.actualSha256}>{downloadResult.actualSha256}</dd></div></dl></div>
@@ -631,11 +658,11 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
   const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
   const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
   const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
-  const [phase, setPhase] = useState<"idle" | "downloading" | "planning" | "dry-run" | "installing" | "done">("idle");
+  const [phase, setPhase] = useState<"idle" | "downloading" | "ready" | "planning" | "dry-run" | "installing" | "done">("idle");
   const [error, setError] = useState<string | null>(null);
   const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
 
-  const running = phase !== "idle" && phase !== "done";
+  const running = phase === "downloading" || phase === "planning" || phase === "dry-run" || phase === "installing";
 
   const start = async () => {
     setError(null);
@@ -645,6 +672,19 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
       const result = await downloadPackage(offer.applicationId, setDownloadProgress);
       setDownloadOutcome({ actualSha256: result.actualSha256, version: result.version, reusedExistingFile: result.reusedExistingFile, verified: result.verified });
       if (!result.verified) throw new Error("安装包校验未通过，已停止，未更改系统。");
+      setPhase("ready");
+      if (!document.hasFocus()) {
+        void notifyDownloadComplete(`${offer.displayName} 下载完成`, `安装包已通过校验，回到 UManager 继续安装（需系统授权）。`).catch(() => { /* 通知失败不影响流程 */ });
+      }
+    } catch (reason) {
+      setError(String(reason));
+      setPhase("idle");
+    }
+  };
+
+  const install = async () => {
+    setError(null);
+    try {
       setPhase("planning");
       const plan = await createOperationPlan(offer.applicationId);
       setOperationPlan(plan);
@@ -658,7 +698,7 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
       setPhase("done");
     } catch (reason) {
       setError(String(reason));
-      setPhase("idle");
+      setPhase("ready");
     }
   };
 
@@ -673,8 +713,8 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
         {phase === "downloading" && downloadProgress && <DownloadProgressCard progress={downloadProgress} displayName={offer.displayName}/>}
         {downloadOutcome?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadOutcome.actualSha256.slice(0, 16)}…</p></div></div>}
         {error && <div className="inline-error">{error}</div>}
-        {phase !== "done" && <button className="download-button" disabled={!downloadPlan || running} onClick={() => void start()}>{phase === "downloading" ? "正在下载并校验…" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : phase === "installing" ? "正在安装…" : `安装 ${offer.displayName}`}</button>}
-        <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。后续步骤自动执行，仅在真正更改系统前请求系统授权。</p>
+        {phase !== "done" && <button className="download-button" disabled={running || (phase === "idle" && !downloadPlan)} onClick={() => { if (phase === "ready") void install(); else void start(); }}>{phase === "downloading" ? "正在下载并校验…" : phase === "ready" ? "继续安装（需系统授权）" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : phase === "installing" ? "正在安装…" : `安装 ${offer.displayName}`}</button>}
+        <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。</p>
       </section>
       {downloadOutcome?.verified && <section className="detail-section final-plan-section"><h3>最终安装计划</h3>
         <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{offer.packageName} · {offer.architecture}</dd></div><div><dt>版本</dt><dd>未安装 → {downloadOutcome.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadOutcome.actualSha256}>{downloadOutcome.actualSha256}</dd></div></dl></div>

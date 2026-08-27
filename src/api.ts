@@ -80,6 +80,11 @@ export function restartApp(): Promise<void> {
   return invoke<void>("restart_app");
 }
 
+export function notifyDownloadComplete(title: string, body: string): Promise<void> {
+  if (isMock()) return Promise.resolve();
+  return invoke<void>("notify_download_complete", { title, body });
+}
+
 export function getNetworkSettings(): Promise<NetworkSettings> {
   if (isMock()) return Promise.resolve({ proxyEnabled: false, proxyUrl: "" });
   return invoke<NetworkSettings>("get_network_settings");
@@ -164,7 +169,8 @@ export async function downloadPackage(applicationId: string, onProgress?: (progr
     return { plan, actualSize: plan.expectedSize, actualSha256: plan.expectedSha256 ?? "0".repeat(64), packageName: plan.packageName, version: plan.version, architecture: plan.architecture, reusedExistingFile: false, verified: true };
   }
   const unlisten = await listen<DownloadProgress>("apt-download-progress", ({ payload }) => {
-    if (payload.packageName === mockCatalog.find((item) => item.applicationId === applicationId)?.packageName) onProgress?.(payload);
+    // 同一时刻只会有一个软件包在下载，后端事件已按当前下载发出，直接转发即可。
+    onProgress?.(payload);
   });
   try {
     return await invoke<DownloadResult>("download_package", { applicationId });

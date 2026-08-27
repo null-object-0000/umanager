@@ -1,6 +1,6 @@
 [package]
 name = "umanager"
-version = "0.6.0"
+version = "0.6.1"
 description = "A read-only first Ubuntu manager for vendor .deb applications"
 authors = ["UManager contributors"]
 edition = "2024"
@@ -23,6 +23,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
+notify-rust = "4"
 tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["fs", "io-util", "sync", "time"] }
 umanager-catalog = { path = "../crates/umanager-catalog" }

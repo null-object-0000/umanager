@@ -652,6 +652,17 @@ async fn install_self_update(
     .map_err(|error| format!("UManager 自更新任务异常结束：{error}"))?
 }
 
+#[tauri::command]
+fn notify_download_complete(title: String, body: String) -> Result<(), String> {
+    notify_rust::Notification::new()
+        .appname("UManager")
+        .summary(&title)
+        .body(&body)
+        .show()
+        .map(|_| ())
+        .map_err(|error| format!("无法发送系统通知：{error}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -707,7 +718,8 @@ pub fn run() {
             download_self_update,
             create_self_update_operation_plan,
             run_self_update_dry_run,
-            install_self_update
+            install_self_update,
+            notify_download_complete
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UManager");
