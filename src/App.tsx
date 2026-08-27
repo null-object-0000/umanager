@@ -18,12 +18,13 @@ import piIcon from "./assets/app-icons/pi.svg?no-inline";
 import codexIcon from "./assets/app-icons/codex.svg?no-inline";
 import githubCliIcon from "./assets/app-icons/github-cli.svg?no-inline";
 import feishuIcon from "./assets/app-icons/feishu.png";
+import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 
 type Filter = "all" | "installed" | "updates" | "installable";
 type Page = "installed" | "dev" | "scripts" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
-const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet" };
+const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
+const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
 let catalogByPackage: Record<string, CatalogApplication> = {};

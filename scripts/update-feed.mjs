@@ -22,7 +22,7 @@
 //                          developmentTools: { [toolId]: categoryId } }
 
 import { spawnSync } from "node:child_process";
-import { createHash, sign } from "node:crypto";
+import { createHash, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
@@ -479,10 +479,31 @@ function extractIcon(debPath) {
 // that returns JSON / JSON-in-script / HTML.
 // ---------------------------------------------------------------------------
 
+// Some vendor endpoints (e.g. Tencent Meeting's query-download-info) require
+// a fresh random nonce / request id on every call. A static `query` value would
+// be rejected on retries, so `versionEndpoint` supports three dynamic tokens in
+// string query values:
+//   "{nonce}"     -> 16-char random alphanumeric token
+//   "{rnds}"      -> 8-char random alphanumeric token
+//   "{timestamp}" -> current epoch millis (string)
+function randomAlphanumeric(length) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = randomBytes(length);
+  let output = "";
+  for (let index = 0; index < length; index += 1) {
+    output += alphabet[bytes[index] % alphabet.length];
+  }
+  return output;
+}
+
 function buildVersionEndpointUrl(source) {
   const url = new URL(source.versionEndpointUrl);
   for (const [key, value] of Object.entries(source.query || {})) {
-    url.searchParams.set(key, typeof value === "string" ? value : JSON.stringify(value));
+    let resolved = value;
+    if (value === "{nonce}") resolved = randomAlphanumeric(16);
+    else if (value === "{rnds}") resolved = randomAlphanumeric(8);
+    else if (value === "{timestamp}") resolved = String(Date.now());
+    url.searchParams.set(key, typeof resolved === "string" ? resolved : JSON.stringify(resolved));
   }
   return url.toString();
 }
@@ -561,7 +582,24 @@ function hostAllowedInList(url, hosts) {
 }
 
 // Apply the configured URL-signing step (e.g. QQ's trpc UrlSign) to a raw .deb URL.
+// md5QuerySign: the vendor CDN requires `?t=<epoch-seconds>&k=<hex md5 of
+// secret + pathname + t>` (e.g. WPS). `rawUrl` must already be a valid https
+// URL; the signature is appended to it in place.
+function md5QuerySignUrl(sign, rawUrl) {
+  const url = new URL(rawUrl);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const digest = createHash("md5")
+    .update(`${sign.secret}${url.pathname}${timestamp}`)
+    .digest("hex");
+  url.searchParams.set(sign.timestampParam, timestamp);
+  url.searchParams.set(sign.signatureParam, digest);
+  return url.toString();
+}
+
 async function applySign(sign, rawUrl) {
+  if (sign.kind === "md5QuerySign") {
+    return md5QuerySignUrl(sign, rawUrl);
+  }
   const headers = { "Content-Type": "application/json", ...(sign.headers || {}) };
   const body = sign.bodyTemplate.replace("{downloadUrl}", rawUrl);
   const response = await fetch(sign.endpointUrl, {

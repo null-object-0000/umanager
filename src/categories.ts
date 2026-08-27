@@ -32,6 +32,8 @@ const FALLBACK_DEB_BY_ID: Record<string, string> = {
   wemeet: "office",
   obsidian: "office",
   feishu: "office",
+  wps: "office",
+  dingtalk: "office",
   flclash: "network",
   localsend: "network",
   bitwarden: "security",

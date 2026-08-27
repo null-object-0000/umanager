@@ -132,10 +132,55 @@
       "accentColor": "#2878ff",
       "removable": true,
       "source": {
-        "kind": "browserImport",
-        "homepageUrl": "https://meeting.tencent.com/download/"
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://meeting.tencent.com/web-service/query-download-info",
+        "versionEndpointHosts": ["meeting.tencent.com"],
+        "payloadKind": "json",
+        "versionField": "info-list.0.version",
+        "downloadUrlField": "info-list.0.url",
+        "query": {
+          "q": [
+            {
+              "package-type": "app",
+              "channel": "0300000000",
+              "platform": "linux",
+              "arch": "x86_64",
+              "decorators": ["deb"]
+            }
+          ],
+          "nonce": "{nonce}",
+          "rnds": "{rnds}"
+        },
+        "downloadHosts": ["updatecdn.meeting.qq.com"]
       },
       "description": "腾讯官方视频会议软件，支持云会议、屏幕共享、会议录制。"
+    },
+    {
+      "applicationId": "wps",
+      "packageName": "wps-office",
+      "displayName": "WPS Office",
+      "vendor": "金山办公",
+      "architecture": "amd64",
+      "homepage": "https://linux.wps.cn/",
+      "icon": "wps",
+      "accentColor": "#e34d59",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://linux.wps.cn/",
+        "versionEndpointHosts": ["linux.wps.cn"],
+        "payloadKind": "html",
+        "versionField": "class=\"banner_txt\">",
+        "downloadUrlField": ".deb",
+        "downloadHosts": ["wps-linux-personal.wpscdn.cn"],
+        "sign": {
+          "kind": "md5QuerySign",
+          "secret": "7f8faaaa468174dc1c9cd62e5f218a5b",
+          "timestampParam": "t",
+          "signatureParam": "k"
+        }
+      },
+      "description": "金山出品的办公套件，兼容 Word/Excel/PPT 文档，支持 PDF 与云文档，覆盖文字、表格、演示。"
     }
   ],
   "selfUpdate": {

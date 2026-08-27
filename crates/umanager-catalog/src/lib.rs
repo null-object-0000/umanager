@@ -286,21 +286,42 @@ pub enum VersionEndpointPayload {
 #[serde(rename_all = "camelCase")]
 pub struct VersionEndpointSign {
     pub kind: VersionEndpointSignKind,
+    /// `qqUrlSign`: signing endpoint URL. `md5QuerySign`: keep empty.
+    #[serde(default)]
     pub endpoint_url: String,
+    /// `qqUrlSign`: exact hosts allowed for the signing endpoint.
+    #[serde(default)]
     pub endpoint_hosts: Vec<String>,
+    /// `qqUrlSign`: HTTP method of the signing request.
+    #[serde(default)]
     pub method: String,
+    /// `qqUrlSign`: request headers.
     #[serde(default)]
     pub headers: Option<serde_json::Value>,
-    /// Request body template; `{downloadUrl}` is replaced with the raw .deb URL.
+    /// `qqUrlSign`: body template; `{downloadUrl}` is replaced with the raw .deb URL.
+    #[serde(default)]
     pub body_template: String,
-    /// Dot-path to the signed URL in the sign API response.
+    /// `qqUrlSign`: dot-path to the signed URL in the sign API response.
+    #[serde(default)]
     pub signed_url_field: String,
+    /// `md5QuerySign`: secret hashed as md5(secret + url.pathname + timestamp).
+    #[serde(default)]
+    pub secret: String,
+    /// `md5QuerySign`: query parameter carrying the epoch-seconds timestamp.
+    #[serde(default)]
+    pub timestamp_param: String,
+    /// `md5QuerySign`: query parameter carrying the hex md5 signature.
+    #[serde(default)]
+    pub signature_param: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum VersionEndpointSignKind {
     QqUrlSign,
+    /// Vendor sites that protect their CDN with a client-computed
+    /// `?t=<epoch-seconds>&k=<md5(secret + path + t)>` query (e.g. WPS).
+    Md5QuerySign,
 }
 
 fn default_true() -> bool {
@@ -448,11 +469,12 @@ mod tests {
     fn embedded_catalog_is_valid_and_covers_the_expected_entries() {
         let catalog = Catalog::load().unwrap();
         assert_eq!(catalog.schema_version, 1);
-        assert_eq!(catalog.applications.len(), 6);
+        assert_eq!(catalog.applications.len(), 7);
         assert!(catalog.by_package_name("code").unwrap().is_auto_installable());
         assert!(catalog.by_package_name("wechat").unwrap().is_website_download());
         assert!(catalog.by_package_name("flclash").unwrap().is_website_download());
-        assert!(!catalog.by_package_name("wemeet").unwrap().is_auto_installable());
+        assert!(catalog.by_package_name("wemeet").unwrap().is_auto_installable());
+        assert!(catalog.by_package_name("wemeet").unwrap().is_website_download());
         assert!(catalog.applications.iter().all(|item| item.removable));
     }
 
@@ -500,7 +522,7 @@ mod tests {
             .collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), 5);
+        assert_eq!(ids.len(), 7);
     }
 
     #[test]
@@ -553,6 +575,45 @@ mod tests {
                     sign.as_ref().unwrap().signed_url_field,
                     "data.url"
                 );
+            }
+            _ => panic!("expected versionEndpoint"),
+        }
+    }
+
+    #[test]
+    fn md5_query_sign_deserializes_with_its_timestamp_and_signature_params() {
+        let json = r#"{
+            "applicationId": "wps",
+            "packageName": "wps-office",
+            "displayName": "WPS Office",
+            "vendor": "Kingsoft",
+            "architecture": "amd64",
+            "removable": true,
+            "source": {
+                "kind": "versionEndpoint",
+                "versionEndpointUrl": "https://linux.wps.cn/",
+                "versionEndpointHosts": ["linux.wps.cn"],
+                "payloadKind": "html",
+                "versionField": "class=\"banner_txt\">",
+                "downloadUrlField": ".deb",
+                "downloadHosts": ["wps-linux-personal.wpscdn.cn"],
+                "sign": {
+                    "kind": "md5QuerySign",
+                    "secret": "7f8faaaa468174dc1c9cd62e5f218a5b",
+                    "timestampParam": "t",
+                    "signatureParam": "k"
+                }
+            }
+        }"#;
+        let application: Application = serde_json::from_str(json).unwrap();
+        assert!(application.is_auto_installable());
+        match &application.source {
+            SourceSpec::VersionEndpoint { sign, .. } => {
+                let sign = sign.as_ref().expect("md5 query sign");
+                assert_eq!(sign.kind, VersionEndpointSignKind::Md5QuerySign);
+                assert_eq!(sign.secret, "7f8faaaa468174dc1c9cd62e5f218a5b");
+                assert_eq!(sign.timestamp_param, "t");
+                assert_eq!(sign.signature_param, "k");
             }
             _ => panic!("expected versionEndpoint"),
         }

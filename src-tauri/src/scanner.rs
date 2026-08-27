@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn embedded_catalog_is_valid_and_covers_the_supported_applications() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.applications.len(), 6);
+        assert_eq!(catalog.applications.len(), 7);
         assert!(catalog
             .applications
             .iter()
@@ -180,6 +180,7 @@ mod tests {
         assert!(catalog.by_application_id("wechat").is_some());
         assert!(catalog.by_application_id("flclash").is_some());
         assert!(catalog.by_application_id("wemeet").is_some());
+        assert!(catalog.by_application_id("wps").is_some());
         assert!(catalog.metadata_feed.is_some());
         assert!(catalog
             .by_application_id("vscode")

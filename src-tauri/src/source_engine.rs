@@ -430,8 +430,36 @@ async fn resolve_download_url(app: &Application, raw_url: &str) -> Result<String
     Ok(url)
 }
 
+/// `md5QuerySign`: sign the URL locally as
+/// `?{timestamp_param}={epoch-seconds}&{signature_param}={hex md5(secret + path + t)}`.
+/// Mirrors the generator's `md5QuerySignUrl` so the feed's recorded SHA-256
+/// still matches what the app downloads.
+fn md5_query_sign_url(sign: &umanager_catalog::VersionEndpointSign, raw_url: &str) -> Result<String, String> {
+    if sign.secret.is_empty() || sign.timestamp_param.is_empty() || sign.signature_param.is_empty() {
+        return Err("签名配置不完整".to_owned());
+    }
+    let mut url = url::Url::parse(raw_url).map_err(|_| "下载地址无效".to_owned())?;
+    if url.scheme() != "https" {
+        return Err("下载地址必须为 HTTPS".to_owned());
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "系统时钟异常".to_owned())?
+        .as_secs()
+        .to_string();
+    let input = format!("{}{}{}", sign.secret, url.path(), timestamp);
+    let signature = format!("{:x}", md5::Md5::digest(input.as_bytes()));
+    url.query_pairs_mut()
+        .append_pair(&sign.timestamp_param, &timestamp)
+        .append_pair(&sign.signature_param, &signature);
+    Ok(url.to_string())
+}
+
 /// Apply the configured URL-signing step (e.g. QQ's trpc UrlSign) to `raw_url`.
 async fn sign_url(sign: &umanager_catalog::VersionEndpointSign, raw_url: &str) -> Result<String, String> {
+    if sign.kind == umanager_catalog::VersionEndpointSignKind::Md5QuerySign {
+        return md5_query_sign_url(sign, raw_url);
+    }
     let client = restricted_client(&sign.endpoint_hosts, Duration::from_secs(20))?;
     let body = sign.body_template.replace("{downloadUrl}", raw_url);
     let mut request = client.post(&sign.endpoint_url);
@@ -920,6 +948,48 @@ mod tests {
 
         // Redirect policy shares the same matcher via host_matches.
         assert!(host_matches("LF6-UG-SIGN.FEISHUCDN.COM", "*.feishucdn.com"));
+    }
+
+    #[test]
+    fn md5_query_sign_appends_timestamp_and_expected_signature() {
+        let sign = umanager_catalog::VersionEndpointSign {
+            kind: umanager_catalog::VersionEndpointSignKind::Md5QuerySign,
+            endpoint_url: String::new(),
+            endpoint_hosts: Vec::new(),
+            method: String::new(),
+            headers: None,
+            body_template: String::new(),
+            signed_url_field: String::new(),
+            secret: "7f8faaaa468174dc1c9cd62e5f218a5b".to_owned(),
+            timestamp_param: "t".to_owned(),
+            signature_param: "k".to_owned(),
+        };
+        // Build the URL with a fixed timestamp by signing and then rewriting `t`
+        // would push the signature out of sync, so instead assert the observable
+        // properties: scheme/host/path preserved, `t` is epoch seconds, and `k`
+        // is the md5 of secret+path+t for the emitted timestamp.
+        let raw = "https://wps-linux-personal.wpscdn.cn/wps/download/ep/Linux2023/28080/wps-office_12.1.2.28080_amd64.deb";
+        let signed = md5_query_sign_url(&sign, raw).unwrap();
+        let parsed = url::Url::parse(&signed).unwrap();
+        assert_eq!(parsed.scheme(), "https");
+        assert_eq!(parsed.host_str(), Some("wps-linux-personal.wpscdn.cn"));
+        assert_eq!(parsed.path(), "/wps/download/ep/Linux2023/28080/wps-office_12.1.2.28080_amd64.deb");
+        let t = parsed
+            .query_pairs()
+            .find(|(key, _)| key == "t")
+            .map(|(_, value)| value.into_owned())
+            .expect("timestamp param");
+        let k = parsed
+            .query_pairs()
+            .find(|(key, _)| key == "k")
+            .map(|(_, value)| value.into_owned())
+            .expect("signature param");
+        let expected = format!(
+            "{:x}",
+            md5::Md5::digest(format!("{}{}{}", sign.secret, parsed.path(), t).as_bytes())
+        );
+        assert_eq!(k, expected);
+        assert_eq!(t.parse::<u64>().is_ok(), true);
     }
 
     #[test]

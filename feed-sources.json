@@ -170,6 +170,22 @@
         "repositoryHosts": ["packages.microsoft.com"],
         "packagesIndexUrl": "https://packages.microsoft.com/repos/edge/dists/stable/main/binary-amd64/Packages.gz"
       }
+    },
+    {
+      "applicationId": "dingtalk",
+      "packageName": "com.alibabainc.dingtalk",
+      "displayName": "钉钉",
+      "vendor": "阿里巴巴",
+      "architecture": "amd64",
+      "description": "阿里出品的智能移动办公平台，支持消息、音视频会议、考勤审批与云盘。官方 Linux 版已停更，仅识别与卸载本机已安装的 .deb。",
+      "homepage": "https://www.dingtalk.com/download",
+      "icon": "dingtalk",
+      "accentColor": "#0089ff",
+      "removable": true,
+      "source": {
+        "kind": "browserImport",
+        "homepageUrl": "https://www.dingtalk.com/download"
+      }
     }
   ]
 }
