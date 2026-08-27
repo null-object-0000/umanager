@@ -295,6 +295,9 @@ nav { display:grid; gap:3px; }
 .install-package-button { min-width:48px; height:30px; padding:0 9px; color:#fff; border:1px solid #5e294f; border-radius:6px; background:#5e294f; cursor:pointer; font-size:12px; font-weight:650; }
 .install-package-button:hover { border-color:#6d345e; background:#6d345e; }
 .install-package-button:focus-visible { outline:2px solid #5e294f; outline-offset:2px; }
+.update-package-button { min-width:48px; height:30px; padding:0 9px; color:#fff; border:1px solid #35623e; border-radius:6px; background:#35623e; cursor:pointer; font-size:12px; font-weight:650; }
+.update-package-button:hover { border-color:#4a7d55; background:#4a7d55; }
+.update-package-button:focus-visible { outline:2px solid #35623e; outline-offset:2px; }
 .removal-dialog { width:min(640px,100%); }
 .removal-dialog .app-mark { width:46px; height:46px; }
 .removal-warning { display:flex; flex-direction:column; gap:6px; padding:14px; color:#7d3028; border:1px solid #e4c4bf; border-radius:8px; background:#fff3f1; }
