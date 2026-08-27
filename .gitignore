@@ -7,6 +7,7 @@
 
 # Rust / Cargo build output (all workspace and standalone crates)
 **/target/
+/.cargo-home/
 
 # Tauri-generated schemas
 /src-tauri/gen/schemas/

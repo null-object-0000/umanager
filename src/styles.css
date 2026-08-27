@@ -485,3 +485,59 @@ nav { display:grid; gap:3px; }
 .script-running-label { display:inline-flex; align-items:center; height:30px; padding:0 12px; color:#4c2341; border-radius:6px; background:#eee7ec; font-size:12px; font-weight:650; }
 .script-system-lines { display:grid; gap:4px; padding:11px 14px; color:#5f595e; font-size:12px; line-height:1.6; border-top:1px solid #eeeced; }
 
+/* Clipboard history page. */
+.clipboard-panel { overflow:auto; }
+.primary-button.danger { background:#a33d33; }
+.primary-button.danger:hover:not(:disabled) { background:#b84a3e; }
+.clipboard-count { color:#989398; font-size:12px; }
+.clipboard-hint { color:#989398; font-size:12px; line-height:1.5; }
+.clipboard-list { padding:0 19px 16px; }
+.clip-entry { padding:15px 16px; border:1px solid #e7e4e6; border-radius:9px; background:#fcfbfc; margin-top:12px; }
+.clip-entry.pinned { border-color:#c9b4c4; background:#fbf7fa; box-shadow:0 1px 2px #3c17321a; }
+.clip-entry-meta { display:flex; align-items:center; gap:9px; margin-bottom:8px; }
+.clip-time { color:#847e82; font-size:11px; }
+.clip-chars { color:#aaa6aa; font-size:11px; }
+.clip-text { margin:0; padding:10px 12px; color:#352f35; border-radius:6px; background:#f3f1f2; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:12px; line-height:1.6; white-space:pre-wrap; word-break:break-word; max-height:180px; overflow:auto; }
+.clip-actions { display:flex; align-items:center; gap:8px; margin-top:11px; }
+.dev-action-button.subtle { color:#6b4c36; background:#f2ece3; }
+.dev-action-button.subtle:hover:not(:disabled) { background:#ede2d3; }
+.dev-action-button.danger-ghost { color:#a33d33; background:transparent; border:1px solid #dfc2bd; }
+.dev-action-button.danger-ghost:hover:not(:disabled) { background:#faf0ee; }
+.clip-image-thumb { display:block; width:100%; max-width:260px; padding:0; border:1px solid #e0dde0; border-radius:7px; overflow:hidden; background:#f3f1f2; cursor:grab; }
+.clip-image-thumb:active { cursor:grabbing; }
+.clip-image-thumb img { display:block; width:100%; height:auto; object-fit:contain; pointer-events:none; }
+.clip-drag-hint { color:#8a6c4e; background:#f4ede2; border-radius:999px; padding:2px 8px; font-size:10px; font-weight:600; }
+.clip-image-overlay { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:32px; background:rgba(32,24,30,.45); }
+.clip-image-dialog { display:flex; flex-direction:column; gap:14px; width:min(920px,100%); max-height:calc(100vh - 64px); padding:18px; border-radius:12px; background:#fff; box-shadow:0 18px 60px #24162040; }
+.clip-image-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.clip-image-head > div { display:flex; flex-direction:column; gap:3px; }
+.clip-image-head strong { font-size:15px; color:#393339; }
+.clip-image-head span { color:#989398; font-size:12px; }
+.clip-image-body { display:grid; place-items:center; min-height:180px; overflow:auto; border-radius:8px; background:#f4f2f3; }
+.clip-image-body img { display:block; max-width:100%; max-height:calc(100vh - 260px); height:auto; }
+.clipboard-hotkey-row { display:flex; align-items:center; gap:8px; padding:10px 19px; border-bottom:1px solid #eeeced; }
+.clipboard-hotkey-row > span { color:#847e82; font-size:12px; white-space:nowrap; }
+.clipboard-hotkey-input { width:170px; height:30px; padding:0 9px; border:1px solid #dedcdd; border-radius:6px; font-size:12px; color:#3f3a40; outline:0; background:#f9f9f8; }
+.clip-session-badge { padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; }
+.clip-session-badge.x11 { color:#3f7249; background:#eaf3eb; }
+.clip-session-badge.wayland { color:#b33e17; background:#fbece6; }
+.clip-session-badge.unknown { color:#74684c; background:#f2eee4; }
+.clipboard-session-note { margin:0 19px 10px; padding:10px 12px; border-radius:8px; font-size:12px; line-height:1.6; color:#6b4c36; background:#f6efe4; }
+.clipboard-session-note.wayland { color:#7a3a20; background:#fdeee6; }
+.clipboard-session-note code { margin:0 3px; padding:1px 5px; border-radius:4px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; background:#efe5d6; color:#543a2c; }
+
+/* Quick clipboard panel window. */
+.clip-panel { position:fixed; inset:0; display:flex; flex-direction:column; background:#fbfafb; }
+.clip-panel-top { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 12px 8px; border-bottom:1px solid #eeeced; }
+.clip-panel-top strong { font-size:14px; color:#3a343b; }
+.clip-panel-search { width:160px; }
+.clip-panel-list { flex:1; overflow:auto; padding:6px 8px 10px; }
+.clip-panel-empty { padding:34px 12px; text-align:center; color:#999499; font-size:12px; }
+.clip-panel-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:7px; cursor:pointer; }
+.clip-panel-item:hover { background:#f0edef; }
+.clip-panel-item.copied { background:#e9f3ea; }
+.clip-panel-item.text .clip-panel-text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#3a343b; font-size:12px; }
+.clip-panel-thumb { width:64px; height:48px; object-fit:cover; border:1px solid #e0dde0; border-radius:5px; background:#f3f1f2; cursor:grab; }
+.clip-panel-item:active .clip-panel-thumb { cursor:grabbing; }
+.clip-panel-dim { color:#989398; font-size:10px; }
+

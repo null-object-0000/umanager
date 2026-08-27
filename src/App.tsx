@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, downloadPackage, downloadSelfUpdate, getAppIcon, getCategories, getApplicationDetails, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSoftwareCatalog, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setDevDefaultVersion, setNetworkSettings, uninstallDevTool, uninstallDevVersion, listScripts, notifyDownloadComplete, runScript, stopScript } from "./api";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState } from "./types";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, deleteClipboardEntry, downloadPackage, downloadSelfUpdate, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setNetworkSettings, runScript, stopScript, uninstallDevTool, uninstallDevVersion } from "./api";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
@@ -21,13 +22,22 @@ import feishuIcon from "./assets/app-icons/feishu.png";
 import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 
 type Filter = "all" | "installed" | "updates" | "installable";
-type Page = "installed" | "dev" | "scripts" | "settings";
+type Page = "installed" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
 let catalogByPackage: Record<string, CatalogApplication> = {};
+
+function clipboardPanelMode(): boolean {
+  if (!("__TAURI_INTERNALS__" in window)) return false;
+  try {
+    return getCurrentWebviewWindow().label === "clipboard-panel";
+  } catch {
+    return false;
+  }
+}
 
 function appearance(packageName: string) {
   const entry = catalogByPackage[packageName];
@@ -39,11 +49,12 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "settings" | "search" | "shield" | "dev" | "script" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
     history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></>,
+    clipboard: <><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></>,
@@ -1037,7 +1048,242 @@ function ScriptsPage() {
   </main>;
 }
 
+function ClipboardPanel() {
+  const [entries, setEntries] = useState<ClipboardEntry[]>([]);
+  const [query, setQuery] = useState("");
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    listClipboardHistory().then((list) => { if (active) setEntries(list); }).catch(() => {});
+    let unlisten: (() => void) | null = null;
+    onClipboardHistoryChanged((list) => setEntries(list)).then((fn) => { unlisten = fn; });
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") void hideClipboardPanel(); };
+    window.addEventListener("keydown", onKey);
+    return () => { active = false; unlisten?.(); window.removeEventListener("keydown", onKey); };
+  }, []);
+
+  const ordered = useMemo(() => [...entries.filter((entry) => entry.pinned), ...entries.filter((entry) => !entry.pinned)], [entries]);
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return ordered;
+    return ordered.filter((entry) => {
+      const haystack = entry.kind === "image" ? `图片 ${entry.imageWidth ?? 0}x${entry.imageHeight ?? 0}` : (entry.text ?? "");
+      return haystack.toLowerCase().includes(needle);
+    });
+  }, [ordered, query]);
+
+  const copy = async (entry: ClipboardEntry) => {
+    try {
+      await copyClipboardEntry(entry.id);
+      setCopiedId(entry.id);
+      window.setTimeout(() => setCopiedId((current) => (current === entry.id ? null : current)), 1000);
+    } catch { /* 面板保持不闪断 */ }
+  };
+
+  return <div className="clip-panel">
+    <div className="clip-panel-top">
+      <strong>剪贴板</strong>
+      <label className="search-box clip-panel-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索" autoFocus/></label>
+    </div>
+    <div className="clip-panel-list">
+      {visible.length === 0 && <div className="clip-panel-empty">{entries.length === 0 ? "还没有记录" : "无匹配"}</div>}
+      {visible.map((entry) => entry.kind === "image"
+        ? <div className={`clip-panel-item ${copiedId === entry.id ? "copied" : ""}`} key={entry.id}>
+            <img className="clip-panel-thumb" src={entry.imagePreview ?? ""} alt="剪贴板图片" draggable
+              onDragStart={(event) => { event.preventDefault(); dragClipboardImage(entry.id).catch(() => {}); }}
+              onClick={() => void copy(entry)} title="点击复制图片，或拖到聊天窗口发送文件"/>
+            <span className="clip-panel-dim">{entry.imageWidth ?? 0}×{entry.imageHeight ?? 0}</span>
+          </div>
+        : <div className={`clip-panel-item text ${copiedId === entry.id ? "copied" : ""}`} key={entry.id} onClick={() => void copy(entry)} title="点击复制">
+            <span className="clip-panel-text">{entry.text}</span>
+          </div>)}
+    </div>
+  </div>;
+}
+
+function ClipboardPage() {
+  const [entries, setEntries] = useState<ClipboardEntry[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [pendingId, setPendingId] = useState<number | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [previewEntry, setPreviewEntry] = useState<ClipboardEntry | null>(null);
+  const [hotkey, setHotkey] = useState<string | null>(null);
+  const [hotkeyDraft, setHotkeyDraft] = useState("");
+  const [hotkeySaving, setHotkeySaving] = useState(false);
+  const [hotkeySaved, setHotkeySaved] = useState(false);
+  const [session, setSession] = useState<SessionInfo | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    listClipboardHistory()
+      .then((list) => { if (active) setEntries(list); })
+      .catch((reason) => { if (active) setError(String(reason)); })
+      .finally(() => { if (active) setLoading(false); });
+    let unlisten: (() => void) | null = null;
+    onClipboardHistoryChanged((list) => setEntries(list)).then((fn) => { unlisten = fn; });
+    getClipboardHotkey().then((value) => { if (active) { setHotkey(value); setHotkeyDraft(value); } }).catch(() => {});
+    getSessionInfo().then((info) => { if (active) setSession(info); }).catch(() => {});
+    return () => { active = false; unlisten?.(); };
+  }, []);
+
+  const copy = async (entry: ClipboardEntry) => {
+    setError(null);
+    try {
+      await copyClipboardEntry(entry.id);
+      setCopiedId(entry.id);
+      window.setTimeout(() => setCopiedId((current) => (current === entry.id ? null : current)), 1300);
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
+
+  const togglePin = async (entry: ClipboardEntry) => {
+    setError(null); setPendingId(entry.id);
+    try { await setClipboardEntryPinned(entry.id, !entry.pinned); } catch (reason) { setError(String(reason)); }
+    finally { setPendingId(null); }
+  };
+
+  const remove = async (entry: ClipboardEntry) => {
+    setError(null); setPendingId(entry.id);
+    try { await deleteClipboardEntry(entry.id); } catch (reason) { setError(String(reason)); }
+    finally { setPendingId(null); }
+  };
+
+  const dragOut = (entry: ClipboardEntry) => {
+    setError(null);
+    dragClipboardImage(entry.id).catch((reason) => setError(String(reason)));
+  };
+
+  const saveHotkey = async () => {
+    const value = hotkeyDraft.trim();
+    if (!value || value === hotkey) return;
+    setHotkeySaving(true); setHotkeySaved(false); setError(null);
+    try {
+      const saved = await setClipboardHotkey(value);
+      setHotkey(saved); setHotkeyDraft(saved); setHotkeySaved(true);
+      window.setTimeout(() => setHotkeySaved(false), 1500);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setHotkeySaving(false);
+    }
+  };
+
+  const clearAll = async () => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      window.setTimeout(() => setConfirmClear(false), 3000);
+      return;
+    }
+    setError(null);
+    try { await clearClipboardHistory(); } catch (reason) { setError(String(reason)); }
+    finally { setConfirmClear(false); }
+  };
+
+  const ordered = useMemo(() => {
+    const list = entries ?? [];
+    return [...list.filter((entry) => entry.pinned), ...list.filter((entry) => !entry.pinned)];
+  }, [entries]);
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return ordered;
+    return ordered.filter((entry) => {
+      const haystack = entry.kind === "image"
+        ? `图片 ${entry.imageWidth ?? 0}x${entry.imageHeight ?? 0}`
+        : (entry.text ?? "");
+      return haystack.toLowerCase().includes(needle);
+    });
+  }, [ordered, query]);
+
+  return <main className="workspace clipboard-workspace">
+    <header className="workspace-header"><div><h1>剪贴板</h1><p>运行期间自动记录 · 关闭窗口收起到托盘，Alt+Shift+V 随时唤出</p></div><div className="header-actions"><span className="clipboard-count">{entries ? `${entries.length} 条` : ""}</span><button className="primary-button danger" onClick={() => void clearAll()} disabled={!entries || entries.length === 0}>{confirmClear ? "再点一次确认清空" : "清空历史"}</button></div></header>
+    <section className="software-panel clipboard-panel">
+      <div className="panel-toolbar">
+        <div className="filter-tabs">
+          <span className="clipboard-hint">本机轮询读取、内容不上传，最多 500 条；关闭窗口会收起到托盘，全局热键 Alt+Shift+V 唤出（Wayland 上热键可能不可用）。</span>
+        </div>
+        <label className="search-box"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索剪贴板内容"/></label>
+      </div>
+      <div className="clipboard-hotkey-row">
+        <span>全局热键唤出面板</span>
+        {session && <span className={`clip-session-badge ${session.kind}`}>{session.globalHotkeySupported ? "X11 可用" : session.kind === "wayland" ? "Wayland 受限" : "未识别会话"}</span>}
+        <input className="clipboard-hotkey-input" value={hotkeyDraft} onChange={(event) => setHotkeyDraft(event.target.value)} disabled={hotkeySaving} spellCheck={false}/>
+        <button className="dev-action-button subtle" onClick={() => void saveHotkey()} disabled={hotkeySaving || !hotkeyDraft.trim() || hotkeyDraft.trim() === hotkey}>{hotkeySaved ? "已保存 ✓" : "保存热键"}</button>
+      </div>
+      {session && session.kind !== "x11" && <div className={`clipboard-session-note ${session.kind}`}>{session.kind === "wayland"
+        ? <>检测到 <b>Wayland</b> 会话：普通应用既不能全局抢占按键、也不能把窗口定位到托盘旁——所以应用内热键不生效，快捷面板也会被桌面摆到屏幕中间。要用<b>托盘右上角 + Super+V</b>的体验，二选一：① 登录时切到 <b>X11</b> 会话；② 继续用 Wayland，并到<b>系统设置 → 键盘 → 自定义快捷键</b>绑定 <b>Super+V</b> → 命令 <code>umanager --toggle-clipboard-panel</code>（面板仍居中，但热键可用）。</>
+        : <>未识别到 X11/Wayland 会话，全局热键可能不可用；建议用系统自定义快捷键绑定 <code>umanager --toggle-clipboard-panel</code>。</>}</div>}
+      {error && <div className="message error"><strong>剪贴板操作失败</strong><span>{error}</span></div>}
+      {loading && !entries && <div className="empty-state"><span className="loader"/><p>正在读取剪贴板历史…</p></div>}
+      {entries && entries.length === 0 && <div className="empty-state"><p>还没有记录。复制文本或截图后会自动出现在这里。</p></div>}
+      {entries && entries.length > 0 && visible.length === 0 && <div className="empty-state"><p>没有匹配的记录</p></div>}
+      <div className="clipboard-list">
+        {visible.map((entry) => <div className={`clip-entry ${entry.pinned ? "pinned" : ""}`} key={entry.id}>
+          <div className="clip-entry-meta">
+            <span className="clip-time">{new Date(entry.capturedAtMs).toLocaleString("zh-CN", { hour12: false })}</span>
+            <span className="clip-chars">{entry.kind === "image" ? `${entry.imageWidth ?? 0}×${entry.imageHeight ?? 0} · ${formatBytes(entry.imageByteCount ?? 0)}` : `${entry.charCount ?? 0} 字符`}</span>
+            {entry.kind === "image" && <span className="clip-drag-hint">拖动=发送文件</span>}
+            {entry.pinned && <span className="status-badge upToDate">已置顶</span>}
+          </div>
+          {entry.kind === "image"
+            ? <button className="clip-image-thumb" draggable onDragStart={(event) => { event.preventDefault(); dragOut(entry); }} onClick={() => setPreviewEntry(entry)} title="拖动到聊天窗口或文件管理器即可发送/保存；点击查看大图"><img draggable={false} src={entry.imagePreview ?? ""} alt="剪贴板图片"/></button>
+            : <pre className="clip-text">{entry.text}</pre>}
+          <div className="clip-actions">
+            <button className="dev-action-button" disabled={pendingId === entry.id} onClick={() => void copy(entry)}>{copiedId === entry.id ? "已复制 ✓" : entry.kind === "image" ? "复制图片" : "复制"}</button>
+            <button className="dev-action-button subtle" disabled={pendingId === entry.id} onClick={() => void togglePin(entry)}>{entry.pinned ? "取消置顶" : "置顶"}</button>
+            <button className="dev-action-button danger-ghost" disabled={pendingId === entry.id} onClick={() => void remove(entry)}>删除</button>
+          </div>
+        </div>)}
+      </div>
+    </section>
+    {previewEntry && <ClipboardImageDialog entry={previewEntry} onClose={() => setPreviewEntry(null)} onCopied={() => setCopiedId(previewEntry.id)}/>}
+  </main>;
+}
+
+function ClipboardImageDialog({ entry, onClose, onCopied }: { entry: ClipboardEntry; onClose: () => void; onCopied: () => void }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setSrc(null); setError(null);
+    getClipboardImage(entry.id)
+      .then((dataUrl) => { if (active) setSrc(dataUrl); })
+      .catch((reason) => { if (active) setError(String(reason)); });
+    return () => { active = false; };
+  }, [entry.id]);
+
+  const copyFull = async () => {
+    setError(null);
+    try {
+      await copyClipboardEntry(entry.id);
+      setCopied(true); onCopied();
+      window.setTimeout(() => setCopied(false), 1300);
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
+
+  return <section className="clip-image-overlay" role="dialog" aria-modal="true" aria-label="剪贴板图片">
+    <div className="clip-image-dialog">
+      <header className="clip-image-head">
+        <div><strong>剪贴板图片</strong><span>{entry.imageWidth ?? 0}×{entry.imageHeight ?? 0} · {formatBytes(entry.imageByteCount ?? 0)}</span></div>
+        <button className="dev-action-button danger-ghost" onClick={onClose}>关闭</button>
+      </header>
+      {error && <div className="message error"><strong>无法加载图片</strong><span>{error}</span></div>}
+      <div className="clip-image-body">{src ? <img src={src} alt="剪贴板图片"/> : <span className="loader"/>}</div>
+      <div className="clip-actions"><button className="dev-action-button" onClick={() => void copyFull()}>{copied ? "已复制 ✓" : "复制图片"}</button></div>
+    </div>
+  </section>;
+}
+
 export default function App() {
+  if (clipboardPanelMode()) return <ClipboardPanel/>;
   const [page, setPage] = useState<Page>("installed");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1228,6 +1474,10 @@ export default function App() {
     setPage("scripts");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
   };
+  const showClipboardPage = () => {
+    setPage("clipboard");
+    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
+  };
   const showSettingsPage = () => {
     setPage("settings");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
@@ -1241,6 +1491,7 @@ export default function App() {
         <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件管家</button>
         <button className={`nav-item ${page === "scripts" ? "active" : ""}`} onClick={showScriptsPage}><Icon name="script"/>维护脚本</button>
         <button className={`nav-item ${page === "dev" ? "active" : ""}`} onClick={showDevToolsPage}><Icon name="dev"/>开发环境</button>
+        <button className={`nav-item ${page === "clipboard" ? "active" : ""}`} onClick={showClipboardPage}><Icon name="clipboard"/>剪贴板</button>
         <button className="nav-item" disabled><Icon name="history"/>操作记录<span className="later">稍后</span></button>
       </nav>
       <div className="sidebar-spacer"/>
@@ -1274,7 +1525,7 @@ export default function App() {
           ? <SoftwareRow item={item.deb!} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} filter={filter} key={item.key}/>
           : <DevToolRow tool={item.tool!} state={item.toolState ?? null} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
       </section>
-    </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
+    </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}

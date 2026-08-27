@@ -1,3 +1,5 @@
+mod background;
+mod clipboard_history;
 mod dependency_check;
 mod dev_cli_tools;
 mod dev_tools;
@@ -8,7 +10,9 @@ mod installation;
 mod local_deb;
 mod network;
 mod operation_plan;
+mod panel;
 mod scanner;
+mod session;
 mod scripts;
 mod source_engine;
 
@@ -672,12 +676,27 @@ fn notify_download_complete(title: String, body: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if argv.iter().any(|arg| arg == panel::TOGGLE_ARG) {
+                panel::toggle(app);
+            }
+        }))
         .manage(local_deb::LocalDebState::from_process_arguments())
         .setup(|app| {
             network::initialize(app.handle());
             feed::initialize(app.handle());
+            clipboard_history::initialize(app.handle());
+            background::initialize(app.handle())?;
+            if std::env::args().any(|arg| arg == panel::TOGGLE_ARG) {
+                if let Some(main_window) = app.get_webview_window("main") {
+                    let _ = main_window.hide();
+                }
+                panel::toggle(app.handle());
+            }
             Ok(())
         })
+        .on_window_event(background::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             get_installation_info,
             restart_app,
@@ -725,7 +744,18 @@ pub fn run() {
             create_self_update_operation_plan,
             run_self_update_dry_run,
             install_self_update,
-            notify_download_complete
+            notify_download_complete,
+            session::get_session_info,
+            panel::hide_clipboard_panel,
+            background::get_clipboard_hotkey,
+            background::set_clipboard_hotkey,
+            clipboard_history::list_clipboard_history,
+            clipboard_history::copy_clipboard_entry,
+            clipboard_history::get_clipboard_image,
+            clipboard_history::set_clipboard_entry_pinned,
+            clipboard_history::delete_clipboard_entry,
+            clipboard_history::clear_clipboard_history,
+            clipboard_history::drag_clipboard_image
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UManager");

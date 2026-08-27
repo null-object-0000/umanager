@@ -401,3 +401,29 @@ export interface DevToolProgress {
   message: string;
 }
 
+export type ClipboardKind = "text" | "image";
+
+export interface ClipboardEntry {
+  id: number;
+  kind: ClipboardKind;
+  text?: string | null;
+  charCount?: number | null;
+  pinned: boolean;
+  capturedAtMs: number;
+  contentHash?: string | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
+  imageByteCount?: number | null;
+  imagePreview?: string | null;
+}
+
+export type SessionKind = "wayland" | "x11" | "unknown";
+
+export interface SessionInfo {
+  kind: SessionKind;
+  waylandDisplay: string | null;
+  display: string | null;
+  sessionType: string | null;
+  globalHotkeySupported: boolean;
+}
+
