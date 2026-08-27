@@ -1215,7 +1215,7 @@ function ClipboardPage() {
         <button className="dev-action-button subtle" onClick={() => void saveHotkey()} disabled={hotkeySaving || !hotkeyDraft.trim() || hotkeyDraft.trim() === hotkey}>{hotkeySaved ? "已保存 ✓" : "保存热键"}</button>
       </div>
       {session && session.kind !== "x11" && <div className={`clipboard-session-note ${session.kind}`}>{session.kind === "wayland"
-        ? <>检测到 <b>Wayland</b> 会话：普通应用既不能全局抢占按键、也不能把窗口定位到托盘旁——所以应用内热键不生效，快捷面板也会被桌面摆到屏幕中间。要用<b>托盘右上角 + Super+V</b>的体验，二选一：① 登录时切到 <b>X11</b> 会话；② 继续用 Wayland，并到<b>系统设置 → 键盘 → 自定义快捷键</b>绑定 <b>Super+V</b> → 命令 <code>umanager --toggle-clipboard-panel</code>（面板仍居中，但热键可用）。</>
+        ? <>检测到 <b>Wayland</b> 会话：应用内全局热键不生效，请到<b>系统设置 → 键盘 → 查看及自定义快捷键 → 自定义快捷键</b>绑定 <b>Super+V</b> → 命令 <code>umanager --toggle-clipboard-panel</code>（由 GNOME 调用本应用）。快捷面板已切换为 XWayland 后端，会定位在右上角托盘旁。</>
         : <>未识别到 X11/Wayland 会话，全局热键可能不可用；建议用系统自定义快捷键绑定 <code>umanager --toggle-clipboard-panel</code>。</>}</div>}
       {error && <div className="message error"><strong>剪贴板操作失败</strong><span>{error}</span></div>}
       {loading && !entries && <div className="empty-state"><span className="loader"/><p>正在读取剪贴板历史…</p></div>}

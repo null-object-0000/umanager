@@ -461,20 +461,6 @@ impl ClipboardHistory {
             store.clear();
         }
     }
-
-    /// 同步复制一条文本到剪贴板（供托盘菜单等主线程调用点使用）。
-    pub fn copy_text(&self, id: u64) -> Result<(), String> {
-        let entry = self.get(id)?;
-        if entry.kind != ClipboardKind::Text {
-            return Err("该记录不是文本".to_string());
-        }
-        let text = entry.text.clone().unwrap_or_default();
-        let mut clipboard =
-            arboard::Clipboard::new().map_err(|error| format!("无法访问剪贴板：{error}"))?;
-        clipboard
-            .set_text(text)
-            .map_err(|error| format!("无法写入剪贴板：{error}"))
-    }
 }
 
 /// 初始化状态并启动后台轮询线程。应在 `.setup()` 中调用一次。
@@ -487,7 +473,6 @@ pub fn initialize(app: &AppHandle) {
 
 fn emit_snapshot(app: &AppHandle, history: &ClipboardHistory) {
     let _ = app.emit("clipboard-history-changed", history.snapshot());
-    crate::background::schedule_tray_menu_refresh(app);
 }
 
 fn start_monitor(app: AppHandle) {

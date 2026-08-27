@@ -1,25 +1,25 @@
 //! 后台常驻：托盘图标 + 全局热键 + 关闭窗口时收起而非退出。
 //!
-//! 托盘菜单里会放最近几条剪贴板文本（点击即复制）。在 Linux（appindicator）上，
-//! 托盘菜单由桌面锚定在托盘图标旁，是 Wayland 下唯一能「贴着托盘」呈现的形态；
-//! 独立快捷面板窗口在 Wayland 上无法被应用自行定位到托盘旁。
+//! 全局热键默认唤出剪贴板快捷面板（`panel`），托盘菜单可显隐面板/主窗口/退出。
+//! 热键字符串持久化到应用配置目录，可在运行期通过命令修改。
+//!
+//! 平台说明：
+//! - Linux 托盘（libayatana-appindicator）只支持菜单，不触发裸点击事件。
+//! - 全局热键在 X11 可用；Wayland 上合成器一般不允许，注册失败仅记日志。
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{
-    menu::{IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     AppHandle, Manager, Window, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutEvent, ShortcutState};
 
-use crate::clipboard_history::{ClipboardEntry, ClipboardHistory, ClipboardKind};
 use crate::panel;
 
 const DEFAULT_SHORTCUT: &str = "Super+V";
-/// 托盘菜单里展示的最近文本条数。
-const TRAY_CLIPBOARD_ITEMS: usize = 6;
 
 static QUITTING: AtomicBool = AtomicBool::new(false);
 static DRAGGING: AtomicBool = AtomicBool::new(false);
@@ -91,117 +91,26 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
         })
 }
 
-/// 托盘菜单条目文本：压成单行并截断。
-fn tray_entry_label(entry: &ClipboardEntry) -> String {
-    let one_line = entry
-        .text
-        .as_deref()
-        .unwrap_or("")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let mut chars = one_line.chars();
-    let short: String = chars.by_ref().take(48).collect();
-    if chars.next().is_some() {
-        format!("{short}…")
-    } else {
-        short
-    }
-}
-
-/// 构造托盘菜单（须在主线程调用）。
-fn build_tray_menu(app: &AppHandle) -> Option<Menu<tauri::Wry>> {
-    let snapshot = app.state::<ClipboardHistory>().snapshot();
-
-    let mut clip_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
-    for entry in snapshot
-        .iter()
-        .filter(|entry| entry.kind == ClipboardKind::Text)
-        .take(TRAY_CLIPBOARD_ITEMS)
-    {
-        if let Ok(item) = MenuItem::with_id(
-            app,
-            format!("clip-{}", entry.id),
-            tray_entry_label(entry),
-            true,
-            None::<&str>,
-        ) {
-            clip_items.push(item);
-        }
-    }
-
-    let open_panel = MenuItem::with_id(app, "panel", "打开剪贴板面板", true, None::<&str>).ok()?;
-    let show_main = MenuItem::with_id(app, "show", "显示 UManager", true, None::<&str>).ok()?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>).ok()?;
-    let separator_top = PredefinedMenuItem::separator(app).ok()?;
-    let separator_bottom = PredefinedMenuItem::separator(app).ok()?;
-
-    let mut items: Vec<&dyn IsMenuItem<tauri::Wry>> = Vec::new();
-    for item in &clip_items {
-        items.push(item as &dyn IsMenuItem<tauri::Wry>);
-    }
-    if !items.is_empty() {
-        items.push(&separator_top as &dyn IsMenuItem<tauri::Wry>);
-    }
-    items.push(&open_panel as &dyn IsMenuItem<tauri::Wry>);
-    items.push(&show_main as &dyn IsMenuItem<tauri::Wry>);
-    items.push(&separator_bottom as &dyn IsMenuItem<tauri::Wry>);
-    items.push(&quit as &dyn IsMenuItem<tauri::Wry>);
-
-    Menu::with_items(app, &items).ok()
-}
-
-/// 重建托盘菜单（须在主线程调用）。
-pub fn refresh_tray_menu(app: &AppHandle) {
-    let Some(menu) = build_tray_menu(app) else {
-        return;
-    };
-    if let Some(tray) = app.tray_by_id("main-tray") {
-        if let Err(error) = tray.set_menu(Some(menu)) {
-            eprintln!("更新托盘菜单失败：{error}");
-        }
-    }
-}
-
-/// 任意线程安全：把托盘菜单重建调度到主线程。
-pub fn schedule_tray_menu_refresh(app: &AppHandle) {
-    let handle = app.clone();
-    let _ = app.run_on_main_thread(move || refresh_tray_menu(&handle));
-}
-
-fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
-    let id = event.id.as_ref().to_string();
-    match id.as_str() {
-        "panel" => panel::toggle(app),
-        "show" => show_window(app),
-        "quit" => {
-            QUITTING.store(true, Ordering::SeqCst);
-            app.exit(0);
-        }
-        _ => {
-            if let Some(raw) = id.strip_prefix("clip-") {
-                if let Ok(entry_id) = raw.parse::<u64>() {
-                    if let Err(error) = app.state::<ClipboardHistory>().copy_text(entry_id) {
-                        eprintln!("托盘复制剪贴板条目失败：{error}");
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// 初始化托盘与全局热键。应在 `.setup()` 中调用一次。
 pub fn initialize(app: &AppHandle) -> tauri::Result<()> {
-    let open_panel = MenuItem::with_id(app, "panel", "打开剪贴板面板", true, None::<&str>)?;
-    let show_main = MenuItem::with_id(app, "show", "显示 UManager", true, None::<&str>)?;
+    let panel_item = MenuItem::with_id(app, "panel", "打开剪贴板面板", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "显示 UManager", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let initial_menu = Menu::with_items(app, &[&open_panel, &show_main, &quit])?;
+    let menu = Menu::with_items(app, &[&panel_item, &show, &quit])?;
 
     let tray = TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().cloned().expect("缺少应用图标"))
         .tooltip("UManager · 剪贴板历史运行中")
-        .menu(&initial_menu)
-        .on_menu_event(handle_menu_event)
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "panel" => panel::toggle(app),
+            "show" => show_window(app),
+            "quit" => {
+                QUITTING.store(true, Ordering::SeqCst);
+                app.exit(0);
+            }
+            _ => {}
+        })
         .build(app)?;
 
     let hotkey = load_hotkey(app);
@@ -210,9 +119,6 @@ pub fn initialize(app: &AppHandle) -> tauri::Result<()> {
     }
     app.manage(HotkeyState(Mutex::new(hotkey)));
     app.manage(BackgroundState { _tray: tray });
-
-    // 用最近的剪贴板条目填充托盘菜单。
-    refresh_tray_menu(app);
     Ok(())
 }
 

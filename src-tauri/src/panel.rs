@@ -20,10 +20,15 @@ pub fn toggle(app: &AppHandle) {
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
     } else {
-        if let Err(error) = position_near_tray(app, &window) {
-            eprintln!("定位剪贴板面板失败：{error}");
-        }
+        let position = || {
+            if let Err(error) = position_near_tray(app, &window) {
+                eprintln!("定位剪贴板面板失败：{error}");
+            }
+        };
+        position();
         let _ = window.show();
+        // X11 下 show 前后都设一次更稳，避免个别 WM 只在映射时读取位置提示。
+        position();
         let _ = window.set_focus();
     }
 }
