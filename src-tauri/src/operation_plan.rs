@@ -23,6 +23,10 @@ const SAFE_SYSTEM_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 pub struct PlanArtifact {
     pub(crate) plan: OperationPlan,
     pub(crate) plan_path: String,
+    /// Advisory only: dependency groups from the `.deb` that are not satisfied
+    /// by the installed system. `dpkg --install` does not resolve them, so the
+    /// UI warns the user before they confirm. Never gates the plan itself.
+    pub(crate) missing_dependencies: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -59,6 +63,8 @@ pub async fn create_install_plan(
     cache_dir: PathBuf,
 ) -> Result<PlanArtifact, String> {
     let verified = source_engine::verify_cached(app, &cache_dir).await?;
+    let missing_dependencies =
+        crate::dependency_check::missing_dependencies(Path::new(&verified.plan.target_path));
     let package_name = app.package_name.clone();
     let catalog_for_scan = catalog.clone();
     let installed_version = tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
@@ -97,6 +103,7 @@ pub async fn create_install_plan(
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {
+        missing_dependencies,
         plan,
         plan_path: path.to_string_lossy().into_owned(),
     })
@@ -212,6 +219,8 @@ pub async fn create_self_update_plan(cache_dir: &Path) -> Result<PlanArtifact, S
         .package_version
         .ok_or_else(|| "无法确定已安装的 UManager 包版本".to_owned())?;
     let verified = source_engine::verify_cached(&application, cache_dir).await?;
+    let missing_dependencies =
+        crate::dependency_check::missing_dependencies(Path::new(&verified.plan.target_path));
     if !version_is_newer(&installed_version, &verified.plan.version) {
         return Err("UManager 已是最新版本，拒绝生成重装或降级计划".to_owned());
     }
@@ -234,6 +243,7 @@ pub async fn create_self_update_plan(cache_dir: &Path) -> Result<PlanArtifact, S
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {
+        missing_dependencies,
         plan,
         plan_path: path.to_string_lossy().into_owned(),
     })

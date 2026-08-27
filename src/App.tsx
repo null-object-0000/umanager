@@ -53,6 +53,11 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "settings" | "se
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 
+function DependencyGapWarning({ missing }: { missing: string[] }) {
+  if (missing.length === 0) return null;
+  return <div className="dependency-warning"><strong>⚠ 检测到缺少依赖</strong><span>UManager 用 <code>dpkg --install</code> 安装，不会自动补装依赖；缺少以下包可能导致安装失败：</span><ul>{missing.map((item, index) => <li key={`${index}-${item}`}><code>{item}</code></li>)}</ul><p>可先在终端执行 <code>sudo apt-get install -f</code> 或手动安装上述包后再继续。</p></div>;
+}
+
 function AppLogo({ packageName, displayName }: { packageName: string; displayName: string }) {
   const { iconKey, accentColor, iconUrl, iconSha256 } = appearance(packageName);
   const asset = iconKey ? iconAssets[iconKey] : undefined;
@@ -174,6 +179,7 @@ function LocalDebDialog({ initial, onClose, onInstalled }: { initial: LocalDebIn
         {inspected.installAllowed && !inspected.cachedPath && <button className="download-button" disabled={busy !== null} onClick={() => void run("import", importPendingLocalDeb, setInspected)}>{busy === "import" ? "正在校验并导入…" : "校验并导入 UManager 缓存"}</button>}
         {inspected.cachedPath && !plan && <><label className="plan-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}/><span>我信任该文件来源，已核对包名、版本、架构和 SHA-256，并理解 `.deb` 安装脚本将以 root 权限运行。</span></label><button className="download-button" disabled={!confirmed || busy !== null} onClick={() => void run("plan", () => createLocalDebOperationPlan(inspected.sha256), setPlan)}>{busy === "plan" ? "正在锁定计划…" : "确认并锁定安装计划"}</button></>}
         {plan && <div className="immutable-plan"><strong>计划已锁定</strong><span>ID：{plan.plan.planId}</span><span>有效至：{new Date(plan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
+        {plan && <DependencyGapWarning missing={plan.missingDependencies}/>}
         {plan && !dryRun && <button className="dry-run-button" disabled={busy !== null} onClick={() => void run("dry-run", () => runLocalDebDryRun(plan!.plan.planId), setDryRun)}>{busy === "dry-run" ? "正在特权环境复核…" : "授权并执行安装前 dry-run"}</button>}
         {plan && dryRun && !installed && <><div className="dry-run-success"><strong>✓ 安装前复核通过</strong><span>helper 已独立复核路径、包名、版本、架构、大小和 SHA-256。</span></div><button className="install-local-button" disabled={busy !== null} onClick={() => void run("install", () => { setProgressEvents([]); return installLocalDeb(plan!.plan.planId, (event) => appendProgress(setProgressEvents, event)); }, (value) => { setInstalled(value); onInstalled(); })}>{busy === "install" ? "正在安装…" : `授权并安装 ${inspected.packageName}`}</button></>}
         <OperationLogPanel events={progressEvents} running={busy === "install"}/>
@@ -591,6 +597,7 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
       {downloadResult?.verified && <section className="detail-section final-plan-section"><h3>最终更新计划</h3>
         <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{item.packageName} · {item.architecture}</dd></div><div><dt>版本</dt><dd>{item.installedVersion} → {downloadResult.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult.actualSha256}>{downloadResult.actualSha256}</dd></div></dl></div>
         {operationPlan && <div className="immutable-plan"><strong>更新计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
+        {operationPlan && <DependencyGapWarning missing={operationPlan.missingDependencies}/>}
         {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已重新核对来源、版本、架构和缓存中的安装包，本次未修改系统。</span></div>}
         <OperationLogPanel events={progressEvents} running={phase === "installing"}/>
         {installed && <div className="dry-run-success"><strong>✓ 更新安装完成</strong><span>固定参数 dpkg 安装命令已成功结束，软件列表已重新扫描。</span></div>}
@@ -720,6 +727,7 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
       {downloadOutcome?.verified && <section className="detail-section final-plan-section"><h3>最终安装计划</h3>
         <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{offer.packageName} · {offer.architecture}</dd></div><div><dt>版本</dt><dd>未安装 → {downloadOutcome.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadOutcome.actualSha256}>{downloadOutcome.actualSha256}</dd></div></dl></div>
         {operationPlan && <div className="immutable-plan"><strong>安装计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>installedVersion：{operationPlan.plan.payload.installedVersion ?? "null（未安装）"}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
+        {operationPlan && <DependencyGapWarning missing={operationPlan.missingDependencies}/>}
         {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已确认软件仍未安装，并重新核对来源、缓存文件与安装包元数据。</span></div>}
         <OperationLogPanel events={progressEvents} running={phase === "installing"}/>
         {installed && <div className="dry-run-success"><strong>✓ {offer.displayName} 安装完成</strong><span>固定参数 dpkg 安装命令已成功结束，软件列表已重新扫描。</span></div>}

@@ -1,3 +1,4 @@
+mod dependency_check;
 mod dev_cli_tools;
 mod dev_tools;
 mod feed;

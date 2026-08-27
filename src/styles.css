@@ -305,6 +305,12 @@ nav { display:grid; gap:3px; }
 .removal-warning span { color:#643c37; font-size:13px; font-weight:400; line-height:1.6; }
 .removal-confirmation input { accent-color:#a33d33; }
 .removal-error { margin-top:14px; }
+.dependency-warning { display:flex; flex-direction:column; gap:7px; margin-top:13px; padding:14px; color:#754617; border:1px solid #e4cda9; border-radius:8px; background:#fff8e9; }
+.dependency-warning strong { font-size:14px; font-weight:700; }
+.dependency-warning span { font-size:13px; font-weight:400; line-height:1.55; }
+.dependency-warning ul { display:flex; flex-direction:column; gap:4px; margin:4px 0 0; padding-left:18px; }
+.dependency-warning li code { color:#8a4b20; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
+.dependency-warning p { margin:2px 0 0; color:#643c37; font-size:12.5px; line-height:1.55; }
 .remove-confirm-button { width:100%; min-height:44px; margin-top:13px; padding:10px 14px; color:#fff; border:0; border-radius:7px; background:#a33d33; cursor:pointer; font-size:14px; font-weight:700; }
 .remove-confirm-button:hover:not(:disabled) { background:#b94b3f; }
 .remove-confirm-button:disabled { opacity:.62; cursor:wait; }

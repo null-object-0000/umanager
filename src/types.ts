@@ -145,6 +145,7 @@ export interface OperationPlanPayload {
 export interface OperationPlanArtifact {
   plan: { planId: string; payload: OperationPlanPayload };
   planPath: string;
+  missingDependencies: string[];
 }
 
 export interface DryRunReport {
