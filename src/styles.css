@@ -527,7 +527,8 @@ nav { display:grid; gap:3px; }
 .clipboard-session-note code { margin:0 3px; padding:1px 5px; border-radius:4px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; background:#efe5d6; color:#543a2c; }
 
 /* Quick clipboard panel window. */
-.clip-panel { position:fixed; inset:0; display:flex; flex-direction:column; background:#fbfafb; }
+.clip-panel { position:fixed; inset:0; display:flex; flex-direction:column; background:#fbfafb; user-select:none; -webkit-user-select:none; }
+.clip-panel input, .clip-panel textarea { user-select:text; -webkit-user-select:text; }
 .clip-panel-top { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 12px 8px; border-bottom:1px solid #eeeced; }
 .clip-panel-top strong { font-size:14px; color:#3a343b; }
 .clip-panel-search { width:160px; }
@@ -537,6 +538,8 @@ nav { display:grid; gap:3px; }
 .clip-panel-item:hover { background:#f0edef; }
 .clip-panel-item.copied { background:#e9f3ea; }
 .clip-panel-item.text .clip-panel-text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#3a343b; font-size:12px; }
+.clip-panel-item.image { cursor:grab; }
+.clip-panel-item.image:active { cursor:grabbing; }
 .clip-panel-thumb { width:64px; height:48px; object-fit:cover; border:1px solid #e0dde0; border-radius:5px; background:#f3f1f2; cursor:grab; }
 .clip-panel-item:active .clip-panel-thumb { cursor:grabbing; }
 .clip-panel-dim { color:#989398; font-size:10px; }

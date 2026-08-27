@@ -1089,9 +1089,9 @@ function ClipboardPanel() {
     <div className="clip-panel-list">
       {visible.length === 0 && <div className="clip-panel-empty">{entries.length === 0 ? "还没有记录" : "无匹配"}</div>}
       {visible.map((entry) => entry.kind === "image"
-        ? <div className={`clip-panel-item ${copiedId === entry.id ? "copied" : ""}`} key={entry.id}>
-            <img className="clip-panel-thumb" src={entry.imagePreview ?? ""} alt="剪贴板图片" draggable
-              onDragStart={(event) => { event.preventDefault(); dragClipboardImage(entry.id).catch(() => {}); }}
+        ? <div className={`clip-panel-item image ${copiedId === entry.id ? "copied" : ""}`} key={entry.id} draggable
+            onDragStart={(event) => { event.preventDefault(); dragClipboardImage(entry.id).catch((reason) => console.error("图片拖拽失败", reason)); }}>
+            <img className="clip-panel-thumb" draggable={false} src={entry.imagePreview ?? ""} alt="剪贴板图片"
               onClick={() => void copy(entry)} title="点击复制图片，或拖到聊天窗口发送文件"/>
             <span className="clip-panel-dim">{entry.imageWidth ?? 0}×{entry.imageHeight ?? 0}</span>
           </div>

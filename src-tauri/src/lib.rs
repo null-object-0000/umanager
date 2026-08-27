@@ -680,6 +680,10 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if argv.iter().any(|arg| arg == panel::TOGGLE_ARG) {
                 panel::toggle(app);
+            } else {
+                // 用户点 dock/桌面图标启动第二个实例（普通启动）时，恢复并聚焦主窗口，
+                // 否则「关闭即隐藏到托盘」后点图标会毫无反应。
+                background::show_window(app);
             }
         }))
         .manage(local_deb::LocalDebState::from_process_arguments())
