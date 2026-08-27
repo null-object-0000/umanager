@@ -1055,12 +1055,22 @@ function ClipboardPanel() {
 
   useEffect(() => {
     let active = true;
-    listClipboardHistory().then((list) => { if (active) setEntries(list); }).catch(() => {});
+    const load = () =>
+      listClipboardHistory()
+        .then((list) => { if (active) setEntries(list); })
+        .catch(() => {});
+    load();
     let unlisten: (() => void) | null = null;
     onClipboardHistoryChanged((list) => setEntries(list)).then((fn) => { unlisten = fn; });
+    // 面板常驻隐藏，每次重新显示/获得焦点时重新拉取最新历史，避免展示旧列表。
+    let unlistenFocus: (() => void) | null = null;
+    getCurrentWebviewWindow()
+      .onFocusChanged(({ payload }) => { if (payload) load(); })
+      .then((fn) => { unlistenFocus = fn; })
+      .catch(() => {});
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") void hideClipboardPanel(); };
     window.addEventListener("keydown", onKey);
-    return () => { active = false; unlisten?.(); window.removeEventListener("keydown", onKey); };
+    return () => { active = false; unlisten?.(); unlistenFocus?.(); window.removeEventListener("keydown", onKey); };
   }, []);
 
   const ordered = useMemo(() => [...entries.filter((entry) => entry.pinned), ...entries.filter((entry) => !entry.pinned)], [entries]);
@@ -1128,6 +1138,22 @@ function ClipboardPage() {
     getClipboardHotkey().then((value) => { if (active) { setHotkey(value); setHotkeyDraft(value); } }).catch(() => {});
     getSessionInfo().then((info) => { if (active) setSession(info); }).catch(() => {});
     return () => { active = false; unlisten?.(); };
+  }, []);
+
+  // 主窗口关闭到托盘再恢复时，也重新拉取最新剪贴板历史。
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let active = true;
+    let unlistenFocus: (() => void) | null = null;
+    const reload = () =>
+      listClipboardHistory()
+        .then((list) => { if (active) { setEntries(list); setLoading(false); } })
+        .catch((reason) => { if (active) setError(String(reason)); });
+    getCurrentWebviewWindow()
+      .onFocusChanged(({ payload }) => { if (payload) reload(); })
+      .then((fn) => { unlistenFocus = fn; })
+      .catch(() => {});
+    return () => { active = false; unlistenFocus?.(); };
   }, []);
 
   const copy = async (entry: ClipboardEntry) => {
