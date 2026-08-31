@@ -178,6 +178,18 @@ async fn install_dev_tool(
 }
 
 #[tauri::command]
+async fn update_dev_tool(
+    app: tauri::AppHandle,
+    tool_id: String,
+) -> Result<dev_cli_tools::DevToolReport, String> {
+    let event_app = app.clone();
+    let progress: dev_cli_tools::DevToolProgressCallback = std::sync::Arc::new(move |payload| {
+        let _ = event_app.emit("dev-tool-progress", payload);
+    });
+    dev_cli_tools::update(tool_id, progress).await
+}
+
+#[tauri::command]
 async fn uninstall_dev_tool(
     app: tauri::AppHandle,
     tool_id: String,
@@ -724,6 +736,7 @@ pub fn run() {
             get_dev_tools,
             get_dev_tool_state,
             install_dev_tool,
+            update_dev_tool,
             uninstall_dev_tool,
             get_application_details,
             get_download_plan,

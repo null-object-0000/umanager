@@ -76,6 +76,7 @@
         "kind": "versionEndpoint",
         "versionEndpointUrl": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
         "versionEndpointHosts": ["qq-web.cdn-go.cn"],
+        "gatewayUrl": "https://umanager.nichangen.workers.dev",
         "payloadKind": "json",
         "versionField": "Linux.version",
         "downloadUrlField": "Linux.x64DownloadUrl.deb",
@@ -106,6 +107,7 @@
         "kind": "versionEndpoint",
         "versionEndpointUrl": "https://y.qq.com/download/download.html",
         "versionEndpointHosts": ["y.qq.com"],
+        "gatewayUrl": "https://umanager.nichangen.workers.dev",
         "payloadKind": "html",
         "downloadUrlField": ".deb",
         "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"]

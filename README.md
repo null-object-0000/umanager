@@ -15,7 +15,7 @@ UManager 是面向 Ubuntu 的个人软件管家，聚焦从厂商官网安装的
 - “设置”页支持对 `.deb` 安装版进行自更新：从 UManager 官方 GitHub Release 检查、下载并校验 SHA-256，生成不可变计划，经特权 dry-run 与再次确认后以固定 `dpkg --install` 升级自身。
 - 最终安装、更新和卸载会显示结构化进度与可展开的实时 `dpkg` 详细日志；日志只读，终端控制序列会被清理，单行与总量均有限制。
 - “开发环境”页通过用户级版本管理器（nvm 用于 Node.js，rustup 用于 Rust）检测、安装、切换和卸载运行时版本，全程无 root。
-- “开发环境”页同时管理单版本的命令行 AI 编程工具（Claude Code、OpenCode、Pi、Codex CLI）：识别 npm / 官方安装器 / PATH 三种安装来源，并通过各工具的官方安装方式安装、更新与卸载，全程无 root。
+- “开发环境”页同时管理单版本的命令行 AI 编程工具（Claude Code、OpenCode、Pi、Codex CLI、DeepSeek Harness）：识别 npm / 官方安装器 / PATH 三种安装来源，并通过各工具的官方安装方式安装、更新与卸载，全程无 root。
 - “开发环境”页另设“系统级 CLI 工具”区块，通过白名单 `.deb` 特权链路管理安装在系统层的命令行工具（如 GitHub CLI `gh`）。
 - 各软件在列表与详情中展示一行文字描述；详情/安装/自更新抽屉同时展示版本更新时间与来源（官方发布时间 / 官方安装包更新时间 / 首次采集到该版本）。应用图标可由中央 feed 下发并缓存，新增软件无需改前端打包图标。
 
@@ -191,7 +191,7 @@ nvm 是 shell 函数，因此通过 `/bin/bash -c 'source nvm.sh --no-use; nvm �
 
 ## 开发环境（命令行 AI 编程工具）
 
-“开发环境”页的第二分区管理**单版本、npm 全局安装的命令行 AI 编程工具**：Claude Code CLI、OpenCode CLI、Pi Code Agent CLI 和 Codex CLI。它们不经过 dpkg、不需要 root，由 `src-tauri/src/dev_cli_tools.rs` 处理。
+“开发环境”页的第二分区管理**单版本、npm 全局安装的命令行 AI 编程工具**：Claude Code CLI、OpenCode CLI、Pi Code Agent CLI、Codex CLI 和 DeepSeek Harness CLI。它们不经过 dpkg、不需要 root，由 `src-tauri/src/dev_cli_tools.rs` 处理。
 
 在 `vendors.json` 的 `developmentTools` 数组里登记一条记录即可接入：
 
@@ -199,9 +199,10 @@ nvm 是 shell 函数，因此通过 `/bin/bash -c 'source nvm.sh --no-use; nvm �
 - `binaryName`：安装后的可执行命令（如 `claude`、`opencode`、`pi`、`codex`）；
 - `npmPackage`：npm 包名，用于读取最新版本与 npm 型安装/卸载；
 - `installer.kind`：`npm`（执行 `npm install -g <npmPackage>@latest`）或 `curlScript`（执行厂商官方的一行安装脚本 `curl -fsSL <scriptUrl> | <shell>`）；
-- `uninstall.kind`：`npm`（执行 `npm uninstall -g <npmPackage>`）或 `removeFiles`（仅删除官方安装器写入的已知二进制路径，如 `~/.local/bin/claude`）。
+- `uninstall.kind`：`npm`（执行 `npm uninstall -g <npmPackage>`）或 `removeFiles`（仅删除官方安装器写入的已知二进制路径，如 `~/.local/bin/claude`）；
+- `update.kind`：`selfCommand`（执行该工具自身的更新命令，如 `claude update`、`opencode upgrade`、`pi update`、`codex update`），与安装来源无关。未配置 `update` 时才回退为重新执行 `installer`。
 
-当前内置四条工具：
+当前内置五条工具：
 
 | 工具 | npm 包 | 安装方式 | 命令 |
 |---|---|---|---|
@@ -209,8 +210,9 @@ nvm 是 shell 函数，因此通过 `/bin/bash -c 'source nvm.sh --no-use; nvm �
 | OpenCode | `opencode-ai` | 官方脚本 `https://opencode.ai/install` | `opencode` |
 | Pi | `@earendil-works/pi-coding-agent` | 官方脚本 `https://pi.dev/install.sh` | `pi` |
 | Codex CLI | `@openai/codex` | npm 全局 | `codex` |
+| DeepSeek Harness | `@deepseek-ai/dsh` | npm 全局 | `dsh` |
 
-检测会同时识别三种安装来源：npm 全局安装、官方安装器（`~/.local/bin` / `~/.opencode/bin`）以及 PATH 上的可执行文件；最新版本统一从 npm registry 读取。操作只提供“安装/更新”和“卸载”：安装与更新都重跑该工具的官方安装方式（npm 或官方脚本），卸载仅对来源可归属（npm 全局或官方安装器）的工具开放。日志只读，实时展示安装器输出。
+检测会同时识别三种安装来源：npm 全局安装、官方安装器（`~/.local/bin` / `~/.opencode/bin`）以及 PATH 上的可执行文件；最新版本统一从 npm registry 读取。操作提供“安装/更新”和“卸载”：安装重跑该工具的官方安装方式（npm 或官方脚本），更新优先调用工具自身的更新命令（`claude update` / `opencode upgrade` / `pi update` / `codex update`；`dsh` 未配置自更新命令，回退为重新执行 npm 安装），与安装来源无关；卸载仅对来源可归属（npm 全局或官方安装器）的工具开放。日志只读，实时展示命令输出。
 
 > 信任边界：`curlScript` 型安装会以当前用户身份执行厂商官方域名上的 HTTPS 安装脚本。脚本内容由厂商控制，UManager 只固定 URL 与参数、不接收任意 shell，但仍无法证明脚本内容与发布者身份（与 FlClash/微信的“官网直连”信任边界一致）。npm 型安装则受 npm registry 与包发布流程保护。
 

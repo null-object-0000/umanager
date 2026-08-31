@@ -35,6 +35,8 @@ pub struct ApplicationDetails {
     pub asset_name: Option<String>,
     pub version_updated_at_unix_seconds: Option<u64>,
     pub version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
+    pub release_notes: Option<String>,
+    pub release_notes_url: Option<String>,
     pub trusted: bool,
     pub evidence: Vec<Evidence>,
 }
@@ -98,6 +100,8 @@ pub(crate) struct Installable {
     pub(crate) download_plan: Option<DownloadPlan>,
     pub(crate) version_updated_at_unix_seconds: Option<u64>,
     pub(crate) version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
+    pub(crate) release_notes: Option<String>,
+    pub(crate) release_notes_url: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -137,6 +141,8 @@ pub(crate) async fn load_installable(app: &Application, cache_dir: &Path) -> Res
             download_plan: None,
             version_updated_at_unix_seconds: None,
             version_updated_at_source: None,
+            release_notes: None,
+            release_notes_url: None,
         });
     };
     feed_installable(app, cache_dir, &entry, installed)
@@ -256,6 +262,8 @@ fn feed_details(
         asset_name: entry.asset_name.clone(),
         version_updated_at_unix_seconds: entry.version_updated_at_unix_seconds,
         version_updated_at_source: entry.version_updated_at_source,
+        release_notes: entry.release_notes.clone(),
+        release_notes_url: entry.release_notes_url.clone(),
         trusted: true,
         evidence: vec![
             Evidence {
@@ -340,6 +348,8 @@ fn feed_installable(
             download_plan: None,
             version_updated_at_unix_seconds: entry.version_updated_at_unix_seconds,
             version_updated_at_source: entry.version_updated_at_source,
+            release_notes: entry.release_notes.clone(),
+            release_notes_url: entry.release_notes_url.clone(),
         });
     }
     Ok(Installable {
@@ -348,6 +358,8 @@ fn feed_installable(
         download_plan: Some(feed_plan(app, cache_dir, entry)?),
         version_updated_at_unix_seconds: entry.version_updated_at_unix_seconds,
         version_updated_at_source: entry.version_updated_at_source,
+        release_notes: entry.release_notes.clone(),
+        release_notes_url: entry.release_notes_url.clone(),
     })
 }
 
@@ -1025,6 +1037,8 @@ mod tests {
             website_version: None,
             version_updated_at_unix_seconds: None,
             version_updated_at_source: None,
+            release_notes: None,
+            release_notes_url: None,
         };
         assert!(validate_feed_entry_for_app(&code, &good).is_ok());
 
@@ -1057,6 +1071,8 @@ mod tests {
             website_version: None,
             version_updated_at_unix_seconds: None,
             version_updated_at_source: None,
+            release_notes: None,
+            release_notes_url: None,
         };
         let plan = feed_plan(&code, Path::new("/tmp/cache"), &entry).unwrap();
         assert_eq!(plan.version, "1.2.3");

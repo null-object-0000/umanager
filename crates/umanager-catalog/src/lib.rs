@@ -117,6 +117,11 @@ pub struct DevelopmentTool {
     /// How an officially-installed tool is removed. npm installs always uninstall
     /// through npm regardless of this value.
     pub uninstall: DevToolUninstall,
+    /// How an already-installed tool is updated. When present, UManager runs the
+    /// tool's own updater (e.g. `claude update`) instead of re-running `installer`,
+    /// regardless of how the binary was originally installed.
+    #[serde(default)]
+    pub update: Option<DevToolUpdate>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -139,6 +144,15 @@ pub enum DevToolUninstall {
     Npm,
     #[serde(rename_all = "camelCase")]
     RemoveFiles { paths: Vec<String> },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DevToolUpdate {
+    /// Run the already-installed binary with a fixed argument vector, e.g.
+    /// `claude update`, `opencode upgrade` or `codex update`.
+    #[serde(rename_all = "camelCase")]
+    SelfCommand { args: Vec<String> },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -491,7 +505,7 @@ mod tests {
     #[test]
     fn development_tools_are_configuration_driven() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 4);
+        assert_eq!(catalog.development_tools.len(), 5);
         let codex = catalog.by_tool_id("codex").unwrap();
         assert_eq!(codex.binary_name, "codex");
         assert_eq!(codex.npm_package, "@openai/codex");
@@ -499,6 +513,21 @@ mod tests {
         let claude = catalog.by_tool_id("claude-code").unwrap();
         assert!(matches!(claude.installer, DevToolInstaller::CurlScript { .. }));
         assert!(matches!(claude.uninstall, DevToolUninstall::RemoveFiles { .. }));
+        assert!(matches!(
+            claude.update,
+            Some(DevToolUpdate::SelfCommand { ref args }) if args == &["update".to_owned()]
+        ));
+        let opencode = catalog.by_tool_id("opencode").unwrap();
+        assert!(matches!(
+            opencode.update,
+            Some(DevToolUpdate::SelfCommand { ref args }) if args == &["upgrade".to_owned()]
+        ));
+        let dsh = catalog.by_tool_id("dsh").unwrap();
+        assert_eq!(dsh.binary_name, "dsh");
+        assert_eq!(dsh.npm_package, "@deepseek-ai/dsh");
+        assert!(matches!(dsh.installer, DevToolInstaller::Npm));
+        assert!(matches!(dsh.uninstall, DevToolUninstall::Npm));
+        assert!(dsh.update.is_none());
     }
 
     #[test]

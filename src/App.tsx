@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, deleteClipboardEntry, downloadPackage, downloadSelfUpdate, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setNetworkSettings, runScript, stopScript, uninstallDevTool, uninstallDevVersion } from "./api";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, deleteClipboardEntry, downloadPackage, downloadSelfUpdate, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setNetworkSettings, runScript, stopScript, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -18,13 +18,14 @@ import opencodeIcon from "./assets/app-icons/opencode.svg?no-inline";
 import piIcon from "./assets/app-icons/pi.svg?no-inline";
 import codexIcon from "./assets/app-icons/codex.svg?no-inline";
 import githubCliIcon from "./assets/app-icons/github-cli.svg?no-inline";
+import dshIcon from "./assets/app-icons/dsh.svg?no-inline";
 import feishuIcon from "./assets/app-icons/feishu.png";
 import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 
 type Filter = "all" | "installed" | "updates" | "installable";
 type Page = "installed" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
+const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
@@ -140,6 +141,15 @@ function UpdatedAtLine({ seconds, source }: { seconds: number | null | undefined
   if (!text) return null;
   const label = source ? (versionSourceLabel[source] ?? "") : "";
   return <span className="updated-at-line">{label ? `${label}：` : ""}{text}</span>;
+}
+
+function ReleaseNotes({ notes, url }: { notes: string | null | undefined; url: string | null | undefined }) {
+  if (!notes && !url) return null;
+  return <section className="detail-section release-notes-section">
+    <h3>版本更新记录</h3>
+    {notes && <pre className="release-notes">{notes}</pre>}
+    {url && <p className="release-notes-link">完整更新记录：<code title={url}>{url}</code></p>}
+  </section>;
 }
 
 function OperationLogPanel({ events, running }: { events: OperationProgressEvent[]; running: boolean }) {
@@ -343,6 +353,7 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
           <div><dt>大小</dt><dd>{status.expectedSize != null ? formatBytes(status.expectedSize) : "—"}</dd></div>
           <div className="wide"><dt>SHA-256</dt><dd title={status.sha256 ?? undefined}>{status.sha256 ?? "—"}</dd></div>
         </dl>}
+        {status && <ReleaseNotes notes={status.releaseNotes} url={status.releaseNotesUrl}/>}
         {status && !updateAvailable && <div className="dry-run-success"><strong>✓ 已是最新版本</strong><span>当前 `.deb` 安装的 UManager 与最新发布一致，无需更新。</span></div>}
         {status && updateAvailable && <>
           {phase === "idle" && <button className="download-button" disabled={busy !== null} onClick={() => void start()}>更新到 {status.candidateVersion ?? "最新版本"}</button>}
@@ -594,6 +605,7 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
     {details && <div className="drawer-content">
       <div className={`trust-banner ${details.trusted ? "trusted" : "needsReview"}`}><Icon name="shield"/><div><strong>{details.trusted ? `来源验证通过 · ${sourceText[details.sourceKind] ?? details.sourceKind}` : "来源需要复核"}</strong><span>{isWebsite ? "官网、下载域名、Debian 包名和架构均符合软件源策略" : "包名、架构和官方仓库均符合软件源策略"}</span></div></div>
       <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div><UpdatedAtLine seconds={details.versionUpdatedAtUnixSeconds} source={details.versionUpdatedAtSource}/>{details.websiteVersion && <p className="version-source-note">官网/发布标签展示 {details.websiteVersion}；UManager 通过 HTTP Range 读取 `.deb` 控制信息，获得用于比较的完整版本。</p>}</section>
+      <ReleaseNotes notes={details.releaseNotes} url={details.releaseNotesUrl}/>
       <section className="detail-section"><h3>官方来源</h3><div className="path-card"><div><span className={`source-dot ${details.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${item.vendor} 官方 APT 仓库`}</strong></div><code title={details.sourceUrl}>{details.sourceUrl}</code><p>下载地址与所有 HTTPS 重定向都不能离开软件源中声明的允许域名。</p></div></section>
       <section className="detail-section"><h3>官方证据</h3><div className="evidence-list">{details.evidence.map((entry) => <div key={entry.label}><span className={entry.passed ? "check passed" : "check failed"}>{entry.passed ? "✓" : "!"}</span><div><strong>{entry.label}</strong><code>{entry.actual}</code></div></div>)}</div></section>
       <div className={`wechat-update-result ${details.updateState}`}><strong>{hasUpdate ? `发现新版本 ${details.candidateVersion}` : details.updateState === "upToDate" ? "已是最新版本" : "候选版本尚未确认"}</strong><span>{hasUpdate ? "点击下方按钮下载并校验官方包，校验通过后再确认安装。" : "官方完整版本与本机已安装版本相同。"}</span></div>
@@ -726,6 +738,7 @@ function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableAppl
     <div className="drawer-content">
       <div className="trust-banner trusted"><Icon name="shield"/><div><strong>来源验证通过 · {sourceText[offer.sourceKind] ?? offer.sourceKind}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
       <section className="detail-section"><h3>新安装目标</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div><UpdatedAtLine seconds={offer.versionUpdatedAtUnixSeconds} source={offer.versionUpdatedAtSource}/></section>
+      <ReleaseNotes notes={offer.releaseNotes} url={offer.releaseNotesUrl}/>
       <section className="detail-section"><h3>安装来源</h3><div className="path-card"><div><span className={`source-dot ${offer.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${offer.vendor} 官方 APT 仓库`}</strong></div><code title={downloadPlan?.downloadUrl}>{downloadPlan?.downloadUrl}</code><p>{isWebsite ? "下载地址与所有 HTTPS 重定向都不能离开允许域名。" : "安装包路径和所有 HTTPS 重定向都不能离开允许域名。"}</p></div></section>
       <section className="detail-section download-section"><h3>官方安装包</h3>
         {downloadPlan && <DownloadCard plan={downloadPlan}/>}
@@ -887,7 +900,7 @@ function DevToolLogPanel({ events, running }: { events: DevToolProgress[]; runni
 
 function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: () => void; onChanged?: () => void }) {
   const [state, setState] = useState<DevToolState | null>(null);
-  const [busy, setBusy] = useState<"install" | "uninstall" | null>(null);
+  const [busy, setBusy] = useState<"install" | "update" | "uninstall" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<DevToolProgress[]>([]);
 
@@ -935,7 +948,7 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
                 {!state.updateAvailable && <span className="dev-badge installed">已是最新</span>}
               </div>
               <div className="dev-version-actions">
-                {state.updateAvailable && <button className="dev-action-button" disabled={busy !== null || !canInstall} onClick={() => void run("install", (onProgress) => installDevTool(tool.toolId, onProgress))}>{busy === "install" ? "正在更新…" : `更新到 ${state.latestVersion}`}</button>}
+                {state.updateAvailable && <button className="dev-action-button" disabled={busy !== null} onClick={() => void run("update", (onProgress) => updateDevTool(tool.toolId, onProgress))}>{busy === "update" ? "正在更新…" : `更新到 ${state.latestVersion}`}</button>}
                 {state.canUninstall && <button className="dev-action-button danger" disabled={busy !== null} onClick={() => void run("uninstall", (onProgress) => uninstallDevTool(tool.toolId, onProgress))}>{busy === "uninstall" ? "正在卸载…" : "卸载"}</button>}
                 {!state.canUninstall && <span className="dev-sub-label">未能确定安装来源，请按官方文档卸载</span>}
               </div>
@@ -946,7 +959,7 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
                 <button className="dev-action-button" disabled={busy !== null || !canInstall} onClick={() => void run("install", (onProgress) => installDevTool(tool.toolId, onProgress))}>{busy === "install" ? "正在安装…" : installLabel}</button>
               </div>
             </div>}
-        {!canInstall && <p className="dev-empty">需要 npm 才能安装，请先在“开发环境”安装并设置 Node.js。</p>}
+        {!state?.installed && !canInstall && <p className="dev-empty">需要 npm 才能安装，请先在“开发环境”安装并设置 Node.js。</p>}
       </div>
 
       <DevToolLogPanel events={events} running={busy !== null}/>

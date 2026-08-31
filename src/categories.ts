@@ -45,6 +45,7 @@ const FALLBACK_DEV_TOOL_BY_ID: Record<string, string> = {
   opencode: "ai-tools",
   pi: "ai-tools",
   codex: "ai-tools",
+  dsh: "ai-tools",
 };
 
 function categoryLabel(catalog: CategoryCatalog | null, id: string | null | undefined): string {

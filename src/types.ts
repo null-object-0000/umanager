@@ -69,6 +69,8 @@ export interface ApplicationDetails {
   assetName: string | null;
   versionUpdatedAtUnixSeconds?: number | null;
   versionUpdatedAtSource?: VersionUpdatedAtSource | null;
+  releaseNotes?: string | null;
+  releaseNotesUrl?: string | null;
   trusted: boolean;
   evidence: Evidence[];
 }
@@ -125,6 +127,8 @@ export interface InstallableApplication {
   downloadPlan: DownloadPlan | null;
   versionUpdatedAtUnixSeconds?: number | null;
   versionUpdatedAtSource?: VersionUpdatedAtSource | null;
+  releaseNotes?: string | null;
+  releaseNotesUrl?: string | null;
 }
 
 export interface OperationPlanPayload {
@@ -352,6 +356,7 @@ export interface DevOperationProgress {
 
 export type DevToolInstaller = { kind: "npm" } | { kind: "curlScript"; scriptUrl: string; host: string; shell: string };
 export type DevToolUninstall = { kind: "npm" } | { kind: "removeFiles"; paths: string[] };
+export type DevToolUpdate = { kind: "selfCommand"; args: string[] };
 
 export interface DevTool {
   toolId: string;
@@ -365,6 +370,7 @@ export interface DevTool {
   npmPackage: string;
   installer: DevToolInstaller;
   uninstall: DevToolUninstall;
+  update: DevToolUpdate | null;
 }
 
 export interface DevToolState {

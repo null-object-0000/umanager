@@ -22,6 +22,8 @@ pub struct InstallableApplication {
     pub download_plan: Option<DownloadPlan>,
     pub version_updated_at_unix_seconds: Option<u64>,
     pub version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
+    pub release_notes: Option<String>,
+    pub release_notes_url: Option<String>,
 }
 
 pub async fn load_applications(cache_dir: &Path) -> Result<Vec<InstallableApplication>, String> {
@@ -72,5 +74,7 @@ async fn offer_for(
         download_plan: installable.download_plan,
         version_updated_at_unix_seconds: installable.version_updated_at_unix_seconds,
         version_updated_at_source: installable.version_updated_at_source,
+        release_notes: installable.release_notes,
+        release_notes_url: installable.release_notes_url,
     })
 }

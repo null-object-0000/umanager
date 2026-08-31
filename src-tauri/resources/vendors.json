@@ -253,6 +253,12 @@
           "~/.local/bin/claude"
         ]
       },
+      "update": {
+        "kind": "selfCommand",
+        "args": [
+          "update"
+        ]
+      },
       "description": "Anthropic 的终端 AI 编程助手，在命令行与 Claude 协作完成编码任务。"
     },
     {
@@ -274,6 +280,12 @@
         "kind": "removeFiles",
         "paths": [
           "~/.opencode/bin/opencode"
+        ]
+      },
+      "update": {
+        "kind": "selfCommand",
+        "args": [
+          "upgrade"
         ]
       },
       "description": "开源终端 AI 编程代理，在命令行中驱动 AI 完成编码任务。"
@@ -299,6 +311,12 @@
           "~/.local/bin/pi"
         ]
       },
+      "update": {
+        "kind": "selfCommand",
+        "args": [
+          "update"
+        ]
+      },
       "description": "开源终端编程代理，交互式命令行 AI 编码助手。"
     },
     {
@@ -316,7 +334,30 @@
       "uninstall": {
         "kind": "npm"
       },
+      "update": {
+        "kind": "selfCommand",
+        "args": [
+          "update"
+        ]
+      },
       "description": "OpenAI 的命令行编程代理，在终端里执行与自动化代码任务。"
+    },
+    {
+      "toolId": "dsh",
+      "displayName": "DeepSeek Harness",
+      "vendor": "DeepSeek",
+      "homepage": "https://github.com/deepseek-ai/deepseek-harness",
+      "icon": "dsh",
+      "accentColor": "#4D6BFE",
+      "binaryName": "dsh",
+      "npmPackage": "@deepseek-ai/dsh",
+      "installer": {
+        "kind": "npm"
+      },
+      "uninstall": {
+        "kind": "npm"
+      },
+      "description": "DeepSeek 官方命令行 AI 编程助手，通过可组合的 profile 启动 agent、插件与 Web UI。"
     }
   ]
 }

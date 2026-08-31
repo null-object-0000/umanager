@@ -7,15 +7,18 @@
 // only falls back to on-device scraping when a source cannot be resolved here.
 //
 // For every source it is intentionally "best effort": a source that cannot be
-// scraped right now is left out of the feed (the app falls back), never a fatal
-// error for the whole run.
+// scraped right now reuses its previous published entry when one exists, and is
+// only left out of the feed when it was never in the feed before. A single
+// failed scrape is never a fatal error for the whole run.
 //
 // Output schema:
 //   schemaVersion: 2
 //   generatedAtUnixSeconds: <seconds>
 //   applications: { [applicationId]: { packageName, version, architecture,
-//                                      size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion? } }
-//   selfUpdate:   { packageName, version, architecture, size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion? }
+//                                      size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion?,
+//                                      releaseNotes?, releaseNotesUrl? } }
+//   selfUpdate:   { packageName, version, architecture, size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion?,
+//                   releaseNotes?, releaseNotesUrl? }
 //   developmentTools: { [toolId]: { npmPackage, version } }
 //   categories: [ { id, label } ]          // display-only grouping
 //   categoryAssignments: { applications: { [applicationId]: categoryId },
@@ -25,6 +28,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { entryOrPrevious } from "./feed-fallback.mjs";
 import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -288,6 +292,9 @@ async function releaseApiEntry(app, source) {
     fail(app.applicationId, `发布资产 ${asset.name} 缺少有效 SHA-256 摘要`);
     return null;
   }
+  const releaseNotesUrl = typeof json.html_url === "string" && /^https:\/\//.test(json.html_url)
+    ? json.html_url
+    : null;
   let windowFile;
   let controlVersion;
   try {
@@ -307,6 +314,8 @@ async function releaseApiEntry(app, source) {
     releaseTag: json.tag_name,
     assetName: asset.name,
     websiteVersion: tagVersion,
+    releaseNotes: sanitizeReleaseNotes(json.body),
+    releaseNotesUrl,
   };
   const officialTime = parseUnixSeconds(json.published_at ?? json.created_at);
   entry._versionTimeCandidate = officialTime != null
@@ -323,7 +332,7 @@ async function stableDownloadEntry(app, source) {
   if (source.pageVersionMarker) {
     let html;
     try {
-      html = await fetchText(source.officialPageUrl);
+      html = await fetchTextFallback(source.officialPageUrl, source.gatewayUrl);
     } catch (error) {
       fail(app.applicationId, `读取官网页面失败：${error.message}`);
       return null;
@@ -356,7 +365,7 @@ async function stableDownloadEntry(app, source) {
   let windowFile;
   let controlVersion;
   try {
-    windowFile = await downloadTemp(app.applicationId, downloadUrl);
+    windowFile = await downloadTempFallback(app.applicationId, downloadUrl, source.gatewayUrl);
     controlVersion = debControlField(windowFile, "Version");
   } catch (error) {
     fail(app.applicationId, `读取安装包控制信息失败：${error.message}`);
@@ -389,6 +398,20 @@ async function downloadTemp(label, url) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// GitHub release bodies are the canonical "version update record" for
+// `releaseApi` sources. They ship as signed feed data (never fetched by the
+// desktop app), so keep them bounded: trim, drop NUL bytes, and truncate very
+// long changelogs while pointing readers at the full release page.
+const MAX_RELEASE_NOTES_CHARS = 20000;
+
+function sanitizeReleaseNotes(body) {
+  if (typeof body !== "string") return null;
+  const cleaned = body.replace(/\0/g, "").trim();
+  if (!cleaned) return null;
+  if (cleaned.length <= MAX_RELEASE_NOTES_CHARS) return cleaned;
+  return `${cleaned.slice(0, MAX_RELEASE_NOTES_CHARS)}\n\n…（内容过长，已截断，完整内容见发布页）`;
 }
 
 // ---------------------------------------------------------------------------
@@ -754,20 +777,31 @@ async function main() {
   ];
   if (unknownCategoryIds.length > 0) log(`未知分类 id：${unknownCategoryIds.join("、")}`);
 
+  // Fetch the previous published feed up front: it is both the state reference
+  // for version-update-time merging and the fallback source when a vendor
+  // source cannot be scraped this run. Never silently drop an app that was in
+  // the previous feed just because a single scrape failed — reuse its last
+  // known-good entry instead.
+  const previousFeed = await fetchPreviousFeed(catalog.metadataFeed?.url);
+  const nowUnixSeconds = Math.floor(Date.now() / 1000);
+  const reusedEntries = [];
+
   const applications = {};
   for (const app of [...(catalog.applications || []), ...extraApplications]) {
+    let entry = null;
     if (app.source?.kind === "aptRepository") {
-      const entry = await aptEntry(app);
-      if (entry) applications[app.applicationId] = entry;
+      entry = await aptEntry(app);
     } else if (app.source?.kind === "releaseApi") {
-      const entry = await releaseApiEntry(app, app.source);
-      if (entry) applications[app.applicationId] = entry;
+      entry = await releaseApiEntry(app, app.source);
     } else if (app.source?.kind === "stableDownloadEndpoint") {
-      const entry = await stableDownloadEntry(app, app.source);
-      if (entry) applications[app.applicationId] = entry;
+      entry = await stableDownloadEntry(app, app.source);
     } else if (app.source?.kind === "versionEndpoint") {
-      const entry = await versionEndpointEntry(app, app.source);
-      if (entry) applications[app.applicationId] = entry;
+      entry = await versionEndpointEntry(app, app.source);
+    }
+    const resolved = entryOrPrevious(entry, previousFeed?.applications?.[app.applicationId]);
+    if (resolved) {
+      applications[app.applicationId] = resolved;
+      if (!entry) reusedEntries.push(`应用 ${app.applicationId}`);
     }
   }
 
@@ -781,19 +815,25 @@ async function main() {
       },
       catalog.selfUpdate,
     );
+    if (!selfUpdate && previousFeed?.selfUpdate) {
+      selfUpdate = { ...previousFeed.selfUpdate };
+      reusedEntries.push("selfUpdate");
+    }
   }
 
   const developmentTools = {};
   for (const tool of catalog.developmentTools || []) {
     const entry = await toolEntry(tool);
-    if (entry) developmentTools[tool.toolId] = entry;
+    const resolved = entryOrPrevious(entry, previousFeed?.developmentTools?.[tool.toolId]);
+    if (resolved) {
+      developmentTools[tool.toolId] = resolved;
+      if (!entry) reusedEntries.push(`工具 ${tool.toolId}`);
+    }
   }
 
   // Merge version-update-time for every app / self-update / dev tool. The
   // previous published feed is the state reference; entries never carry
   // `_versionTimeCandidate` into the signed output.
-  const previousFeed = await fetchPreviousFeed(catalog.metadataFeed?.url);
-  const nowUnixSeconds = Math.floor(Date.now() / 1000);
   const applyVersionTime = (entry, previousEntry) => {
     if (!entry) return;
     const candidate = entry._versionTimeCandidate || null;
@@ -905,6 +945,10 @@ async function main() {
   log(
     `applications=${Object.keys(applications).length} extraCatalog=${extraApplications.length} selfUpdate=${selfUpdate !== null} tools=${Object.keys(developmentTools).length}`,
   );
+  if (reusedEntries.length > 0) {
+    log(`\n${reusedEntries.length} source(s) failed and reused the previous feed entry:`);
+    for (const e of reusedEntries) log(`  - ${e}`);
+  }
   if (errors.length > 0) {
     log(`\n${errors.length} source(s) were skipped and will be unavailable in the feed:`);
     for (const e of errors) log(`  - ${e}`);

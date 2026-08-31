@@ -279,6 +279,10 @@ nav { display:grid; gap:3px; }
 .install-local-button:hover:not(:disabled) { background:#b84a3e; }
 .install-local-button:disabled { opacity:.62; cursor:wait; }
 .version-source-note { margin:12px 1px 0; color:#514b50; font-size:13px; font-weight:500; line-height:1.6; }
+.release-notes-section h3 { margin-bottom:10px; }
+.release-notes { max-height:280px; overflow:auto; margin:0; padding:12px 13px; color:#3b363b; border:1px solid #e2dfe1; border-radius:7px; background:#fff; font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
+.release-notes-link { margin:10px 0 0; color:#5f595e; font-size:12px; line-height:1.5; }
+.release-notes-link code { font:11px ui-monospace,SFMono-Regular,Consolas,monospace; word-break:break-all; }
 .wechat-update-result { display:flex; flex-direction:column; gap:5px; margin-top:20px; padding:14px; border:1px solid #cfe0d1; border-radius:8px; background:#eff7f0; }
 .wechat-update-result strong { color:#35623e; font-size:14px; font-weight:600; }
 .wechat-update-result span { color:#49654e; font-size:13px; font-weight:500; line-height:1.55; }

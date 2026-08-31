@@ -31,6 +31,7 @@ describe("software categories", () => {
     expect(devToolCategory(null, "opencode")).toBe("AI 工具");
     expect(devToolCategory(null, "pi")).toBe("AI 工具");
     expect(devToolCategory(null, "codex")).toBe("AI 工具");
+    expect(devToolCategory(null, "dsh")).toBe("AI 工具");
   });
 
   it("prefers feed-driven categories and resolves labels from the feed", () => {

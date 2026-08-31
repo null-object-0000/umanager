@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use umanager_catalog::{Catalog, DevToolInstaller, DevToolUninstall, DevelopmentTool};
+use umanager_catalog::{Catalog, DevToolInstaller, DevToolUninstall, DevToolUpdate, DevelopmentTool};
 
 const SAFE_SYSTEM_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 const MAX_LOG_LINE_CHARS: usize = 2_000;
@@ -103,6 +103,26 @@ pub async fn install(
     })
     .await
     .map_err(|error| format!("命令行工具安装任务异常结束：{error}"))?
+}
+
+pub async fn update(
+    tool_id: String,
+    progress: DevToolProgressCallback,
+) -> Result<DevToolReport, String> {
+    let tool = tool_by_id(&tool_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = user_home()?;
+        let (mut command, label) = update_command(&tool, &home)?;
+        let output = run_streaming(&mut command, &tool.tool_id, &format!("开始更新 {}（{}）", tool.display_name, label), Some(&progress))?;
+        Ok(DevToolReport {
+            tool_id: tool.tool_id.clone(),
+            action: "update".to_owned(),
+            success: true,
+            message: tail_summary(&output),
+        })
+    })
+    .await
+    .map_err(|error| format!("命令行工具更新任务异常结束：{error}"))?
 }
 
 pub async fn uninstall(
@@ -206,6 +226,18 @@ fn find_binary(binary_name: &str, home: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Resolve the binary to update. Mirrors `find_binary`, and additionally checks
+/// the directory of the resolved npm executable so npm-global installs under nvm
+/// (whose bin directory is not in the GUI process `PATH`) are still found.
+fn find_update_binary(tool: &DevelopmentTool, home: &Path) -> Option<PathBuf> {
+    if let Some(found) = find_binary(&tool.binary_name, home) {
+        return Some(found);
+    }
+    let npm = resolve_npm(home)?;
+    let candidate = npm.parent()?.join(&tool.binary_name);
+    candidate.is_file().then_some(candidate)
+}
+
 fn classify_install_kind(
     tool: &DevelopmentTool,
     home: &Path,
@@ -276,7 +308,7 @@ fn capture_version(path: &Path) -> Option<String> {
     })
 }
 
-fn installer_label(tool: &DevelopmentTool) -> &str {
+fn installer_label(tool: &DevelopmentTool) -> &'static str {
     match &tool.installer {
         DevToolInstaller::Npm => "npm 全局安装",
         DevToolInstaller::CurlScript { .. } => "官方安装脚本",
@@ -312,6 +344,31 @@ fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, Strin
             apply_proxy_environment(&mut command);
             Ok(command)
         }
+    }
+}
+
+fn update_command(tool: &DevelopmentTool, home: &Path) -> Result<(Command, &'static str), String> {
+    match &tool.update {
+        Some(DevToolUpdate::SelfCommand { args }) => {
+            let binary = find_update_binary(tool, home)
+                .ok_or_else(|| format!("未检测到已安装的 {}", tool.display_name))?;
+            let bin_dir = binary
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("/usr/bin"));
+            let mut command = Command::new(&binary);
+            command
+                .args(args)
+                .env_clear()
+                .env("PATH", format!("{}:{SAFE_SYSTEM_PATH}", bin_dir.display()))
+                .env("HOME", home)
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
+                .env("LANGUAGE", "C");
+            apply_proxy_environment(&mut command);
+            Ok((command, "官方自更新命令"))
+        }
+        None => Ok((install_command(tool, home)?, installer_label(tool))),
     }
 }
 
@@ -584,26 +641,55 @@ fn expand_path(value: &str) -> Result<PathBuf, String> {
 }
 
 fn extract_version(value: &str) -> Option<String> {
-    for token in value.split(|character: char| !(character.is_ascii_digit() || character == '.')) {
-        let token = token.trim_matches('.');
-        if token.is_empty() {
+    // Find the first semver-ish token: a dotted numeric core, optionally followed
+    // by a `-prerelease` suffix (e.g. `0.1.1-rc.2`). This keeps prerelease
+    // versions intact so preview builds display their full version string.
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_digit() {
+            index += 1;
             continue;
         }
-        let parts: Vec<&str> = token.split('.').collect();
-        if parts.len() >= 2
-            && parts
-                .iter()
-                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
-        {
-            return Some(token.to_owned());
+        let start = index;
+        while index < bytes.len() && (bytes[index].is_ascii_digit() || bytes[index] == b'.') {
+            index += 1;
         }
+        let numeric = &value[start..index];
+        if !is_dotted_numeric(numeric) {
+            continue;
+        }
+        // Optional prerelease: `-` followed by at least one [0-9A-Za-z.-] char.
+        if index < bytes.len() && bytes[index] == b'-' {
+            let prerelease_start = index;
+            let mut end = index + 1;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'.' || bytes[end] == b'-')
+            {
+                end += 1;
+            }
+            if end > prerelease_start + 1 {
+                index = end;
+            }
+        }
+        return Some(value[start..index].to_owned());
     }
     None
 }
 
+fn is_dotted_numeric(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    parts.len() >= 2
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
 fn compare_versions(left: &str, right: &str) -> Ordering {
-    let left = version_parts(left);
-    let right = version_parts(right);
+    let (left_core, left_prerelease) = split_version(left);
+    let (right_core, right_prerelease) = split_version(right);
+    let left = version_parts(left_core);
+    let right = version_parts(right_core);
     for index in 0..left.len().max(right.len()) {
         let a = left.get(index).copied().unwrap_or(0);
         let b = right.get(index).copied().unwrap_or(0);
@@ -612,7 +698,59 @@ fn compare_versions(left: &str, right: &str) -> Ordering {
             other => return other,
         }
     }
-    Ordering::Equal
+    compare_prerelease(left_prerelease, right_prerelease)
+}
+
+/// Split a version into its numeric core and an optional `-prerelease` suffix.
+/// A trailing or empty prerelease is treated as absent.
+fn split_version(value: &str) -> (&str, Option<&str>) {
+    match value.split_once('-') {
+        Some((core, prerelease)) if !prerelease.is_empty() => (core, Some(prerelease)),
+        _ => (value, None),
+    }
+}
+
+/// Semver prerelease precedence: a release without a prerelease outranks one
+/// with a prerelease; otherwise compare dot-separated identifiers (numeric
+/// identifiers compare numerically and rank below alphanumeric ones).
+fn compare_prerelease(left: Option<&str>, right: Option<&str>) -> Ordering {
+    match (left, right) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(left), Some(right)) => {
+            let left_parts: Vec<&str> = left.split('.').collect();
+            let right_parts: Vec<&str> = right.split('.').collect();
+            for index in 0..left_parts.len().max(right_parts.len()) {
+                match (left_parts.get(index), right_parts.get(index)) {
+                    (Some(a), Some(b)) => {
+                        let ordering = compare_prerelease_identifier(a, b);
+                        if ordering != Ordering::Equal {
+                            return ordering;
+                        }
+                    }
+                    (Some(_), None) => return Ordering::Greater,
+                    (None, Some(_)) => return Ordering::Less,
+                    (None, None) => unreachable!(),
+                }
+            }
+            Ordering::Equal
+        }
+    }
+}
+
+fn compare_prerelease_identifier(left: &str, right: &str) -> Ordering {
+    let left_numeric = left.bytes().all(|byte| byte.is_ascii_digit());
+    let right_numeric = right.bytes().all(|byte| byte.is_ascii_digit());
+    match (left_numeric, right_numeric) {
+        (true, true) => left
+            .parse::<u64>()
+            .unwrap_or(0)
+            .cmp(&right.parse::<u64>().unwrap_or(0)),
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (false, false) => left.cmp(right),
+    }
 }
 
 fn version_parts(value: &str) -> Vec<u64> {
@@ -670,6 +808,22 @@ mod tests {
     }
 
     #[test]
+    fn extracts_prerelease_versions_in_full() {
+        assert_eq!(
+            extract_version("0.1.1-rc.2"),
+            Some("0.1.1-rc.2".to_owned())
+        );
+        assert_eq!(
+            extract_version("0.1.2-alpha.1"),
+            Some("0.1.2-alpha.1".to_owned())
+        );
+        assert_eq!(
+            extract_version("dsh 0.1.1-rc.2 (DeepSeek Harness)"),
+            Some("0.1.1-rc.2".to_owned())
+        );
+    }
+
+    #[test]
     fn compares_versions_component_wise() {
         assert_eq!(compare_versions("1.18.22", "1.18.22"), Ordering::Equal);
         assert_eq!(compare_versions("1.18.22", "1.19.0"), Ordering::Less);
@@ -678,12 +832,23 @@ mod tests {
     }
 
     #[test]
+    fn compares_prerelease_versions_with_semver_precedence() {
+        assert_eq!(compare_versions("0.1.1-rc.2", "0.1.1-rc.2"), Ordering::Equal);
+        assert_eq!(compare_versions("0.1.1-rc.2", "0.1.1-rc.3"), Ordering::Less);
+        assert_eq!(compare_versions("0.1.1-rc.2", "0.1.1"), Ordering::Less);
+        assert_eq!(compare_versions("0.1.1", "0.1.1-rc.2"), Ordering::Greater);
+        assert_eq!(compare_versions("0.1.1-rc.2", "0.1.2-rc.1"), Ordering::Less);
+        assert_eq!(compare_versions("0.1.1-alpha.1", "0.1.1-rc.1"), Ordering::Less);
+    }
+
+    #[test]
     fn embedded_tools_are_configured() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 4);
+        assert_eq!(catalog.development_tools.len(), 5);
         assert!(catalog.by_tool_id("claude-code").is_some());
         assert!(catalog.by_tool_id("opencode").is_some());
         assert!(catalog.by_tool_id("pi").is_some());
         assert!(catalog.by_tool_id("codex").is_some());
+        assert!(catalog.by_tool_id("dsh").is_some());
     }
 }

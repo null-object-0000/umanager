@@ -31,7 +31,10 @@ https://null-object-0000.github.io/umanager/feed.json.sig
   "generatedAtUnixSeconds": 1750000000,
   "applications": {
     "vscode": { "packageName": "code", "version": "…", "architecture": "amd64",
-                "size": …, "sha256": "…", "downloadUrl": "…", "websiteVersion": "…" }
+                "size": …, "sha256": "…", "downloadUrl": "…", "websiteVersion": "…" },
+    "flclash": { "packageName": "flclash", "version": "…", "architecture": "amd64",
+                 "size": …, "sha256": "…", "downloadUrl": "…", "releaseTag": "v…",
+                 "websiteVersion": "…", "releaseNotes": "…", "releaseNotesUrl": "https://…" }
   },
   "catalogJson": "[{\"applicationId\":\"example\", …}]",  // 签名目录（新增软件）
   "catalogSignature": "<hex Ed25519 over catalogJson>",

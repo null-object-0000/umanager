@@ -1,6 +1,6 @@
 [package]
 name = "umanager"
-version = "0.8.4"
+version = "0.8.5"
 description = "A read-only first Ubuntu manager for vendor .deb applications"
 authors = ["UManager contributors"]
 edition = "2024"

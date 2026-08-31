@@ -78,6 +78,13 @@ pub struct FeedApplicationEntry {
     pub version_updated_at_unix_seconds: Option<u64>,
     #[serde(default)]
     pub version_updated_at_source: Option<VersionUpdatedAtSource>,
+    /// Markdown release notes for the current version (e.g. a GitHub release
+    /// body). Optional; always shipped through the signed feed.
+    #[serde(default)]
+    pub release_notes: Option<String>,
+    /// HTTPS URL to the canonical release page / full changelog. Optional.
+    #[serde(default)]
+    pub release_notes_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -724,6 +731,29 @@ fn validate_application_entry(_id: &str, entry: &FeedApplicationEntry) -> Result
         &entry.version_updated_at_unix_seconds,
         &entry.version_updated_at_source,
     )?;
+    validate_release_notes(&entry.release_notes, &entry.release_notes_url)?;
+    Ok(())
+}
+
+/// Release notes (and their canonical URL) are display-only signed-feed data,
+/// so they are allowed to be absent but must be structurally sound when
+/// present: notes are plain UTF-8 text without NUL bytes, and the URL must be
+/// HTTPS. The feed itself is capped at `MAX_FEED_BYTES`, so a per-entry length
+/// bound is a defense-in-depth guard rather than the primary limit.
+fn validate_release_notes(notes: &Option<String>, url: &Option<String>) -> Result<(), String> {
+    if let Some(notes) = notes {
+        if notes.contains('\0') {
+            return Err("版本更新记录包含无效字符".to_owned());
+        }
+        if notes.len() > 200_000 {
+            return Err("版本更新记录过长".to_owned());
+        }
+    }
+    if let Some(url) = url
+        && !url.starts_with("https://")
+    {
+        return Err("版本更新记录链接必须为 HTTPS".to_owned());
+    }
     Ok(())
 }
 
