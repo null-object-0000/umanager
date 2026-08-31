@@ -2,8 +2,8 @@
 
 本文件给在 UManager 仓库里工作的 AI 编程 agent（以及人类协作者）提供最低限度的上下文。详细架构与背景见：
 
-- **架构与完成说明**：[`ARCHITECTURE.md`](ARCHITECTURE.md)
-- **用户/开发者文档**：[`README.md`](README.md)
+- **架构与实现说明**：[`ARCHITECTURE.md`](ARCHITECTURE.md)
+- **用户文档 / 贡献者快速开始**：[`README.md`](README.md)
 
 ## 项目速览
 

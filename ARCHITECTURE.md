@@ -1,6 +1,6 @@
 # UManager 架构与完成说明
 
-> 本文是 UManager「软件信息抓取搬进 CI / GitHub Pages」这一系列改造的完成说明与架构备忘。面向后续维护者与 AI 编程 agent。当前版本：`v0.2.0`。
+> 本文是 UManager 的架构与实现说明，面向后续维护者与 AI 编程 agent。当前版本：`v0.8.5`。
 
 ## 1. 项目是什么
 
@@ -136,3 +136,80 @@ npm run update-feed
 7. 计划不可变：payload SHA-256 作为 plan_id，15 分钟有效期，只读、归属当前用户。
 8. 私钥只存在于 `FEED_SIGNING_KEY` secret；任何提交都不应包含私钥。
 9. feed schema 与 plan schema 当前都是 v2；升级时主程序、helper、generator 三处要同步。
+
+## 9. 内置软件源（vendors.json）与 source kind
+
+`src-tauri/resources/vendors.json` 编译进主程序和特权 helper，是 UManager「认识哪些软件、从哪里下载、允许哪些域名、能否卸载」的编译期事实来源。新增一个内置软件，只需在 `applications` 里追加一条记录；新增 **feed 下发**的软件（免发版）则在仓库根目录的 `feed-sources.json` 里追加。
+
+`applications` 常见字段：`applicationId` / `packageName` / `displayName` / `vendor` / `architecture`（标识与展示）、`homepage` / `icon` / `accentColor`（可选）、`description`（列表与详情的一行描述）、`removable`（是否允许卸载）、`source`（下载策略）。
+
+`source.kind` 分为五类：
+
+| kind | 含义 | 例子 |
+|---|---|---|
+| `aptRepository` | 从官方 APT 仓库 `Packages` 索引解析候选版本、大小与 SHA-256 | VS Code、Google Chrome、ChatGPT Desktop、GitHub CLI、Microsoft Edge |
+| `stableDownloadEndpoint` | 从官网固定地址下载，并从官网页面解析展示版本 | 微信、Bitwarden |
+| `releaseApi` | 从 GitHub Releases API 选择匹配资产，读取 `sha256:` 摘要 | FlClash、LocalSend |
+| `versionEndpoint` | 从官网动态「版本 + 下载地址」接口解析，可带签名/限时地址子步骤 | QQ、QQ 音乐、腾讯会议、WPS Office、Obsidian、飞书 |
+| `browserImport` | 仅登记本机识别与卸载，不在商店提供自动下载 | 钉钉 |
+
+`source` 中声明的所有 `*Hosts` 都是精确域名白名单：下载与 HTTP 重定向都只接受这些域名，拒绝相似域名。通用下载引擎（`src-tauri/src/source_engine.rs`）与 helper 的白名单校验都从同一份内置 JSON 生成，新增软件不需要改 Rust 代码或新增 Tauri command。`aptRepository` 类来源还可选声明 `packagesIndexUrl`（仓库 `Packages` 索引），仅供 CI 解析候选版本，应用本身不依赖该字段。
+
+## 10. 中央元数据源运行细节
+
+- **触发**：`.github/workflows/update-feed.yml` 定时（每 6 小时）、手动触发，以及 `vendors.json` / `feed-sources.json` / `scripts/update-feed.mjs` / workflow 变更时；
+- **生成**：`scripts/update-feed.mjs` 读取 `vendors.json` + `feed-sources.json`，逐个解析 APT `Packages` 索引、官网固定地址、GitHub Releases 资产与 npm registry，产出 `feed.json`；
+- **签名**：用 GitHub Actions secret `FEED_SIGNING_KEY` 对 `feed.json` 原文做 Ed25519 签名产出 `feed.json.sig`，并对 `catalogJson` 单独签名（`catalogSignature`）供特权 helper 授权 feed 新增软件；
+- **发布**：`configure-pages` + `upload-pages-artifact` + `deploy-pages` 部署到 GitHub Pages，地址为 `https://<owner>.github.io/<repo>/feed.json`。要让地址生效，需在 Settings → Pages 的 Source 选择「GitHub Actions」，或直接跑一次 `update-feed`（`configure-pages` 会自动启用 Pages）。
+
+应用侧：每次验签成功后，feed 原文 + 签名原子写入缓存（`feed/feed-cache.json`）；之后读取优先本地缓存（每次用内置公钥重新验签），过期时先返回缓存、后台再刷新；后台任务每 30 分钟检查一次，设置页提供「立即刷新」。断网或拉取失败时，只要缓存可用，应用仍展示最近一次成功的数据，并在「设置 → 软件信息源」标注“本地缓存 + 失败原因”。应用会校验 feed 的 HTTPS 精确域名、大小上限、Ed25519 签名与字段格式；失败且无缓存时对应应用显示为不可用。
+
+## 11. 开发环境：用户级工具链与 CLI 工具
+
+「开发环境」页分三部分：运行时工具链与 CLI AI 编程工具走无特权链路（当前用户身份、不经过 Polkit helper、不请求 root）；「系统级 CLI 工具」区块（如 GitHub CLI `gh`）则通过白名单 `.deb` 特权链路管理安装在系统层的命令行工具。
+
+**运行时工具链**（`src-tauri/src/dev_tools.rs`）：通过用户级版本管理器管理。`vendors.json` 的 `developmentToolchains` 数组登记一条记录即可接入：`toolchainId` / `displayName` / `vendor` / `homepage`、`manager`（如 `nvm`、`rustup`）、`managerKind`（`shell` 需 source 脚本 / `binary` 直接执行）、`managerHome`、`managerScript` / `managerBinary`、`versionsDirectory`。当前内置 Node.js（nvm，shell）与 Rust（rustup，binary）两条工具链，支持“安装并设为默认”“设为默认”“卸载”。nvm 通过 `/bin/bash -c 'source nvm.sh --no-use; nvm …'` 执行；rustup 直接以参数向量调用，两者都只由固定子命令 + 严格校验的版本/别名 token 组成。
+
+**CLI AI 编程工具**（`src-tauri/src/dev_cli_tools.rs`）：管理单版本、npm 全局安装的工具。`developmentTools` 数组登记字段：`toolId` / `displayName` / `vendor` / `homepage` / `accentColor`、`binaryName`、`npmPackage`、`installer.kind`（`npm` 或 `curlScript`）、`uninstall.kind`（`npm` 或 `removeFiles`）、`update.kind`（`selfCommand` 或回退重跑 installer）。当前内置：
+
+| 工具 | npm 包 | 安装方式 | 命令 |
+|---|---|---|---|
+| Claude Code | `@anthropic-ai/claude-code` | 官方脚本 `https://claude.ai/install.sh` | `claude` |
+| OpenCode | `opencode-ai` | 官方脚本 `https://opencode.ai/install` | `opencode` |
+| Pi | `@earendil-works/pi-coding-agent` | 官方脚本 `https://pi.dev/install.sh` | `pi` |
+| Codex CLI | `@openai/codex` | npm 全局 | `codex` |
+| DeepSeek Harness | `@deepseek-ai/dsh` | npm 全局 | `dsh` |
+
+检测同时识别三种安装来源：npm 全局、官方安装器（`~/.local/bin` / `~/.opencode/bin`）与 PATH 上的可执行文件；最新版本统一从 npm registry 读取。`curlScript` 型安装以当前用户身份执行厂商官方域名上的 HTTPS 安装脚本，UManager 只固定 URL 与参数，不接收任意 shell，但无法证明脚本内容与发布者身份。
+
+## 12. 历史适配器记录（VS Code / 微信 / FlClash）
+
+以下各节描述历史行为；候选版本、大小与 SHA-256 现已改由中央元数据源提供，应用不再本机解析。仅保留信任边界与解析路径备忘。
+
+- **VS Code**：历史 aptRepository 适配器校验包名 `code`、架构 `amd64`，精确匹配 `packages.microsoft.com`，未发现可信仓库时回退官方 stable 下载接口。
+- **微信**：官网三段版本号 + 固定 x86_64 `.deb` 地址；校验 `linux.weixin.qq.com`、`dldir1v6.qq.com` 精确域名；用 HTTP Range 读 4 KiB 解析 Debian ar 目录并精确截取 `control.tar.*`（硬限制 4 MiB），再取包名 `wechat`、完整版本、`amd64`。官网与控制区并行请求，远端元数据进程内缓存 15 分钟。官网未发布独立签名 SHA-256 清单，该哈希只保证“下载完成后到安装前文件未变化”。
+- **FlClash**：读取 `api.github.com/repos/chen08209/FlClash/releases/latest`，精确匹配 `FlClash-<tag>-linux-amd64.deb`；下载允许 `github.com` 及重定向到 `objects.githubusercontent.com` / `release-assets.githubusercontent.com`；同样用 Range 探测 + `dpkg-deb --field` 读取包元数据。GitHub 资产摘要比微信多一层发布者哈希，但仍不是签名 APT 索引级别。
+
+## 13. 安装 / 卸载 / 自更新的执行细节
+
+**本地 `.deb` 安装**：Linux 会把 `.deb` 关联到 UManager。应用先无特权读取包名/版本/架构并计算大小与 SHA-256，标记为“用户提供，来源未验证”，拒绝同版本重装、降级和不兼容架构；以不覆盖方式复制到 `imports` 缓存并重新校验；用户确认后生成 15 分钟有效的不可变计划，经 helper dry-run 复核，再次确认后以固定 `/usr/bin/dpkg --install <root-owned-staged-deb>` 执行。
+
+**安装 / 卸载**：下载后复核 HTTPS 精确域名、重定向、大小、SHA-256 与 `.deb` 包元数据；helper 在 dry-run 与真正执行前都会再次核对安装状态、系统架构、计划与官方源记录。卸载走独立不可变计划，仅执行白名单中固定的 `dpkg --remove`，不 `purge`、不自动移除依赖、不删除用户主目录数据。UManager 自身卸载入口在“设置”，仅当当前可执行文件确实包含在已安装的 `u-manager` 包清单中才启用，使用独立的 `remove-umanager` 计划。
+
+helper 只接受固定动作（均支持 `--dry-run` 与 `--execute`）：
+
+| 来源 | 动作 |
+|---|---|
+| `aptRepository` | `install-verified-deb` |
+| `stableDownloadEndpoint` / `releaseApi` | `install-verified-website-deb` |
+| 用户本地包 | `install-local-deb` |
+| `removable: true` 的受管软件 | `remove-managed-package` |
+| UManager 自身 | `remove-umanager` |
+
+helper 的这几张白名单同样从内置 JSON 生成，并重新检查计划完整性、有效期、白名单、当前安装状态，以及安装包的缓存路径、文件归属、元数据、官方仓库记录、大小和 SHA-256，全程不经过 shell。
+
+## 14. 安全边界
+
+React 只调用类型明确的 Tauri commands。Rust 端仅以固定参数调用 `dpkg-query`、`apt-cache`、`dpkg-deb` 和 `dpkg --compare-versions`，不经过 shell，也不接受前端传入的命令或包名。`.deb` 打包配置将 helper 安装到 `/usr/libexec/umanager-helper`，并把 Polkit policy 安装到 `/usr/share/polkit-1/actions/`。
+
+Polkit 授权使用 `auth_admin_keep`：一次「dry-run」特权复核会在当前登录会话内缓存管理员授权，因此紧随其后的「确认并安装/卸载」不会再次弹密码——一次操作只输入一次密码；但任何特权动作仍必须经由 `pkexec` 触发 helper、仍受固定白名单与计划复核约束。

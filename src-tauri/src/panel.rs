@@ -6,6 +6,8 @@
 
 use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow};
 
+use crate::clipboard_history;
+
 pub const PANEL_LABEL: &str = "clipboard-panel";
 /// 从命令行或 GNOME 自定义快捷键触发面板显隐的开关参数。
 pub const TOGGLE_ARG: &str = "--toggle-clipboard-panel";
@@ -30,6 +32,8 @@ pub fn toggle(app: &AppHandle) {
         // X11 下 show 前后都设一次更稳，避免个别 WM 只在映射时读取位置提示。
         position();
         let _ = window.set_focus();
+        // 面板隐藏期间前端监听器可能收不到实时变更，显示后补发一次最新快照。
+        clipboard_history::refresh(app);
     }
 }
 

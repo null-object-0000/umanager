@@ -475,6 +475,17 @@ fn emit_snapshot(app: &AppHandle, history: &ClipboardHistory) {
     let _ = app.emit("clipboard-history-changed", history.snapshot());
 }
 
+/// 面板每次显示时调用：把当前剪贴板快照重新推给所有窗口。
+///
+/// 快捷面板是一个常驻隐藏的 webview，隐藏期间前端监听器可能收不到实时变更；
+/// 在 `panel::toggle` 显示面板后补发一次快照，保证面板一弹出就是最新数据，
+/// 而不必等用户重启应用。
+pub fn refresh(app: &AppHandle) {
+    if let Some(history) = app.try_state::<ClipboardHistory>() {
+        emit_snapshot(app, &history);
+    }
+}
+
 fn start_monitor(app: AppHandle) {
     let _ = std::thread::Builder::new()
         .name("umanager-clipboard-monitor".to_string())

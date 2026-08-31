@@ -163,7 +163,7 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_version: Option<String>) -> Re
     // available for install/uninstall, not for version lookups.
     let latest_version = feed_version;
 
-    let binary = find_binary(&tool.binary_name, &home);
+    let binary = find_tool_binary(tool, &home);
     let install_kind = binary
         .as_ref()
         .map(|path| classify_install_kind(tool, &home, path, npm_available));
@@ -226,10 +226,11 @@ fn find_binary(binary_name: &str, home: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Resolve the binary to update. Mirrors `find_binary`, and additionally checks
-/// the directory of the resolved npm executable so npm-global installs under nvm
-/// (whose bin directory is not in the GUI process `PATH`) are still found.
-fn find_update_binary(tool: &DevelopmentTool, home: &Path) -> Option<PathBuf> {
+/// Resolve an installed tool binary. Mirrors `find_binary`, and additionally
+/// checks the directory of the resolved npm executable so npm-global installs
+/// under nvm (whose bin directory is not in the GUI process `PATH`) are still
+/// found — this covers both state detection and self-update resolution.
+fn find_tool_binary(tool: &DevelopmentTool, home: &Path) -> Option<PathBuf> {
     if let Some(found) = find_binary(&tool.binary_name, home) {
         return Some(found);
     }
@@ -350,7 +351,7 @@ fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, Strin
 fn update_command(tool: &DevelopmentTool, home: &Path) -> Result<(Command, &'static str), String> {
     match &tool.update {
         Some(DevToolUpdate::SelfCommand { args }) => {
-            let binary = find_update_binary(tool, home)
+            let binary = find_tool_binary(tool, home)
                 .ok_or_else(|| format!("未检测到已安装的 {}", tool.display_name))?;
             let bin_dir = binary
                 .parent()
