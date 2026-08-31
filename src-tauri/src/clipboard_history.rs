@@ -88,6 +88,9 @@ struct Store {
     entries: Vec<ClipboardEntry>,
     data_path: Option<PathBuf>,
     image_dir: Option<PathBuf>,
+    /// 每次条目增删改/置顶/清空时 +1，供面板用轻量命令轮询变化，避免频繁
+    /// 传输带 base64 缩略图的完整列表。
+    revision: u64,
 }
 
 /// Tauri 管理的剪贴板历史状态（`Send + Sync`）。
@@ -197,6 +200,7 @@ impl Store {
             let mut entry = self.entries.remove(position);
             entry.captured_at_ms = now_ms();
             self.entries.insert(0, entry.clone());
+            self.revision += 1;
             self.persist();
             return Some(entry);
         }
@@ -217,6 +221,7 @@ impl Store {
         self.next_id += 1;
         self.entries.insert(0, entry.clone());
         self.enforce_caps();
+        self.revision += 1;
         self.persist();
         Some(entry)
     }
@@ -241,6 +246,7 @@ impl Store {
             let mut entry = self.entries.remove(position);
             entry.captured_at_ms = now_ms();
             self.entries.insert(0, entry.clone());
+            self.revision += 1;
             self.persist();
             return Some(entry);
         }
@@ -270,6 +276,7 @@ impl Store {
         };
         self.entries.insert(0, entry.clone());
         self.enforce_caps();
+        self.revision += 1;
         self.persist();
         Some(entry)
     }
@@ -281,6 +288,7 @@ impl Store {
             .find(|entry| entry.id == id)
             .ok_or_else(|| "未找到该条剪贴板记录".to_string())?;
         entry.pinned = pinned;
+        self.revision += 1;
         self.persist();
         Ok(())
     }
@@ -291,6 +299,7 @@ impl Store {
         };
         let entry = self.entries.remove(position);
         self.remove_entry_file(&entry);
+        self.revision += 1;
         self.persist();
         Ok(())
     }
@@ -300,6 +309,7 @@ impl Store {
             self.remove_entry_file(entry);
         }
         self.entries.clear();
+        self.revision += 1;
         self.persist();
     }
 
@@ -386,6 +396,7 @@ impl ClipboardHistory {
             entries: Vec::new(),
             data_path,
             image_dir,
+            revision: 0,
         };
         if let Some(path) = store.data_path.as_ref() {
             if let Ok(raw) = std::fs::read_to_string(path) {
@@ -411,6 +422,13 @@ impl ClipboardHistory {
             .lock()
             .map(|store| store.snapshot())
             .unwrap_or_default()
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.inner
+            .lock()
+            .map(|store| store.revision)
+            .unwrap_or(0)
     }
 
     pub fn get(&self, id: u64) -> Result<ClipboardEntry, String> {
@@ -539,6 +557,12 @@ fn start_monitor(app: AppHandle) {
 #[tauri::command]
 pub fn list_clipboard_history(state: tauri::State<'_, ClipboardHistory>) -> Vec<ClipboardEntry> {
     state.snapshot()
+}
+
+/// 返回剪贴板历史当前版本号。前端面板用它做轻量轮询：版本变化时才拉取完整列表。
+#[tauri::command]
+pub fn clipboard_history_revision(state: tauri::State<'_, ClipboardHistory>) -> u64 {
+    state.revision()
 }
 
 #[tauri::command]
@@ -690,6 +714,7 @@ mod tests {
             entries: Vec::new(),
             data_path: None,
             image_dir: None,
+            revision: 0,
         }
     }
 
@@ -794,6 +819,7 @@ mod tests {
             entries: Vec::new(),
             data_path: None,
             image_dir: Some(directory.clone()),
+            revision: 0,
         };
         let rgba = [
             255u8, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,

@@ -767,6 +767,7 @@ pub fn run() {
             background::get_clipboard_hotkey,
             background::set_clipboard_hotkey,
             clipboard_history::list_clipboard_history,
+            clipboard_history::clipboard_history_revision,
             clipboard_history::copy_clipboard_entry,
             clipboard_history::get_clipboard_image,
             clipboard_history::set_clipboard_entry_pinned,

@@ -495,6 +495,11 @@ export function listClipboardHistory(): Promise<ClipboardEntry[]> {
   return invoke<ClipboardEntry[]>("list_clipboard_history");
 }
 
+export function getClipboardHistoryRevision(): Promise<number> {
+  if (isMock()) return Promise.resolve(1);
+  return invoke<number>("clipboard_history_revision");
+}
+
 export function copyClipboardEntry(id: number): Promise<void> {
   if (isMock()) return Promise.resolve();
   return invoke<void>("copy_clipboard_entry", { id });

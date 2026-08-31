@@ -188,6 +188,29 @@
         "kind": "browserImport",
         "homepageUrl": "https://www.dingtalk.com/download"
       }
+    },
+    {
+      "applicationId": "codebuddy-ide",
+      "packageName": "codebuddy-cn",
+      "displayName": "CodeBuddy IDE",
+      "vendor": "腾讯",
+      "architecture": "amd64",
+      "description": "腾讯出品的 AI 编程 IDE，基于 VS Code 深度定制，内置代码补全、技术问答与多智能体协作。",
+      "homepage": "https://www.codebuddy.cn/ide/",
+      "icon": "codebuddy-ide",
+      "accentColor": "#6C4DFF",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://www.codebuddy.cn/v2/update",
+        "versionEndpointHosts": ["www.codebuddy.cn"],
+        "gatewayUrl": "https://umanager.nichangen.workers.dev",
+        "query": { "platform": "ide-linux-x64" },
+        "payloadKind": "json",
+        "versionField": "version",
+        "downloadUrlField": "url",
+        "downloadHosts": ["download.codebuddy.cn"]
+      }
     }
   ]
 }

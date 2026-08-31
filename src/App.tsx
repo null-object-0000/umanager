@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, deleteClipboardEntry, downloadPackage, downloadSelfUpdate, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setNetworkSettings, runScript, stopScript, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, deleteClipboardEntry, downloadPackage, downloadSelfUpdate, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setNetworkSettings, runScript, stopScript, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -1068,22 +1068,42 @@ function ClipboardPanel() {
 
   useEffect(() => {
     let active = true;
+    let lastRevision = -1;
     const load = () =>
       listClipboardHistory()
         .then((list) => { if (active) setEntries(list); })
         .catch(() => {});
-    load();
+    const refresh = async () => {
+      try {
+        const revision = await getClipboardHistoryRevision();
+        if (!active || revision === lastRevision) return;
+        lastRevision = revision;
+        await load();
+      } catch { /* 面板保持不闪断 */ }
+    };
+    void refresh();
     let unlisten: (() => void) | null = null;
-    onClipboardHistoryChanged((list) => setEntries(list)).then((fn) => { unlisten = fn; });
+    onClipboardHistoryChanged((list) => { if (active) setEntries(list); }).then((fn) => { unlisten = fn; });
     // 面板常驻隐藏，每次重新显示/获得焦点时重新拉取最新历史，避免展示旧列表。
     let unlistenFocus: (() => void) | null = null;
     getCurrentWebviewWindow()
-      .onFocusChanged(({ payload }) => { if (payload) load(); })
+      .onFocusChanged(({ payload }) => { if (payload) void refresh(); })
       .then((fn) => { unlistenFocus = fn; })
       .catch(() => {});
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") void hideClipboardPanel(); };
     window.addEventListener("keydown", onKey);
-    return () => { active = false; unlisten?.(); unlistenFocus?.(); window.removeEventListener("keydown", onKey); };
+    // 面板常驻隐藏：隐藏期间 WebKitGTK 可能挂起整个页面，导致事件/焦点回调都不可靠。
+    // 这里用 visibilitychange 立即补拉 + 1s 轻量版本号轮询兜底，保证面板恢复可见时
+    // 能及时刷新，且不会频繁传输带缩略图的完整列表。
+    const onVisibility = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    const interval = window.setInterval(() => { void refresh(); }, 1000);
+    return () => {
+      active = false; unlisten?.(); unlistenFocus?.();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(interval);
+      window.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   const ordered = useMemo(() => [...entries.filter((entry) => entry.pinned), ...entries.filter((entry) => !entry.pinned)], [entries]);

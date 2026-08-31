@@ -12,6 +12,7 @@
   "assignments": {
     "applications": {
       "vscode": "dev-tools",
+      "codebuddy-ide": "ai-tools",
       "github-cli": "dev-tools",
       "chatgpt": "ai-tools",
       "google-chrome": "browser",
