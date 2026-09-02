@@ -28,7 +28,11 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { atomChangelog } from "./changelog-atom.mjs";
+import { extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog } from "./changelog-html.mjs";
+import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./changelog-markdown.mjs";
 import { entryOrPrevious } from "./feed-fallback.mjs";
+import { sanitizeReleaseNotes, selectReleaseNotesRelease, stripReleaseNotesBoilerplate } from "./release-notes.mjs";
 import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -314,7 +318,7 @@ async function releaseApiEntry(app, source) {
     releaseTag: json.tag_name,
     assetName: asset.name,
     websiteVersion: tagVersion,
-    releaseNotes: sanitizeReleaseNotes(json.body),
+    releaseNotes: sanitizeReleaseNotes(stripReleaseNotesBoilerplate(json.body, app.applicationId)),
     releaseNotesUrl,
   };
   const officialTime = parseUnixSeconds(json.published_at ?? json.created_at);
@@ -322,6 +326,145 @@ async function releaseApiEntry(app, source) {
     ? { time: officialTime, source: "official" }
     : null;
   return entry;
+}
+
+// Fetch release notes from a GitHub Releases endpoint, an Atom changelog feed,
+// or a versioned HTML / Markdown updates page configured on the app, independent
+// of the download source kind. This is what lets non-`releaseApi` sources
+// (aptRepository / stableDownloadEndpoint / versionEndpoint) ship a changelog
+// through the signed feed. Best-effort: a failure only leaves the note absent,
+// it never drops the app entry.
+async function fetchReleaseNotes(app, config, entry) {
+  if (!config || typeof config !== "object") return null;
+  if (typeof config.atomUrl === "string") return fetchAtomReleaseNotes(app, config);
+  if (typeof config.versionedHtmlUrl === "string") return fetchVersionedHtmlReleaseNotes(app, config, entry);
+  if (typeof config.versionedMarkdownUrl === "string") return fetchVersionedMarkdownReleaseNotes(app, config, entry);
+  if (typeof config.changelogHtmlUrl === "string") return fetchChangelogHtmlReleaseNotes(app, config, entry);
+  if (typeof config.releaseApiUrl !== "string") return null;
+  return fetchGitHubReleaseNotes(app, config);
+}
+
+// Resolve `{version}`, `{major}`, `{minor}`, `{patch}` placeholders in a URL
+// template from the resolved version (e.g. `1.135.0-1787669172` → major `1`,
+// minor `135`). Values are percent-encoded.
+function resolveVersionPlaceholders(template, version) {
+  if (typeof template !== "string") return template;
+  const parts = String(version).split(".");
+  const major = parts[0] ?? "";
+  const minor = parts[1] ?? "";
+  const patch = parts[2] ?? "";
+  return template
+    .replaceAll("{version}", encodeURIComponent(String(version)))
+    .replaceAll("{major}", encodeURIComponent(major))
+    .replaceAll("{minor}", encodeURIComponent(minor))
+    .replaceAll("{patch}", encodeURIComponent(patch));
+}
+
+async function fetchVersionedHtmlReleaseNotes(app, config, entry) {
+  const version = config.versionField === "version"
+    ? entry?.version
+    : (entry?.websiteVersion ?? entry?.version);
+  if (!version) return null;
+  const url = resolveVersionPlaceholders(config.versionedHtmlUrl, version);
+  let html;
+  try {
+    html = await fetchText(url);
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(htmlChangelogToMarkdown(parseHtmlChangelog(html)), app.applicationId),
+  );
+  const releaseNotesUrl = /^https:\/\//.test(url) ? url : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+async function fetchVersionedMarkdownReleaseNotes(app, config, entry) {
+  const version = config.versionField === "version"
+    ? entry?.version
+    : (entry?.websiteVersion ?? entry?.version);
+  if (!version) return null;
+  const url = resolveVersionPlaceholders(config.versionedMarkdownUrl, version);
+  let text;
+  try {
+    text = await fetchText(url);
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(cleanReleaseNotesMarkdown(text), app.applicationId),
+  );
+  const notesUrl = config.releaseNotesUrl
+    ? resolveVersionPlaceholders(config.releaseNotesUrl, version)
+    : url;
+  const releaseNotesUrl = /^https:\/\//.test(notesUrl) ? notesUrl : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+// Fetch release notes from a fixed VitePress-style changelog page (CodeBuddy):
+// the page holds every version as `<h3>X.Y.Z (date)</h3>` sections. Select the
+// section matching the resolved version, else the first (latest) section.
+async function fetchChangelogHtmlReleaseNotes(app, config, entry) {
+  const version = config.versionField === "version"
+    ? entry?.version
+    : (entry?.websiteVersion ?? entry?.version);
+  if (!version) return null;
+  let html;
+  try {
+    html = await fetchText(config.changelogHtmlUrl);
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(extractHtmlVersionSection(html, version), app.applicationId),
+  );
+  const notesUrl = config.releaseNotesUrl ?? config.changelogHtmlUrl;
+  const releaseNotesUrl = /^https:\/\//.test(notesUrl) ? notesUrl : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+async function fetchGitHubReleaseNotes(app, config) {
+  let payload;
+  try {
+    payload = JSON.parse(await fetchText(config.releaseApiUrl, githubApiHeaders()));
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const release = selectReleaseNotesRelease(payload, config.tagPrefix);
+  if (!release) return null;
+  const releaseNotesUrl = typeof release.html_url === "string" && /^https:\/\//.test(release.html_url)
+    ? release.html_url
+    : null;
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(release.body, app.applicationId),
+  );
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+async function fetchAtomReleaseNotes(app, config) {
+  let xml;
+  try {
+    xml = await fetchText(config.atomUrl);
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const parsed = atomChangelog(xml, config.titleContains);
+  if (!parsed) return null;
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(parsed.releaseNotes, app.applicationId),
+  );
+  const releaseNotesUrl = parsed.releaseNotesUrl;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
 }
 
 async function stableDownloadEntry(app, source) {
@@ -398,20 +541,6 @@ async function downloadTemp(label, url) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// GitHub release bodies are the canonical "version update record" for
-// `releaseApi` sources. They ship as signed feed data (never fetched by the
-// desktop app), so keep them bounded: trim, drop NUL bytes, and truncate very
-// long changelogs while pointing readers at the full release page.
-const MAX_RELEASE_NOTES_CHARS = 20000;
-
-function sanitizeReleaseNotes(body) {
-  if (typeof body !== "string") return null;
-  const cleaned = body.replace(/\0/g, "").trim();
-  if (!cleaned) return null;
-  if (cleaned.length <= MAX_RELEASE_NOTES_CHARS) return cleaned;
-  return `${cleaned.slice(0, MAX_RELEASE_NOTES_CHARS)}\n\n…（内容过长，已截断，完整内容见发布页）`;
 }
 
 // ---------------------------------------------------------------------------
@@ -740,6 +869,30 @@ async function toolEntry(tool) {
   return entry;
 }
 
+// Fetch a dev tool's changelog from a fixed CHANGELOG.md-style Markdown URL and
+// extract the section matching the tool's resolved version. CI-only config lives
+// in `toolReleaseNotesOverrides` keyed by tool id. Best-effort: failure leaves
+// the note absent, never drops the tool entry.
+async function fetchToolReleaseNotes(tool, config, entry) {
+  if (!config || typeof config.changelogMarkdownUrl !== "string" || !entry?.version) return null;
+  let text;
+  try {
+    text = await fetchText(config.changelogMarkdownUrl);
+  } catch (error) {
+    log(`  toolReleaseNotes: ${tool.toolId} — ${error.message}`);
+    return null;
+  }
+  const section = extractMarkdownVersionSection(text, entry.version);
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(cleanReleaseNotesMarkdown(section), tool.toolId),
+  );
+  const releaseNotesUrl = typeof config.releaseNotesUrl === "string" && /^https:\/\//.test(config.releaseNotesUrl)
+    ? config.releaseNotesUrl
+    : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
 async function main() {
   const catalog = JSON.parse(readFileSync(CATALOG_PATH, "utf8"));
 
@@ -752,6 +905,8 @@ async function main() {
     }
   }
   const extraApplications = extra.applications || [];
+  const releaseNotesOverrides = extra.releaseNotesOverrides || {};
+  const toolReleaseNotesOverrides = extra.toolReleaseNotesOverrides || {};
 
   const categoryConfig = readCategoryConfig();
   const categories = (categoryConfig.categories || [])
@@ -798,6 +953,18 @@ async function main() {
     } else if (app.source?.kind === "versionEndpoint") {
       entry = await versionEndpointEntry(app, app.source);
     }
+    // Non-releaseApi sources may still publish a changelog (GitHub release,
+    // Atom feed, or a versioned HTML updates page); attach it best-effort.
+    // releaseApiEntry already set these, so only fill gaps. Built-in apps whose
+    // changelog config is CI-only live in `releaseNotesOverrides` keyed by id.
+    const releaseNotesConfig = app.releaseNotes ?? releaseNotesOverrides[app.applicationId];
+    if (entry && entry.releaseNotes == null && entry.releaseNotesUrl == null && releaseNotesConfig) {
+      const notes = await fetchReleaseNotes(app, releaseNotesConfig, entry);
+      if (notes) {
+        entry.releaseNotes = notes.releaseNotes;
+        entry.releaseNotesUrl = notes.releaseNotesUrl;
+      }
+    }
     const resolved = entryOrPrevious(entry, previousFeed?.applications?.[app.applicationId]);
     if (resolved) {
       applications[app.applicationId] = resolved;
@@ -824,6 +991,14 @@ async function main() {
   const developmentTools = {};
   for (const tool of catalog.developmentTools || []) {
     const entry = await toolEntry(tool);
+    // Attach a changelog for tools configured in `toolReleaseNotesOverrides`.
+    if (entry && entry.releaseNotes == null && entry.releaseNotesUrl == null) {
+      const notes = await fetchToolReleaseNotes(tool, toolReleaseNotesOverrides[tool.toolId], entry);
+      if (notes) {
+        entry.releaseNotes = notes.releaseNotes;
+        entry.releaseNotesUrl = notes.releaseNotesUrl;
+      }
+    }
     const resolved = entryOrPrevious(entry, previousFeed?.developmentTools?.[tool.toolId]);
     if (resolved) {
       developmentTools[tool.toolId] = resolved;
@@ -906,10 +1081,12 @@ async function main() {
     }
   }
 
-  // `gatewayUrl` is a CI-only config; strip it from the signed catalog so the
-  // desktop app / helper never see the private gateway endpoint.
+  // `gatewayUrl` and `releaseNotes` are CI-only configs; strip them from the
+  // signed catalog so the desktop app / helper never see the private gateway
+  // endpoint or the release-notes fetch config.
   for (const app of extraApplications) {
     if (app.source && "gatewayUrl" in app.source) delete app.source.gatewayUrl;
+    if ("releaseNotes" in app) delete app.releaseNotes;
   }
 
   const catalogJson = JSON.stringify(extraApplications);

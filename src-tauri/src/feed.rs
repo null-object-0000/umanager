@@ -96,6 +96,13 @@ pub struct FeedToolEntry {
     pub version_updated_at_unix_seconds: Option<u64>,
     #[serde(default)]
     pub version_updated_at_source: Option<VersionUpdatedAtSource>,
+    /// Markdown release notes for the current version (e.g. the matching section
+    /// of the project's CHANGELOG.md). Optional; always shipped via the signed feed.
+    #[serde(default)]
+    pub release_notes: Option<String>,
+    /// HTTPS URL to the canonical changelog page. Optional.
+    #[serde(default)]
+    pub release_notes_url: Option<String>,
 }
 
 /// A display-only software category served by the signed feed.
@@ -692,6 +699,8 @@ fn validate(feed: &Feed) -> Result<(), String> {
             return Err(format!("{id}：版本无效"));
         }
         validate_version_updated_at(&entry.version_updated_at_unix_seconds, &entry.version_updated_at_source)
+            .map_err(|error| format!("{id}：{error}"))?;
+        validate_release_notes(&entry.release_notes, &entry.release_notes_url)
             .map_err(|error| format!("{id}：{error}"))?;
     }
     Ok(())

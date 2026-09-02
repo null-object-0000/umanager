@@ -7,6 +7,7 @@ mod feed;
 mod icon;
 mod installable;
 mod installation;
+mod launcher;
 mod local_deb;
 mod network;
 mod operation_plan;
@@ -15,6 +16,7 @@ mod scanner;
 mod session;
 mod scripts;
 mod source_engine;
+mod translation;
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -314,6 +316,35 @@ async fn get_network_settings() -> Result<network::NetworkSettings, String> {
 }
 
 #[tauri::command]
+async fn get_llm_settings() -> Result<translation::LlmSettings, String> {
+    Ok(translation::current())
+}
+
+#[tauri::command]
+async fn set_llm_settings(
+    app: tauri::AppHandle,
+    settings: translation::LlmSettings,
+) -> Result<translation::LlmSettings, String> {
+    tauri::async_runtime::spawn_blocking(move || translation::update(&app, settings))
+        .await
+        .map_err(|error| format!("保存 LLM 设置任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+async fn translate_changelog(
+    app: tauri::AppHandle,
+    text: String,
+    request_id: String,
+) -> Result<String, String> {
+    translation::translate_streaming(&app, &request_id, &text).await
+}
+
+#[tauri::command]
+async fn test_llm_connection(settings: Option<translation::LlmSettings>) -> Result<String, String> {
+    translation::test_connection(settings).await
+}
+
+#[tauri::command]
 async fn get_feed_status() -> Result<feed::FeedStatus, String> {
     Ok(feed::status())
 }
@@ -330,6 +361,27 @@ async fn refresh_feed() -> Result<feed::FeedStatus, String> {
 #[tauri::command]
 async fn get_categories() -> Option<feed::CategoryCatalog> {
     feed::category_catalog().await
+}
+
+/// Launch an installed managed desktop application. Runs as the current user
+/// (no Polkit); the application id is resolved against the signed catalog so the
+/// package name passed to `dpkg-query -L` is never free-form user input.
+#[tauri::command]
+async fn launch_application(application_id: String) -> Result<(), String> {
+    let catalog = feed::effective_catalog().await?;
+    let application = require_application(&catalog, &application_id)?.clone();
+    tauri::async_runtime::spawn_blocking(move || launcher::launch(&application))
+        .await
+        .map_err(|error| format!("启动任务异常结束：{error}"))?
+}
+
+/// Open an external changelog / release-page URL in the default browser. The
+/// URL is re-validated (http/https only) inside `launcher::open_url`.
+#[tauri::command]
+async fn open_external_url(url: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || launcher::open_url(&url))
+        .await
+        .map_err(|error| format!("打开链接任务异常结束：{error}"))?
 }
 
 #[tauri::command]
@@ -701,6 +753,7 @@ pub fn run() {
         .manage(local_deb::LocalDebState::from_process_arguments())
         .setup(|app| {
             network::initialize(app.handle());
+            translation::initialize(app.handle());
             feed::initialize(app.handle());
             clipboard_history::initialize(app.handle());
             background::initialize(app.handle())?;
@@ -718,6 +771,10 @@ pub fn run() {
             restart_app,
             get_network_settings,
             set_network_settings,
+            get_llm_settings,
+            set_llm_settings,
+            translate_changelog,
+            test_llm_connection,
             get_feed_status,
             refresh_feed,
             get_categories,
@@ -741,6 +798,8 @@ pub fn run() {
             get_application_details,
             get_download_plan,
             download_package,
+            launch_application,
+            open_external_url,
             create_operation_plan,
             run_operation_dry_run,
             install_package,

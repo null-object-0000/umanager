@@ -44,6 +44,10 @@ pub struct DevToolState {
     pub binary_path: Option<String>,
     pub update_available: bool,
     pub can_uninstall: bool,
+    /// Markdown changelog for the latest version, from the signed feed.
+    pub release_notes: Option<String>,
+    /// HTTPS link to the canonical changelog page.
+    pub release_notes_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -74,13 +78,12 @@ pub async fn detect_state(tool_id: String) -> Result<DevToolState, String> {
     let tool = tool_by_id(&tool_id)?;
     let lookup_id = tool.tool_id.clone();
     let lookup_package = tool.npm_package.clone();
-    let feed_version = crate::feed::tool_entry(&lookup_id)
+    let feed_entry = crate::feed::tool_entry(&lookup_id)
         .await
         .ok()
         .flatten()
-        .filter(|entry| entry.npm_package == lookup_package)
-        .map(|entry| entry.version);
-    tauri::async_runtime::spawn_blocking(move || detect_state_sync(&tool, feed_version))
+        .filter(|entry| entry.npm_package == lookup_package);
+    tauri::async_runtime::spawn_blocking(move || detect_state_sync(&tool, feed_entry))
         .await
         .map_err(|error| format!("命令行工具检测任务异常结束：{error}"))?
 }
@@ -156,12 +159,12 @@ fn tool_by_id(tool_id: &str) -> Result<DevelopmentTool, String> {
         .ok_or_else(|| format!("软件源中不存在命令行工具 {tool_id}"))
 }
 
-fn detect_state_sync(tool: &DevelopmentTool, feed_version: Option<String>) -> Result<DevToolState, String> {
+fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::FeedToolEntry>) -> Result<DevToolState, String> {
     let home = user_home()?;
     let npm_available = npm_available(&home);
     // Latest versions come exclusively from the central metadata feed; npm stays
     // available for install/uninstall, not for version lookups.
-    let latest_version = feed_version;
+    let latest_version = feed_entry.as_ref().map(|entry| entry.version.clone());
 
     let binary = find_tool_binary(tool, &home);
     let install_kind = binary
@@ -208,6 +211,8 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_version: Option<String>) -> Re
         binary_path: binary.map(|path| path.to_string_lossy().into_owned()),
         update_available,
         can_uninstall,
+        release_notes: feed_entry.as_ref().and_then(|entry| entry.release_notes.clone()),
+        release_notes_url: feed_entry.as_ref().and_then(|entry| entry.release_notes_url.clone()),
     })
 }
 

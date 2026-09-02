@@ -227,6 +227,18 @@ export interface NetworkSettings {
   proxyUrl: string;
 }
 
+export interface LlmSettings {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+export interface LlmTranslateDelta {
+  requestId: string;
+  delta: string;
+}
+
 export interface FeedStatus {
   configured: boolean;
   url: string | null;
@@ -391,6 +403,8 @@ export interface DevToolState {
   binaryPath: string | null;
   updateAvailable: boolean;
   canUninstall: boolean;
+  releaseNotes?: string | null;
+  releaseNotesUrl?: string | null;
 }
 
 export interface DevToolReport {

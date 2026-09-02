@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, deleteClipboardEntry, downloadPackage, downloadSelfUpdate, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setNetworkSettings, runScript, stopScript, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, createSelfUpdateOperationPlan, deleteClipboardEntry, downloadPackage, downloadSelfUpdate, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSelfUpdateStatus, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, installSelfUpdate, launchApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, runSelfUpdateDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
@@ -23,7 +27,7 @@ import feishuIcon from "./assets/app-icons/feishu.png";
 import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 
 type Filter = "all" | "installed" | "updates" | "installable";
-type Page = "installed" | "dev" | "scripts" | "clipboard" | "settings";
+type Page = "installed" | "updates" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps" };
@@ -50,11 +54,13 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
     history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></>,
+    update: <><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></>,
+    back: <><path d="M15 5l-7 7 7 7"/></>,
     clipboard: <><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
@@ -63,6 +69,81 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "clipboard" | "s
     script: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+}
+
+function useModalFocus<T extends HTMLElement>(onClose: () => void, canClose: boolean) {
+  const ref = useRef<T | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const canCloseRef = useRef(canClose);
+  canCloseRef.current = canClose;
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusables = () => Array.from(node.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true");
+    (focusables()[0] ?? node).focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (canCloseRef.current) onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const list = focusables();
+      if (list.length === 0) { event.preventDefault(); return; }
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === node)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    node.addEventListener("keydown", onKeyDown);
+    return () => {
+      node.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, []);
+  return ref;
+}
+
+function DetailShell({ label, icon, title, subtitle, description, action, canClose, onClose, children }: {
+  label: string;
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  description?: string | null;
+  action?: ReactNode;
+  canClose: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const focusRef = useModalFocus<HTMLDivElement>(onClose, canClose);
+  return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && canClose) onClose(); }}>
+    <div className="detail-drawer" role="dialog" aria-modal="true" aria-label={label} ref={focusRef} tabIndex={-1}>
+      <div className="detail-topbar"><button className="back-button" onClick={onClose} disabled={!canClose}><Icon name="back"/><span>返回</span></button></div>
+      <div className="detail-page-body">
+        <header className="detail-hero">
+          <div className="detail-hero-icon">{icon}</div>
+          <div className="detail-hero-main">
+            <h1 className="detail-hero-title">{title}</h1>
+            <span className="detail-hero-subtitle">{subtitle}</span>
+            {description && <p className="detail-hero-desc">{description}</p>}
+          </div>
+          {action && <div className="detail-hero-action">{action}</div>}
+        </header>
+        <div className="detail-page-content">{children}</div>
+      </div>
+    </div>
+  </div>;
 }
 
 function DependencyGapWarning({ missing }: { missing: string[] }) {
@@ -115,6 +196,13 @@ function isAutoInstallable(packageName: string) {
   return ["aptRepository", "stableDownloadEndpoint", "releaseApi", "versionEndpoint"].includes(entry.source.kind);
 }
 
+// 只有带 .desktop 启动项的图形应用才提供「打开」；CLI 工具（category === "cli"）没有可启动入口。
+function isLaunchable(packageName: string) {
+  const entry = catalogByPackage[packageName];
+  if (!entry) return false;
+  return entry.category !== "cli";
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
@@ -125,30 +213,149 @@ function formatSpeed(bytesPerSecond: number) {
   return `${(bytesPerSecond / 1024).toFixed(0)} KiB/s`;
 }
 
-const versionSourceLabel: Record<string, string> = {
-  official: "官方发布时间",
-  serverModified: "官方安装包更新时间",
-  observed: "首次采集到该版本",
-};
-
 function formatUpdatedAt(unixSeconds: number | null | undefined) {
   if (unixSeconds == null) return null;
   return new Date(unixSeconds * 1000).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function UpdatedAtLine({ seconds, source }: { seconds: number | null | undefined; source: string | null | undefined }) {
-  const text = formatUpdatedAt(seconds);
-  if (!text) return null;
-  const label = source ? (versionSourceLabel[source] ?? "") : "";
-  return <span className="updated-at-line">{label ? `${label}：` : ""}{text}</span>;
+// Release notes are Markdown from vendor GitHub release bodies. Render them as
+// sanitized HTML: strip any element that loads external resources (images,
+// media, iframes — the CSP blocks those anyway) but keep headings, lists,
+// code, tables and links. Links open in the default browser via gio, never by
+// navigating the app webview.
+const releaseNotesSchema = {
+  ...defaultSchema,
+  tagNames: (defaultSchema.tagNames ?? []).filter(
+    (name) => !["img", "picture", "source", "track", "video", "audio", "iframe", "embed", "object", "svg", "math", "canvas"].includes(name),
+  ),
+};
+
+function ChangelogLink({ url }: { url: string | null | undefined }) {
+  if (!url) return null;
+  return <p className="release-notes-link">完整更新记录：<a href={url} onClick={(event) => { event.preventDefault(); void openExternalUrl(url); }}>{url}</a></p>;
+}
+
+// Lightweight heuristic: a changelog is offered translation when it contains
+// Latin text but no CJK characters (i.e. it reads as English to a zh-CN user).
+function looksEnglish(text: string): boolean {
+  if (!text) return false;
+  const hasCjk = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(text);
+  const hasLatin = /[A-Za-z]{3,}/.test(text);
+  return hasLatin && !hasCjk;
+}
+
+function useChangelogTranslation(notes: string | null | undefined) {
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [streaming, setStreaming] = useState<string | null>(null);
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [llmEnabled, setLlmEnabled] = useState(false);
+  const requestSeq = useRef(0);
+  const english = looksEnglish(notes ?? "");
+
+  useEffect(() => {
+    if (!english) { setLlmEnabled(false); return; }
+    let cancelled = false;
+    getLlmSettings()
+      .then((settings) => { if (!cancelled) setLlmEnabled(settings.enabled); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [english]);
+
+  const toggle = async () => {
+    if (translating || !notes) return;
+    if (showTranslated) { setShowTranslated(false); return; }
+    if (translated) { setShowTranslated(true); return; }
+    setTranslating(true); setError(null); setStreaming(null);
+    requestSeq.current += 1;
+    const requestId = `translate-${Date.now()}-${requestSeq.current}`;
+    try {
+      const result = await translateChangelog(notes, requestId, (delta) => {
+        setStreaming((previous) => (previous ?? "") + delta);
+      });
+      setTranslated(result);
+      setShowTranslated(true);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const content = translating
+    ? (streaming ?? "")
+    : (showTranslated && translated ? translated : notes ?? "");
+
+  return {
+    content,
+    pending: translating && !streaming,
+    canTranslate: english && llmEnabled,
+    translating,
+    showTranslated,
+    error,
+    toggle,
+  };
+}
+
+function ChangelogTranslateButton({ translation }: { translation: ReturnType<typeof useChangelogTranslation> }) {
+  if (!translation.canTranslate) return null;
+  return <button className="translate-toggle" onClick={() => void translation.toggle()} disabled={translation.translating}>
+    {translation.translating ? "翻译中…" : (translation.showTranslated ? "查看原文" : "翻译为中文")}
+  </button>;
+}
+
+function ChangelogMarkdown({ content, pending }: { content: string; pending: boolean }) {
+  // No changelog body: render nothing (an empty `.release-notes` box would show
+  // as a stray white bar). During a translation request we still render the box
+  // so the "正在请求翻译…" placeholder is visible.
+  if (!pending && !content.trim()) return null;
+  return <div className="release-notes">
+    {pending && <p className="release-notes-pending">正在请求翻译…</p>}
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeRaw, [rehypeSanitize, releaseNotesSchema]]}
+      components={{
+        a: ({ href, children }) => (
+          <a href={href} onClick={(event) => { event.preventDefault(); if (href) void openExternalUrl(href); }}>{children}</a>
+        ),
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  </div>;
 }
 
 function ReleaseNotes({ notes, url }: { notes: string | null | undefined; url: string | null | undefined }) {
+  const translation = useChangelogTranslation(notes);
   if (!notes && !url) return null;
   return <section className="detail-section release-notes-section">
-    <h3>版本更新记录</h3>
-    {notes && <pre className="release-notes">{notes}</pre>}
-    {url && <p className="release-notes-link">完整更新记录：<code title={url}>{url}</code></p>}
+    <div className="release-notes-head">
+      <h3>版本更新记录</h3>
+      <ChangelogTranslateButton translation={translation}/>
+    </div>
+    {translation.error && <p className="changelog-translate-error">{translation.error}</p>}
+    <ChangelogMarkdown content={translation.content} pending={translation.pending}/>
+    <ChangelogLink url={url}/>
+  </section>;
+}
+
+function WhatsNew({ version, seconds, notes, url }: { version: string | null; seconds: number | null | undefined; notes: string | null | undefined; url: string | null | undefined }) {
+  const translation = useChangelogTranslation(notes);
+  if (!version && !notes && !url) return null;
+  const dateText = seconds != null ? formatUpdatedAt(seconds) : null;
+  return <section className="detail-section whats-new-section">
+    <h3>新内容</h3>
+    <div className="whats-new-head">
+      <div className="whats-new-meta">
+        {version && <strong className="whats-new-version">版本 {version}</strong>}
+        {dateText && <span className="whats-new-date">{dateText}</span>}
+      </div>
+      <ChangelogTranslateButton translation={translation}/>
+    </div>
+    {translation.error && <p className="changelog-translate-error">{translation.error}</p>}
+    <ChangelogMarkdown content={translation.content} pending={translation.pending}/>
+    <ChangelogLink url={url}/>
   </section>;
 }
 
@@ -184,8 +391,9 @@ function LocalDebDialog({ initial, onClose, onInstalled }: { initial: LocalDebIn
     setBusy(kind); setError(null);
     try { complete(await action()); } catch (reason) { setError(String(reason)); } finally { setBusy(null); }
   };
+  const focusRef = useModalFocus<HTMLElement>(onClose, busy === null);
   return <div className="local-deb-layer">
-    <section className="local-deb-dialog" role="dialog" aria-modal="true" aria-label="安装本地 Debian 包">
+    <section className="local-deb-dialog" role="dialog" aria-modal="true" aria-label="安装本地 Debian 包" ref={focusRef} tabIndex={-1}>
       <header><div><span className="deb-file-mark">DEB</span><div><h2>安装本地软件包</h2><p>{inspected.fileName}</p></div></div><button className="close-button" onClick={onClose} aria-label="关闭">×</button></header>
       <div className="local-deb-content">
         <div className="untrusted-banner"><strong>⚠ 来源未验证</strong><span>这是用户提供的本地文件。UManager 可验证文件一致性，但无法证明它由官方厂商发布。</span></div>
@@ -223,8 +431,9 @@ function RemovalDialog({ item, onClose, onRemoved }: { item: ManagedPackage; onC
     try { complete(await action()); } catch (reason) { setError(String(reason)); } finally { setBusy(null); }
   };
 
+  const focusRef = useModalFocus<HTMLElement>(onClose, busy === null);
   return <div className="local-deb-layer">
-    <section className="local-deb-dialog removal-dialog" role="dialog" aria-modal="true" aria-label={`卸载 ${item.displayName}`}>
+    <section className="local-deb-dialog removal-dialog" role="dialog" aria-modal="true" aria-label={`卸载 ${item.displayName}`} ref={focusRef} tabIndex={-1}>
       <header><div><AppMark item={item}/><div><h2>卸载 {item.displayName}</h2><p>{item.vendor} · {item.packageName}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
       <div className="local-deb-content">
         <div className="removal-warning"><strong>这会从系统中移除该软件</strong><span>UManager 不会请求 purge、自动删除依赖或直接删除你的个人目录；但 Debian 包自带的卸载脚本仍会以 root 权限运行。</span></div>
@@ -258,8 +467,9 @@ function SelfRemovalDialog({ info, onClose }: { info: InstallationInfo; onClose:
     try { complete(await action()); } catch (reason) { setError(String(reason)); } finally { setBusy(null); }
   };
 
+  const focusRef = useModalFocus<HTMLElement>(onClose, busy === null);
   return <div className="local-deb-layer">
-    <section className="local-deb-dialog removal-dialog self-removal-dialog" role="dialog" aria-modal="true" aria-label="卸载 UManager">
+    <section className="local-deb-dialog removal-dialog self-removal-dialog" role="dialog" aria-modal="true" aria-label="卸载 UManager" ref={focusRef} tabIndex={-1}>
       <header><div><span className="brand-mark">U</span><div><h2>卸载 UManager</h2><p>{info.packageName} · {info.packageVersion} · {info.architecture}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
       <div className="local-deb-content">
         <div className="removal-warning"><strong>这会移除 UManager 程序本身</strong><span>只执行固定的 <code>/usr/bin/dpkg --remove u-manager</code>。不会请求 purge，也不会删除 UManager 缓存、下载的软件包、操作计划或你的个人文件。</span></div>
@@ -301,6 +511,7 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
 
   const updateAvailable = status?.updateState === "updateAvailable";
   const running = phase === "downloading" || phase === "planning" || phase === "dry-run" || phase === "installing";
+  const focusRef = useModalFocus<HTMLElement>(onClose, busy === null && !running);
 
   const start = async () => {
     setError(null);
@@ -341,7 +552,7 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
   };
 
   return <div className="local-deb-layer">
-    <section className="local-deb-dialog removal-dialog self-update-dialog" role="dialog" aria-modal="true" aria-label="更新 UManager">
+    <section className="local-deb-dialog removal-dialog self-update-dialog" role="dialog" aria-modal="true" aria-label="更新 UManager" ref={focusRef} tabIndex={-1}>
       <header><div><span className="brand-mark">U</span><div><h2>更新 UManager</h2><p>{info.packageName} · {info.packageVersion}{status?.candidateVersion ? ` → ${status.candidateVersion}` : ""}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null || running} aria-label="关闭">×</button></header>
       <div className="local-deb-content">
         <div className="removal-warning"><strong>自更新会用新 `.deb` 替换当前程序</strong><span>安装包来自 UManager 官方 GitHub Release；SHA-256 与发布摘要一致后，再确认才会生成不可变计划、特权复核并安装。</span></div>
@@ -356,9 +567,9 @@ function SelfUpdateDialog({ info, onClose, onUpdated }: { info: InstallationInfo
         {status && <ReleaseNotes notes={status.releaseNotes} url={status.releaseNotesUrl}/>}
         {status && !updateAvailable && <div className="dry-run-success"><strong>✓ 已是最新版本</strong><span>当前 `.deb` 安装的 UManager 与最新发布一致，无需更新。</span></div>}
         {status && updateAvailable && <>
-          {phase === "idle" && <button className="download-button" disabled={busy !== null} onClick={() => void start()}>更新到 {status.candidateVersion ?? "最新版本"}</button>}
-          {phase === "ready" && <button className="download-button" disabled={busy !== null} onClick={() => void install()}>继续更新（需系统授权）</button>}
-          {phase !== "idle" && phase !== "ready" && phase !== "done" && <button className="download-button" disabled>{phase === "downloading" ? "正在下载并校验…" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : "正在安装更新…"}</button>}
+          {phase === "idle" && <button className="download-button" disabled={busy !== null} onClick={() => void start()}>更新</button>}
+          {phase === "ready" && <button className="download-button" disabled={busy !== null} onClick={() => void install()}>安装</button>}
+          {phase !== "idle" && phase !== "ready" && phase !== "done" && <button className="download-button" disabled>{phase === "downloading" ? "下载中…" : phase === "planning" ? "准备中…" : phase === "dry-run" ? "复核中…" : "安装中…"}</button>}
           <button className="secondary-button" style={{ marginTop: 10 }} disabled={busy !== null || running} onClick={check}>重新检查</button>
         </>}
         {phase === "downloading" && downloadProgress && <DownloadProgressCard progress={downloadProgress} displayName="UManager"/>}
@@ -425,6 +636,89 @@ function NetworkSettingsPanel() {
       <dl className="installation-facts network-facts">
         <div><dt>当前状态</dt><dd>{enabled ? "代理已启用" : "未使用代理"}</dd></div>
         <div><dt>代理地址</dt><dd title={settings?.proxyUrl ?? ""}>{settings?.proxyUrl && settings.proxyUrl.trim() ? settings.proxyUrl : "未设置"}</dd></div>
+      </dl>
+    </>}
+  </section>;
+}
+
+function LlmSettingsPanel() {
+  const [settings, setSettings] = useState<LlmSettings | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true); setError(null);
+    getLlmSettings()
+      .then((value) => {
+        setSettings(value);
+        setEnabled(value.enabled);
+        setBaseUrl(value.baseUrl);
+        setApiKey(value.apiKey);
+        setModel(value.model);
+      })
+      .catch((reason) => setError(String(reason)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    setSaving(true); setError(null); setSaved(false);
+    try {
+      const value = await setLlmSettings({ enabled, baseUrl, apiKey, model });
+      setSettings(value);
+      setEnabled(value.enabled);
+      setBaseUrl(value.baseUrl);
+      setApiKey(value.apiKey);
+      setModel(value.model);
+      setSaved(true);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const test = async () => {
+    setTesting(true); setError(null); setTestResult(null);
+    try {
+      const reply = await testLlmConnection({ enabled: true, baseUrl, apiKey, model });
+      setTestResult(`连接成功，模型返回：${reply}`);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return <section className="settings-panel network-panel">
+    <div className="settings-section-heading"><div><div><h2>LLM 翻译</h2><p>用你自己的 OpenAI 兼容服务，一键把英文更新日志翻译成中文</p></div></div><span className={`install-kind-badge ${enabled ? "" : "unknown"}`}>{enabled ? "已启用" : "未启用"}</span></div>
+    {loading && <div className="settings-loading"><span className="loader"/><span>正在读取 LLM 翻译设置…</span></div>}
+    {!loading && <>
+      <div className="network-proxy-form">
+        <label className="plan-confirmation proxy-toggle"><input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false); }} /><span>启用 LLM 翻译</span></label>
+        <label className="proxy-url-field"><span>服务地址</span><input value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setSaved(false); }} placeholder="https://api.deepseek.com/v1" disabled={!enabled} spellCheck={false} aria-label="LLM 服务地址"/></label>
+        <label className="proxy-url-field"><span>API Key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setSaved(false); }} placeholder="sk-…（本地服务可留空）" disabled={!enabled} spellCheck={false} aria-label="LLM API Key"/></label>
+        <label className="proxy-url-field"><span>模型</span><input value={model} onChange={(event) => { setModel(event.target.value); setSaved(false); }} placeholder="deepseek-chat" disabled={!enabled} spellCheck={false} aria-label="LLM 模型名称"/></label>
+        <p className="proxy-hint">兼容任何 OpenAI 风格接口：DeepSeek、Moonshot、OpenAI、Ollama 等。服务地址填 API 根路径（通常以 <code>/v1</code> 结尾），App 会请求 <code>/chat/completions</code>。API Key 仅保存在本机，只发给你填写的服务地址。</p>
+        {error && <div className="inline-error">{error}</div>}
+        {testResult && <div className="inline-note">{testResult}</div>}
+        <div className="proxy-actions">
+          <button className="primary-button" onClick={() => void save()} disabled={saving}>{saving ? "保存中…" : "保存 LLM 设置"}</button>
+          <button className="secondary-button" onClick={() => void test()} disabled={testing || !enabled}>{testing ? "测试中…" : "测试连接"}</button>
+          {saved && !error && <span className="proxy-saved">✓ 已保存</span>}
+        </div>
+      </div>
+      <dl className="installation-facts network-facts">
+        <div><dt>当前状态</dt><dd>{enabled ? "LLM 翻译已启用" : "未启用"}</dd></div>
+        <div><dt>服务地址</dt><dd title={settings?.baseUrl ?? ""}>{settings?.baseUrl && settings.baseUrl.trim() ? settings.baseUrl : "未设置"}</dd></div>
+        <div><dt>模型</dt><dd>{settings?.model && settings.model.trim() ? settings.model : "未设置"}</dd></div>
       </dl>
     </>}
   </section>;
@@ -512,8 +806,32 @@ function SettingsPage({ info, loading, error, onRefresh, onRemove, onUpdate }: {
       </>}
     </section>
     <NetworkSettingsPanel/>
+    <LlmSettingsPanel/>
     <FeedStatusPanel/>
   </main>;
+}
+
+function InfoPanel({ entries }: { entries: { label: string; value: string; mono?: boolean }[] }) {
+  return <section className="detail-section info-section">
+    <h3>信息</h3>
+    <dl className="info-panel">{entries.map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd className={entry.mono ? "mono" : ""} title={entry.value}>{entry.value}</dd></div>)}</dl>
+  </section>;
+}
+
+function CardDownloadRing({ progress }: { progress: DownloadProgress }) {
+  const percent = progress.totalBytes > 0 ? Math.min(100, Math.round(progress.transferredBytes / progress.totalBytes * 100)) : 0;
+  const label = progress.phase === "verifying" ? "校验中" : `${percent}%`;
+  return <span className="card-download-ring" style={{ background: `conic-gradient(var(--accent) ${percent * 3.6}deg, rgba(0,0,0,0.06) 0deg)` }} role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} title={label}><span>{percent}</span></span>;
+}
+
+function HeroDownloadProgress({ progress }: { progress: DownloadProgress }) {
+  const percent = progress.totalBytes > 0 ? Math.min(100, Math.round(progress.transferredBytes / progress.totalBytes * 100)) : 0;
+  const label = progress.phase === "verifying" ? "正在校验…" : "正在下载…";
+  return <div className="hero-download" role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+    <span className="hero-download-ring" style={{ background: `conic-gradient(var(--accent) ${percent * 3.6}deg, rgba(0,0,0,0.08) 0deg)` }}><span className="hero-download-ring-inner">{percent}%</span></span>
+    <span className="hero-download-label">{label}</span>
+    <span className="hero-download-stats">{formatBytes(progress.transferredBytes)} / {formatBytes(progress.totalBytes)}</span>
+  </div>;
 }
 
 function DownloadCard({ plan }: { plan: DownloadPlan }) {
@@ -530,22 +848,20 @@ function DownloadProgressCard({ progress, displayName }: { progress: DownloadPro
   </div>;
 }
 
-function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; onClose: () => void; onInstalled: () => void }) {
+function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClose, onInstalled, onLaunch, onRemove }: { item: ManagedPackage; download: DownloadState | undefined; onStartDownload: (notify: { title: string; body: string }) => void; onClearDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void; onRemove: () => void }) {
   const applicationId = catalogByPackage[item.packageName]?.applicationId;
   const [details, setDetails] = useState<ApplicationDetails | null>(null);
   const [downloadPlan, setDownloadPlan] = useState<DownloadPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
   const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
   const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
-  const [phase, setPhase] = useState<"idle" | "downloading" | "ready" | "planning" | "dry-run" | "installing" | "done">("idle");
+  const [installPhase, setInstallPhase] = useState<"idle" | "planning" | "dry-run" | "installing" | "done">("idle");
   const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
 
   useEffect(() => {
-    setLoading(true); setDetails(null); setDownloadPlan(null); setError(null); setDownloadResult(null); setOperationPlan(null); setDryRun(null); setInstalled(null); setPhase("idle"); setProgressEvents([]);
+    setLoading(true); setDetails(null); setDownloadPlan(null); setError(null); setOperationPlan(null); setDryRun(null); setInstalled(null); setInstallPhase("idle"); setProgressEvents([]);
     if (!applicationId) { setLoading(false); setError(`软件源中未找到 ${item.packageName} 的适配策略`); return; }
     void Promise.allSettled([getApplicationDetails(applicationId), getDownloadPlan(applicationId)]).then(([detailsOutcome, planOutcome]) => {
       if (detailsOutcome.status === "fulfilled") setDetails(detailsOutcome.value); else setError(String(detailsOutcome.reason));
@@ -556,77 +872,101 @@ function UpdateDrawer({ item, onClose, onInstalled }: { item: ManagedPackage; on
 
   const isWebsite = details?.sourceKind === "officialWebsite";
   const hasUpdate = details?.updateState === "updateAvailable";
-  const running = phase === "downloading" || phase === "planning" || phase === "dry-run" || phase === "installing";
+  const downloadStatus = download?.status;
+  const downloading = downloadStatus === "downloading" || downloadStatus === "verifying";
+  const ready = downloadStatus === "ready";
+  const downloadResult = download !== undefined && download.status === "ready" ? download.result : null;
+  const downloadError = download !== undefined && download.status === "error" ? download.error : null;
+  const installRunning = installPhase === "planning" || installPhase === "dry-run" || installPhase === "installing";
+  const running = downloading || installRunning;
   const targetVersion = details?.candidateVersion ?? downloadPlan?.version ?? "";
-
-  const start = async () => {
-    if (!applicationId) { setError(`软件源中未找到 ${item.packageName} 的适配策略`); return; }
-    setError(null);
-    setDownloadProgress(null); setDownloadResult(null); setOperationPlan(null); setDryRun(null); setInstalled(null); setProgressEvents([]);
-    try {
-      setPhase("downloading");
-      const download = await downloadPackage(applicationId, setDownloadProgress);
-      setDownloadResult(download);
-      if (!download.verified) throw new Error("安装包校验未通过，已停止，未更改系统。");
-      setPhase("ready");
-      if (!document.hasFocus()) {
-        void notifyDownloadComplete(`${item.displayName} 下载完成`, `安装包已通过校验，回到 UManager 继续更新 ${targetVersion}（需系统授权）。`).catch(() => { /* 通知失败不影响流程 */ });
-      }
-    } catch (reason) {
-      setError(String(reason));
-      setPhase("idle");
-    }
-  };
 
   const install = async () => {
     setError(null);
     try {
-      setPhase("planning");
+      setInstallPhase("planning");
       const plan = await createOperationPlan(applicationId!);
       setOperationPlan(plan);
-      setPhase("dry-run");
+      setInstallPhase("dry-run");
       const dry = await runOperationDryRun(plan.plan.planId);
       setDryRun(dry);
-      setPhase("installing");
+      setInstallPhase("installing");
       const report = await installPackage(plan.plan.planId, (event) => appendProgress(setProgressEvents, event));
       setInstalled(report);
       onInstalled();
-      setPhase("done");
+      onClearDownload();
+      setInstallPhase("done");
     } catch (reason) {
       setError(String(reason));
-      setPhase("ready");
+      setInstallPhase("idle");
     }
   };
 
-  return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && !running) onClose(); }}><aside className="detail-drawer" aria-label={`${item.displayName} 详情`}>
-    <header className="drawer-header"><div className="drawer-app"><AppMark item={item}/><div><div className="drawer-title-row"><h2>{item.displayName}</h2><span>{item.vendor} · {item.packageName}</span></div>{catalogByPackage[item.packageName]?.description && <p className="drawer-description">{catalogByPackage[item.packageName]?.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={running} aria-label="关闭">×</button></header>
+  const done = installPhase === "done";
+  const launchable = isLaunchable(item.packageName);
+  const removable = catalogByPackage[item.packageName]?.removable ?? false;
+  let actionLabel: string;
+  let actionDisabled: boolean;
+  let onAction: () => void;
+  if (done) { actionLabel = "打开"; actionDisabled = !launchable; onAction = onLaunch; }
+  else if (installRunning) { actionLabel = installPhase === "planning" ? "准备中…" : installPhase === "dry-run" ? "复核中…" : "安装中…"; actionDisabled = true; onAction = () => {}; }
+  else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
+  else if (ready) { actionLabel = "安装"; actionDisabled = false; onAction = () => void install(); }
+  else if (hasUpdate) { actionLabel = "更新"; actionDisabled = !downloadPlan; onAction = () => onStartDownload({ title: `${item.displayName} 下载完成`, body: `安装包已通过校验，回到 UManager 继续更新 ${targetVersion}（需系统授权）。` }); }
+  else { actionLabel = "打开"; actionDisabled = !launchable; onAction = onLaunch; }
+  const heroAction = downloading && download?.progress
+    ? <HeroDownloadProgress progress={download.progress}/>
+    : <>
+        <button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>
+        {removable && !installRunning && !downloading && <button className="ghost-link" onClick={onRemove}>卸载</button>}
+      </>;
+
+  return <DetailShell
+    label={`${item.displayName} 详情`}
+    icon={<AppMark item={item}/>}
+    title={item.displayName}
+    subtitle={`${item.vendor} · ${item.packageName}`}
+    description={catalogByPackage[item.packageName]?.description}
+    action={heroAction}
+    canClose={!running}
+    onClose={onClose}
+  >
     {loading && <div className="drawer-loading"><span className="loader"/><p>正在读取官方源与安装包元数据…</p></div>}
     {error && !details && <div className="message error"><strong>无法检查 {item.displayName} 更新</strong><span>{error}</span></div>}
     {details && <div className="drawer-content">
       <div className={`trust-banner ${details.trusted ? "trusted" : "needsReview"}`}><Icon name="shield"/><div><strong>{details.trusted ? `来源验证通过 · ${sourceText[details.sourceKind] ?? details.sourceKind}` : "来源需要复核"}</strong><span>{isWebsite ? "官网、下载域名、Debian 包名和架构均符合软件源策略" : "包名、架构和官方仓库均符合软件源策略"}</span></div></div>
-      <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div><UpdatedAtLine seconds={details.versionUpdatedAtUnixSeconds} source={details.versionUpdatedAtSource}/>{details.websiteVersion && <p className="version-source-note">官网/发布标签展示 {details.websiteVersion}；UManager 通过 HTTP Range 读取 `.deb` 控制信息，获得用于比较的完整版本。</p>}</section>
-      <ReleaseNotes notes={details.releaseNotes} url={details.releaseNotesUrl}/>
-      <section className="detail-section"><h3>官方来源</h3><div className="path-card"><div><span className={`source-dot ${details.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${item.vendor} 官方 APT 仓库`}</strong></div><code title={details.sourceUrl}>{details.sourceUrl}</code><p>下载地址与所有 HTTPS 重定向都不能离开软件源中声明的允许域名。</p></div></section>
-      <section className="detail-section"><h3>官方证据</h3><div className="evidence-list">{details.evidence.map((entry) => <div key={entry.label}><span className={entry.passed ? "check passed" : "check failed"}>{entry.passed ? "✓" : "!"}</span><div><strong>{entry.label}</strong><code>{entry.actual}</code></div></div>)}</div></section>
-      <div className={`wechat-update-result ${details.updateState}`}><strong>{hasUpdate ? `发现新版本 ${details.candidateVersion}` : details.updateState === "upToDate" ? "已是最新版本" : "候选版本尚未确认"}</strong><span>{hasUpdate ? "点击下方按钮下载并校验官方包，校验通过后再确认安装。" : "官方完整版本与本机已安装版本相同。"}</span></div>
-      <section className="detail-section download-section"><h3>官方安装包</h3>
-        {downloadPlan && <DownloadCard plan={downloadPlan}/>}
-        {phase === "downloading" && downloadProgress && <DownloadProgressCard progress={downloadProgress} displayName={item.displayName}/>}
-        {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
-        {error && details && <div className="inline-error">{error}</div>}
-        {hasUpdate && phase !== "done" && <button className="download-button" disabled={running || (phase === "idle" && !downloadPlan)} onClick={() => { if (phase === "ready") void install(); else void start(); }}>{phase === "downloading" ? "正在下载并校验…" : phase === "ready" ? "继续更新（需系统授权）" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : phase === "installing" ? "正在安装更新…" : `更新到 ${targetVersion}`}</button>}
-        <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。</p>
-      </section>
-      {downloadResult?.verified && <section className="detail-section final-plan-section"><h3>最终更新计划</h3>
-        <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{item.packageName} · {item.architecture}</dd></div><div><dt>版本</dt><dd>{item.installedVersion} → {downloadResult.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult.actualSha256}>{downloadResult.actualSha256}</dd></div></dl></div>
-        {operationPlan && <div className="immutable-plan"><strong>更新计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
-        {operationPlan && <DependencyGapWarning missing={operationPlan.missingDependencies}/>}
-        {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已重新核对来源、版本、架构和缓存中的安装包，本次未修改系统。</span></div>}
-        <OperationLogPanel events={progressEvents} running={phase === "installing"}/>
-        {installed && <div className="dry-run-success"><strong>✓ 更新安装完成</strong><span>固定参数 dpkg 安装命令已成功结束，软件列表已重新扫描。</span></div>}
-      </section>}
+      <WhatsNew version={details.candidateVersion ?? downloadPlan?.version ?? null} seconds={details.versionUpdatedAtUnixSeconds} notes={details.releaseNotes} url={details.releaseNotesUrl}/>
+      {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
+      {downloadError && <div className="inline-error">{downloadError}</div>}
+      {error && details && <div className="inline-error">{error}</div>}
+
+      <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null}>
+        <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 更新计划</span></summary>
+        <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div>{details.websiteVersion && <p className="version-source-note">官网/发布标签展示 {details.websiteVersion}；UManager 通过 HTTP Range 读取 `.deb` 控制信息，获得用于比较的完整版本。</p>}</section>
+        <InfoPanel entries={[
+          { label: "开发者", value: details.vendor },
+          { label: "软件包", value: details.packageName, mono: true },
+          { label: "架构", value: details.architecture, mono: true },
+          { label: "下载大小", value: downloadPlan ? formatBytes(downloadPlan.expectedSize) : details.expectedSize != null ? formatBytes(details.expectedSize) : "—" },
+          { label: "SHA-256", value: downloadPlan?.expectedSha256 ?? details.sha256 ?? "—", mono: true },
+        ]}/>
+        <section className="detail-section"><h3>官方来源</h3><div className="path-card"><div><span className={`source-dot ${details.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${item.vendor} 官方 APT 仓库`}</strong></div><code title={details.sourceUrl}>{details.sourceUrl}</code><p>下载地址与所有 HTTPS 重定向都不能离开软件源中声明的允许域名。</p></div></section>
+        <section className="detail-section"><h3>官方证据</h3><div className="evidence-list">{details.evidence.map((entry) => <div key={entry.label}><span className={entry.passed ? "check passed" : "check failed"}>{entry.passed ? "✓" : "!"}</span><div><strong>{entry.label}</strong><code>{entry.actual}</code></div></div>)}</div></section>
+        <section className="detail-section download-section"><h3>官方安装包</h3>
+          {downloadPlan && <DownloadCard plan={downloadPlan}/>}
+          <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。</p>
+        </section>
+        {downloadResult?.verified && <section className="detail-section final-plan-section"><h3>最终更新计划</h3>
+          <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{item.packageName} · {item.architecture}</dd></div><div><dt>版本</dt><dd>{item.installedVersion} → {downloadResult.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult.actualSha256}>{downloadResult.actualSha256}</dd></div></dl></div>
+          {operationPlan && <div className="immutable-plan"><strong>更新计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
+          {operationPlan && <DependencyGapWarning missing={operationPlan.missingDependencies}/>}
+          {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已重新核对来源、版本、架构和缓存中的安装包，本次未修改系统。</span></div>}
+          <OperationLogPanel events={progressEvents} running={installPhase === "installing"}/>
+          {installed && <div className="dry-run-success"><strong>✓ 更新安装完成</strong><span>固定参数 dpkg 安装命令已成功结束，软件列表已重新扫描。</span></div>}
+        </section>}
+      </details>
     </div>}
-  </aside></div>;
+  </DetailShell>;
 }
 
 type MergedSoftware = {
@@ -658,106 +998,144 @@ type SoftwareItem = {
   toolState?: DevToolState | null;
 };
 
-function SoftwareRow({ item, onOpen, onRemove, filter }: { item: MergedSoftware; onOpen: () => void; onRemove: () => void; filter: Filter }) {
+type DownloadState =
+  | { status: "downloading" | "verifying"; progress: DownloadProgress }
+  | { status: "ready"; result: DownloadResult }
+  | { status: "error"; error: string };
+
+function SoftwareRow({ item, category, progress, onOpen, onRemove, onLaunch }: { item: MergedSoftware; category: string; progress: DownloadProgress | null; onOpen: () => void; onRemove: () => void; onLaunch: () => void }) {
   const catalogApp = catalogByPackage[item.packageName];
   const autoInstallable = !!catalogApp && isAutoInstallable(item.packageName);
   const canOpen = item.installed ? autoInstallable : item.installAvailable;
   const updateAvailable = item.installed && item.updateState === "updateAvailable" && autoInstallable;
-  const showUpdate = filter === "updates" && updateAvailable;
+  const launchable = item.installed && isLaunchable(item.packageName);
+  const downloading = progress !== null && (progress.phase === "downloading" || progress.phase === "verifying");
   const statusText = item.installed
-    ? item.updateState === "updateAvailable" ? "有可用更新" : item.updateState === "upToDate" ? "已是最新" : "需手动检查"
-    : item.installAvailable ? "可安装" : "暂不可安装";
+    ? item.updateState === "updateAvailable" ? "可更新" : item.updateState === "upToDate" ? "已是最新" : "手动检查"
+    : item.installAvailable ? "可安装" : "不可用";
   const statusClass = item.installed ? item.updateState : item.installAvailable ? "updateAvailable" : "unknown";
-  return <div className={`package-row ${canOpen ? "supported" : ""}`} role={canOpen ? "button" : undefined} tabIndex={canOpen ? 0 : undefined} onClick={() => { if (canOpen) onOpen(); }} onKeyDown={(event) => { if (canOpen && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
-    <div className="app-cell"><AppLogo packageName={item.packageName} displayName={item.displayName}/><div className="app-meta"><strong>{item.displayName}</strong>{item.description && <p className="app-description">{item.description}</p>}</div></div>
-    <div className="version-cell"><strong>{item.installed ? item.installedVersion : "未安装"}</strong>{item.installed && item.updateState === "updateAvailable" && item.candidateVersion && <span>→ {item.candidateVersion}</span>}{!item.installed && item.installAvailable && item.candidateVersion && <span>可安装 {item.candidateVersion}</span>}</div>
-    <div className="source-cell"><span className={`source-dot ${item.sourceKind}`}/><div><strong>{sourceText[item.sourceKind as keyof typeof sourceText] ?? item.sourceKind}</strong><span>{item.architecture}</span></div></div>
-    <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><div className="row-actions">
-      {showUpdate && <button className="update-package-button" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`更新 ${item.displayName}`}>更新</button>}
-      {!showUpdate && item.installed && item.removable && <button className="remove-package-button" onClick={(event) => { event.stopPropagation(); onRemove(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`卸载 ${item.displayName}`}>卸载</button>}
-      {!item.installed && item.installAvailable && <button className="install-package-button" onClick={(event) => { event.stopPropagation(); onOpen(); }}>安装</button>}
-      <span className={`row-arrow ${canOpen ? "" : "placeholder"}`} aria-hidden="true">›</span>
-    </div></div>
-  </div>;
+  return <article className={`app-card ${canOpen ? "supported" : ""}`} role={canOpen ? "button" : undefined} tabIndex={canOpen ? 0 : undefined} onClick={() => { if (canOpen) onOpen(); }} onKeyDown={(event) => { if (canOpen && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
+    <div className="app-card-top">
+      <AppLogo packageName={item.packageName} displayName={item.displayName}/>
+      <div className="app-card-actions">
+        {downloading
+          ? <CardDownloadRing progress={progress}/>
+          : <>
+            {!item.installed && item.installAvailable && <button className="get-button" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`获取 ${item.displayName}`}>获取</button>}
+            {updateAvailable && <button className="get-button update" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`更新 ${item.displayName}`}>更新</button>}
+            {!updateAvailable && launchable && <button className="get-button open" onClick={(event) => { event.stopPropagation(); onLaunch(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`打开 ${item.displayName}`}>打开</button>}
+            {item.installed && item.removable && <button className="ghost-link" onClick={(event) => { event.stopPropagation(); onRemove(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`卸载 ${item.displayName}`}>卸载</button>}
+          </>}
+      </div>
+    </div>
+    <div className="app-card-body">
+      <h3 className="app-card-name">{item.displayName}</h3>
+      <span className="app-card-sub">{category}</span>
+      {item.description && <p className="app-card-desc">{item.description}</p>}
+    </div>
+    <div className="app-card-footer">
+      <span className={`status-badge ${statusClass}`}>{statusText}</span>
+      <span className="app-card-version">{item.installed ? `v${item.installedVersion}` : item.candidateVersion ? `v${item.candidateVersion}` : item.architecture}</span>
+    </div>
+  </article>;
 }
 
-function InstallDrawer({ offer, onClose, onInstalled }: { offer: InstallableApplication; onClose: () => void; onInstalled: () => void }) {
+function InstallDrawer({ offer, download, onStartDownload, onClearDownload, onClose, onInstalled, onLaunch }: { offer: InstallableApplication; download: DownloadState | undefined; onStartDownload: (notify: { title: string; body: string }) => void; onClearDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void }) {
   const downloadPlan = offer.downloadPlan;
   const isWebsite = offer.sourceKind === "officialWebsite";
-  const [downloadOutcome, setDownloadOutcome] = useState<{ actualSha256: string; version: string; reusedExistingFile: boolean; verified: boolean } | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
   const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
   const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
-  const [phase, setPhase] = useState<"idle" | "downloading" | "ready" | "planning" | "dry-run" | "installing" | "done">("idle");
+  const [installPhase, setInstallPhase] = useState<"idle" | "planning" | "dry-run" | "installing" | "done">("idle");
   const [error, setError] = useState<string | null>(null);
   const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
 
-  const running = phase === "downloading" || phase === "planning" || phase === "dry-run" || phase === "installing";
-
-  const start = async () => {
-    setError(null);
-    setDownloadProgress(null); setDownloadOutcome(null); setOperationPlan(null); setDryRun(null); setInstalled(null); setProgressEvents([]);
-    try {
-      setPhase("downloading");
-      const result = await downloadPackage(offer.applicationId, setDownloadProgress);
-      setDownloadOutcome({ actualSha256: result.actualSha256, version: result.version, reusedExistingFile: result.reusedExistingFile, verified: result.verified });
-      if (!result.verified) throw new Error("安装包校验未通过，已停止，未更改系统。");
-      setPhase("ready");
-      if (!document.hasFocus()) {
-        void notifyDownloadComplete(`${offer.displayName} 下载完成`, `安装包已通过校验，回到 UManager 继续安装（需系统授权）。`).catch(() => { /* 通知失败不影响流程 */ });
-      }
-    } catch (reason) {
-      setError(String(reason));
-      setPhase("idle");
-    }
-  };
+  const downloadStatus = download?.status;
+  const downloading = downloadStatus === "downloading" || downloadStatus === "verifying";
+  const ready = downloadStatus === "ready";
+  const downloadResult = download !== undefined && download.status === "ready" ? download.result : null;
+  const downloadError = download !== undefined && download.status === "error" ? download.error : null;
+  const installRunning = installPhase === "planning" || installPhase === "dry-run" || installPhase === "installing";
+  const running = downloading || installRunning;
 
   const install = async () => {
     setError(null);
     try {
-      setPhase("planning");
+      setInstallPhase("planning");
       const plan = await createOperationPlan(offer.applicationId);
       setOperationPlan(plan);
-      setPhase("dry-run");
+      setInstallPhase("dry-run");
       const dry = await runOperationDryRun(plan.plan.planId);
       setDryRun(dry);
-      setPhase("installing");
+      setInstallPhase("installing");
       const report = await installPackage(plan.plan.planId, (event) => appendProgress(setProgressEvents, event));
       setInstalled(report);
       onInstalled();
-      setPhase("done");
+      onClearDownload();
+      setInstallPhase("done");
     } catch (reason) {
       setError(String(reason));
-      setPhase("ready");
+      setInstallPhase("idle");
     }
   };
 
-  return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && !running) onClose(); }}><aside className="detail-drawer" aria-label={`安装 ${offer.displayName}`}>
-    <header className="drawer-header"><div className="drawer-app"><AppLogo packageName={offer.packageName} displayName={offer.displayName}/><div><div className="drawer-title-row"><h2>{offer.displayName}</h2><span>{offer.vendor} · {offer.packageName}</span></div>{offer.description && <p className="drawer-description">{offer.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={running} aria-label="关闭">×</button></header>
+  const done = installPhase === "done";
+  const launchable = isLaunchable(offer.packageName);
+  let actionLabel: string;
+  let actionDisabled: boolean;
+  let onAction: () => void;
+  if (done) { actionLabel = "打开"; actionDisabled = !launchable; onAction = onLaunch; }
+  else if (installRunning) { actionLabel = installPhase === "planning" ? "准备中…" : installPhase === "dry-run" ? "复核中…" : "安装中…"; actionDisabled = true; onAction = () => {}; }
+  else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
+  else if (ready) { actionLabel = "安装"; actionDisabled = false; onAction = () => void install(); }
+  else { actionLabel = "获取"; actionDisabled = !downloadPlan; onAction = () => onStartDownload({ title: `${offer.displayName} 下载完成`, body: `安装包已通过校验，回到 UManager 继续安装（需系统授权）。` }); }
+  const heroAction = downloading && download?.progress
+    ? <HeroDownloadProgress progress={download.progress}/>
+    : <button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>;
+
+  return <DetailShell
+    label={`安装 ${offer.displayName}`}
+    icon={<AppLogo packageName={offer.packageName} displayName={offer.displayName}/>}
+    title={offer.displayName}
+    subtitle={`${offer.vendor} · ${offer.packageName}`}
+    description={offer.description}
+    action={heroAction}
+    canClose={!running}
+    onClose={onClose}
+  >
     <div className="drawer-content">
       <div className="trust-banner trusted"><Icon name="shield"/><div><strong>来源验证通过 · {sourceText[offer.sourceKind] ?? offer.sourceKind}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
-      <section className="detail-section"><h3>新安装目标</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div><UpdatedAtLine seconds={offer.versionUpdatedAtUnixSeconds} source={offer.versionUpdatedAtSource}/></section>
-      <ReleaseNotes notes={offer.releaseNotes} url={offer.releaseNotesUrl}/>
-      <section className="detail-section"><h3>安装来源</h3><div className="path-card"><div><span className={`source-dot ${offer.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${offer.vendor} 官方 APT 仓库`}</strong></div><code title={downloadPlan?.downloadUrl}>{downloadPlan?.downloadUrl}</code><p>{isWebsite ? "下载地址与所有 HTTPS 重定向都不能离开允许域名。" : "安装包路径和所有 HTTPS 重定向都不能离开允许域名。"}</p></div></section>
-      <section className="detail-section download-section"><h3>官方安装包</h3>
-        {downloadPlan && <DownloadCard plan={downloadPlan}/>}
-        {phase === "downloading" && downloadProgress && <DownloadProgressCard progress={downloadProgress} displayName={offer.displayName}/>}
-        {downloadOutcome?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadOutcome.actualSha256.slice(0, 16)}…</p></div></div>}
-        {error && <div className="inline-error">{error}</div>}
-        {phase !== "done" && <button className="download-button" disabled={running || (phase === "idle" && !downloadPlan)} onClick={() => { if (phase === "ready") void install(); else void start(); }}>{phase === "downloading" ? "正在下载并校验…" : phase === "ready" ? "继续安装（需系统授权）" : phase === "planning" ? "正在生成不可变计划…" : phase === "dry-run" ? "正在特权环境复核…" : phase === "installing" ? "正在安装…" : `安装 ${offer.displayName}`}</button>}
-        <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。</p>
-      </section>
-      {downloadOutcome?.verified && <section className="detail-section final-plan-section"><h3>最终安装计划</h3>
-        <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{offer.packageName} · {offer.architecture}</dd></div><div><dt>版本</dt><dd>未安装 → {downloadOutcome.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadOutcome.actualSha256}>{downloadOutcome.actualSha256}</dd></div></dl></div>
-        {operationPlan && <div className="immutable-plan"><strong>安装计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>installedVersion：{operationPlan.plan.payload.installedVersion ?? "null（未安装）"}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
-        {operationPlan && <DependencyGapWarning missing={operationPlan.missingDependencies}/>}
-        {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已确认软件仍未安装，并重新核对来源、缓存文件与安装包元数据。</span></div>}
-        <OperationLogPanel events={progressEvents} running={phase === "installing"}/>
-        {installed && <div className="dry-run-success"><strong>✓ {offer.displayName} 安装完成</strong><span>固定参数 dpkg 安装命令已成功结束，软件列表已重新扫描。</span></div>}
-      </section>}
+      <WhatsNew version={offer.candidateVersion ?? null} seconds={offer.versionUpdatedAtUnixSeconds} notes={offer.releaseNotes} url={offer.releaseNotesUrl}/>
+      {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
+      {downloadError && <div className="inline-error">{downloadError}</div>}
+      {error && <div className="inline-error">{error}</div>}
+
+      <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null}>
+        <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 安装计划</span></summary>
+        <section className="detail-section"><h3>安装版本</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div></section>
+        <InfoPanel entries={[
+          { label: "开发者", value: offer.vendor },
+          { label: "软件包", value: offer.packageName, mono: true },
+          { label: "架构", value: offer.architecture, mono: true },
+          { label: "下载大小", value: downloadPlan ? formatBytes(downloadPlan.expectedSize) : "—" },
+          { label: "SHA-256", value: downloadPlan?.expectedSha256 ?? "—", mono: true },
+        ]}/>
+        <section className="detail-section"><h3>安装来源</h3><div className="path-card"><div><span className={`source-dot ${offer.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${offer.vendor} 官方 APT 仓库`}</strong></div><code title={downloadPlan?.downloadUrl}>{downloadPlan?.downloadUrl}</code><p>{isWebsite ? "下载地址与所有 HTTPS 重定向都不能离开允许域名。" : "安装包路径和所有 HTTPS 重定向都不能离开允许域名。"}</p></div></section>
+        <section className="detail-section download-section"><h3>官方安装包</h3>
+          {downloadPlan && <DownloadCard plan={downloadPlan}/>}
+          <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。</p>
+        </section>
+        {downloadResult?.verified && <section className="detail-section final-plan-section"><h3>最终安装计划</h3>
+          <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{offer.packageName} · {offer.architecture}</dd></div><div><dt>版本</dt><dd>未安装 → {downloadResult.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult.actualSha256}>{downloadResult.actualSha256}</dd></div></dl></div>
+          {operationPlan && <div className="immutable-plan"><strong>安装计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>installedVersion：{operationPlan.plan.payload.installedVersion ?? "null（未安装）"}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
+          {operationPlan && <DependencyGapWarning missing={operationPlan.missingDependencies}/>}
+          {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已确认软件仍未安装，并重新核对来源、缓存文件与安装包元数据。</span></div>}
+          <OperationLogPanel events={progressEvents} running={installPhase === "installing"}/>
+          {installed && <div className="dry-run-success"><strong>✓ {offer.displayName} 安装完成</strong><span>固定参数 dpkg 安装命令已成功结束，软件列表已重新扫描。</span></div>}
+        </section>}
+      </details>
     </div>
-  </aside></div>;
+  </DetailShell>;
 }
 
 function DevLogPanel({ events, running }: { events: DevOperationProgress[]; running: boolean }) {
@@ -774,20 +1152,32 @@ function DevLogPanel({ events, running }: { events: DevOperationProgress[]; runn
 
 function DevToolchainRow({ toolchain, onOpen }: { toolchain: DevToolchain; onOpen: () => void }) {
   const [state, setState] = useState<DevToolchainState | null>(null);
-  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    setState(null); setError(null);
-    getDevToolchainState(toolchain.toolchainId).then(setState).catch((reason) => setError(String(reason)));
+    setState(null);
+    getDevToolchainState(toolchain.toolchainId).then(setState).catch(() => { /* 状态读取失败保持待安装态 */ });
   }, [toolchain.toolchainId]);
   const installedCount = state?.installedVersions.length ?? 0;
   const statusClass = state && !state.managerFound ? "unknown" : state && installedCount > 0 ? "upToDate" : "updateAvailable";
   const statusText = state && !state.managerFound ? `未检测到 ${state.manager}` : state && installedCount > 0 ? `已安装 ${installedCount} 个版本` : "可安装";
-  return <div className="package-row supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
-    <div className="app-cell"><DevLogo toolchain={toolchain}/><div className="app-meta"><strong>{toolchain.displayName}</strong><span>{toolchain.vendor} · {toolchain.manager}</span>{toolchain.description && <p className="app-description">{toolchain.description}</p>}</div></div>
-    <div className="version-cell"><strong>{state?.defaultVersion ?? (state && !state.managerFound ? "未检测到" : "未设置")}</strong></div>
-    <div className="source-cell"><span className="source-dot officialWebsite"/><div><strong>用户级版本管理器</strong><span>{toolchain.manager}</span></div></div>
-    <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span>{error && <span className="row-arrow placeholder" aria-hidden="true">›</span>}</div>
-  </div>;
+  return <article className="app-card supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
+    <div className="app-card-top">
+      <DevLogo toolchain={toolchain}/>
+      <div className="app-card-actions">
+        {state && installedCount > 0
+          ? <button className="ghost-link" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()}>管理</button>
+          : <button className="get-button" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()}>获取</button>}
+      </div>
+    </div>
+    <div className="app-card-body">
+      <h3 className="app-card-name">{toolchain.displayName}</h3>
+      <span className="app-card-sub">{toolchain.vendor} · {toolchain.manager}</span>
+      {toolchain.description && <p className="app-card-desc">{toolchain.description}</p>}
+    </div>
+    <div className="app-card-footer">
+      <span className={`status-badge ${statusClass}`}>{statusText}</span>
+      {state?.defaultVersion && <span className="app-card-version">{state.defaultVersion}</span>}
+    </div>
+  </article>;
 }
 
 function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; onClose: () => void }) {
@@ -822,8 +1212,15 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
 
   const installedVersion = (version: string) => state?.installedVersions.some((item) => item.version === version || item.version.startsWith(`${version}-`));
 
-  return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${toolchain.displayName} 开发环境详情`}>
-    <header className="drawer-header"><div className="drawer-app"><DevLogo toolchain={toolchain}/><div><div className="drawer-title-row"><h2>{toolchain.displayName}</h2><span>{toolchain.vendor} · {toolchain.manager}</span></div>{toolchain.description && <p className="drawer-description">{toolchain.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+  return <DetailShell
+    label={`${toolchain.displayName} 开发环境详情`}
+    icon={<DevLogo toolchain={toolchain}/>}
+    title={toolchain.displayName}
+    subtitle={`${toolchain.vendor} · ${toolchain.manager}`}
+    description={toolchain.description}
+    canClose={busy === null}
+    onClose={onClose}
+  >
     <div className="drawer-content">
       {state && !state.managerFound && <div className="message"><strong>未检测到 {state.manager}</strong><span>版本管理器脚本缺失：{toolchain.managerHome}。请先安装 {state.manager}。</span></div>}
       {state?.managerFound && <div className="dev-facts">
@@ -868,20 +1265,33 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
 
       <DevLogPanel events={events} running={busy !== null}/>
     </div>
-  </aside></div>;
+  </DetailShell>;
 }
 
 const devToolInstallKindText = { npmGlobal: "npm 全局安装", officialInstaller: "官方安装器", onPath: "本机 PATH 中的可执行文件" } as const;
 
-function DevToolRow({ tool, state, onOpen }: { tool: DevTool; state: DevToolState | null; onOpen: () => void }) {
+function DevToolRow({ tool, state, category, onOpen }: { tool: DevTool; state: DevToolState | null; category: string; onOpen: () => void }) {
   const statusClass = state?.updateAvailable ? "updateAvailable" : state?.installed ? "upToDate" : "updateAvailable";
-  const statusText = state?.updateAvailable ? "有可用更新" : state?.installed ? "已安装" : "可安装";
-  return <div className="package-row supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
-    <div className="app-cell"><DevToolLogo tool={tool}/><div className="app-meta"><strong>{tool.displayName}</strong>{tool.description && <p className="app-description">{tool.description}</p>}</div></div>
-    <div className="version-cell"><strong>{state?.version ?? (state?.installed ? "已安装" : "未安装")}</strong>{state?.updateAvailable && <span>→ {state.latestVersion}</span>}</div>
-    <div className="source-cell"><span className="source-dot officialWebsite"/><div><strong>{tool.installer.kind === "npm" ? "npm 全局" : "官方源"}</strong><span>{state?.installKind ? devToolInstallKindText[state.installKind] : "未安装"}</span></div></div>
-    <div className="status-cell"><span className={`status-badge ${statusClass}`}>{statusText}</span><span className="row-arrow" aria-hidden="true">›</span></div>
-  </div>;
+  const statusText = state?.updateAvailable ? "可更新" : state?.installed ? "已安装" : "可安装";
+  return <article className="app-card supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }}>
+    <div className="app-card-top">
+      <DevToolLogo tool={tool}/>
+      <div className="app-card-actions">
+        {!state?.installed && <button className="get-button" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`获取 ${tool.displayName}`}>获取</button>}
+        {state?.updateAvailable && <button className="get-button update" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`更新 ${tool.displayName}`}>更新</button>}
+        {state?.installed && state?.canUninstall && <button className="ghost-link" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`卸载 ${tool.displayName}`}>卸载</button>}
+      </div>
+    </div>
+    <div className="app-card-body">
+      <h3 className="app-card-name">{tool.displayName}</h3>
+      <span className="app-card-sub">{category}</span>
+      {tool.description && <p className="app-card-desc">{tool.description}</p>}
+    </div>
+    <div className="app-card-footer">
+      <span className={`status-badge ${statusClass}`}>{statusText}</span>
+      {state?.version && <span className="app-card-version">v{state.version}</span>}
+    </div>
+  </article>;
 }
 
 function DevToolLogPanel({ events, running }: { events: DevToolProgress[]; running: boolean }) {
@@ -923,48 +1333,50 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
     }
   };
 
-  const installLabel = tool.installer.kind === "npm" ? "通过 npm 全局安装" : "通过官方安装脚本安装";
+  const installAction = () => void run("install", (onProgress) => installDevTool(tool.toolId, onProgress));
+  const updateAction = () => void run("update", (onProgress) => updateDevTool(tool.toolId, onProgress));
+  const uninstallAction = () => void run("uninstall", (onProgress) => uninstallDevTool(tool.toolId, onProgress));
+  const installed = state?.installed ?? false;
+  const updateAvailable = state?.updateAvailable ?? false;
+  const canUninstall = state?.canUninstall ?? false;
   const canInstall = tool.installer.kind === "curlScript" || (state?.npmAvailable ?? false);
 
-  return <div className="drawer-layer" onMouseDown={(event) => { if (event.currentTarget === event.target && busy === null) onClose(); }}><aside className="detail-drawer" aria-label={`${tool.displayName} 开发环境详情`}>
-    <header className="drawer-header"><div className="drawer-app"><DevToolLogo tool={tool}/><div><div className="drawer-title-row"><h2>{tool.displayName}</h2><span>{tool.vendor} · {tool.binaryName}</span></div>{tool.description && <p className="drawer-description">{tool.description}</p>}</div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+  let primaryLabel: string;
+  let primaryDisabled: boolean;
+  let primaryOnClick: (() => void) | undefined;
+  if (busy) { primaryLabel = busy === "install" ? "安装中…" : busy === "update" ? "更新中…" : "卸载中…"; primaryDisabled = true; }
+  else if (!installed) { primaryLabel = "获取"; primaryDisabled = !canInstall; primaryOnClick = installAction; }
+  else if (updateAvailable) { primaryLabel = "更新"; primaryDisabled = false; primaryOnClick = updateAction; }
+  else { primaryLabel = "已安装"; primaryDisabled = true; }
+  const heroAction = <>
+    <button className="hero-button" disabled={primaryDisabled} onClick={primaryOnClick}>{primaryLabel}</button>
+    {installed && canUninstall && !busy && <button className="ghost-link" onClick={uninstallAction}>卸载</button>}
+  </>;
+
+  return <DetailShell
+    label={`${tool.displayName} 详情`}
+    icon={<DevToolLogo tool={tool}/>}
+    title={tool.displayName}
+    subtitle={`${tool.vendor} · ${tool.binaryName}`}
+    description={tool.description}
+    action={heroAction}
+    canClose={busy === null}
+    onClose={onClose}
+  >
     <div className="drawer-content">
       {state && !state.npmAvailable && <div className="message"><strong>未检测到 npm</strong><span>无法读取 npm 最新版本{tool.installer.kind === "npm" ? "，也无法安装该工具" : ""}。请先在“开发环境”安装并设置 Node.js。</span></div>}
-      <div className="dev-facts">
-        <div><dt>当前版本</dt><dd>{state?.version ?? "未安装"}</dd></div>
-        <div><dt>最新版本</dt><dd>{state?.latestVersion ?? (state?.npmAvailable === false ? "无法读取" : "读取中…")}</dd></div>
-        <div><dt>安装方式</dt><dd>{state?.installKind ? devToolInstallKindText[state.installKind] : "—"}</dd></div>
-        <div className="wide"><dt>可执行文件</dt><dd title={state?.binaryPath ?? undefined}>{state?.binaryPath ?? (tool.installer.kind === "npm" ? `npm 包 ${tool.npmPackage}` : "官方安装脚本")}</dd></div>
-      </div>
+      <InfoPanel entries={[
+        { label: "当前版本", value: state?.version ?? "未安装", mono: true },
+        { label: "最新版本", value: state?.latestVersion ?? (state?.npmAvailable === false ? "无法读取" : "读取中…"), mono: true },
+        { label: "安装方式", value: state?.installKind ? devToolInstallKindText[state.installKind] : "—" },
+        { label: "可执行文件", value: state?.binaryPath ?? (tool.installer.kind === "npm" ? `npm 包 ${tool.npmPackage}` : "官方安装脚本"), mono: true },
+      ]}/>
       {error && <div className="inline-error">{error}</div>}
-
-      <div style={{ marginTop: 22 }}>
-        <h3 className="dev-section-heading">操作</h3>
-        {state?.installed
-          ? <div className="dev-version-row">
-              <div className="dev-version-name">
-                <code>{state.version}</code>
-                {state.updateAvailable && state.latestVersion && <span className="dev-sub-label">有更新 {state.latestVersion}</span>}
-                {!state.updateAvailable && <span className="dev-badge installed">已是最新</span>}
-              </div>
-              <div className="dev-version-actions">
-                {state.updateAvailable && <button className="dev-action-button" disabled={busy !== null} onClick={() => void run("update", (onProgress) => updateDevTool(tool.toolId, onProgress))}>{busy === "update" ? "正在更新…" : `更新到 ${state.latestVersion}`}</button>}
-                {state.canUninstall && <button className="dev-action-button danger" disabled={busy !== null} onClick={() => void run("uninstall", (onProgress) => uninstallDevTool(tool.toolId, onProgress))}>{busy === "uninstall" ? "正在卸载…" : "卸载"}</button>}
-                {!state.canUninstall && <span className="dev-sub-label">未能确定安装来源，请按官方文档卸载</span>}
-              </div>
-            </div>
-          : <div className="dev-version-row">
-              <div className="dev-version-name"><code>未安装</code>{state?.latestVersion && <span className="dev-sub-label">最新 {state.latestVersion}</span>}</div>
-              <div className="dev-version-actions">
-                <button className="dev-action-button" disabled={busy !== null || !canInstall} onClick={() => void run("install", (onProgress) => installDevTool(tool.toolId, onProgress))}>{busy === "install" ? "正在安装…" : installLabel}</button>
-              </div>
-            </div>}
-        {!state?.installed && !canInstall && <p className="dev-empty">需要 npm 才能安装，请先在“开发环境”安装并设置 Node.js。</p>}
-      </div>
-
+      {!installed && !canInstall && <p className="dev-empty">需要 npm 才能安装，请先在“开发环境”安装并设置 Node.js。</p>}
+      <ReleaseNotes notes={state?.releaseNotes} url={state?.releaseNotesUrl}/>
       <DevToolLogPanel events={events} running={busy !== null}/>
     </div>
-  </aside></div>;
+  </DetailShell>;
 }
 
 function DevToolsPage() {
@@ -985,11 +1397,10 @@ function DevToolsPage() {
   useEffect(() => { void refresh(); }, []);
   return <main className="workspace dev-workspace">
     <header className="workspace-header"><div><h1>开发环境</h1><p>用户级版本管理器（Node.js / Rust）</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
-    <section className="software-panel">
-      <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
+    <section className="software-panel store-panel">
       {error && <div className="message error"><strong>无法读取开发环境</strong><span>{error}</span></div>}
       {loading && !toolchains && <div className="empty-state"><span className="loader"/><p>正在读取运行时状态…</p></div>}
-      {toolchains && <div className="package-list">
+      {toolchains && <div className="app-grid">
         {toolchains.map((toolchain) => <DevToolchainRow toolchain={toolchain} key={toolchain.toolchainId} onOpen={() => setSelectedToolchain(toolchain)}/>)}
       </div>}
       {toolchains && toolchains.length === 0 && <div className="empty-state"><p>软件源中未配置运行时工具链。</p></div>}
@@ -1328,7 +1739,8 @@ function ClipboardImageDialog({ entry, onClose, onCopied }: { entry: ClipboardEn
     }
   };
 
-  return <section className="clip-image-overlay" role="dialog" aria-modal="true" aria-label="剪贴板图片">
+  const focusRef = useModalFocus<HTMLElement>(onClose, true);
+  return <section className="clip-image-overlay" role="dialog" aria-modal="true" aria-label="剪贴板图片" ref={focusRef} tabIndex={-1}>
     <div className="clip-image-dialog">
       <header className="clip-image-head">
         <div><strong>剪贴板图片</strong><span>{entry.imageWidth ?? 0}×{entry.imageHeight ?? 0} · {formatBytes(entry.imageByteCount ?? 0)}</span></div>
@@ -1370,6 +1782,8 @@ export default function App() {
   const [devToolStates, setDevToolStates] = useState<Record<string, DevToolState | null>>({});
   const [devToolsError, setDevToolsError] = useState<string | null>(null);
   const [selectedDevTool, setSelectedDevTool] = useState<DevTool | null>(null);
+  const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     void getSoftwareCatalog().then((entries) => {
@@ -1488,6 +1902,7 @@ export default function App() {
   }, [softwareItems]);
   const categoryChips = useMemo(() => orderedCategories(categoryCatalog, presentCategories), [categoryCatalog, presentCategories]);
   const updatesCount = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.toolState?.updateAvailable === true).length, [softwareItems]);
+  const updatableItems = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.toolState?.updateAvailable === true), [softwareItems]);
   const visibleSoftware = useMemo(() => softwareItems.filter((item) => {
     const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}`.toLowerCase();
     const textMatch = searchable.includes(query.toLowerCase());
@@ -1520,6 +1935,44 @@ export default function App() {
     }
   };
   const refreshAll = () => { void refresh(); void refreshInstallable(); void loadDevTools(); void loadCategories(); };
+  const applicationIdOf = (packageName: string) => catalogByPackage[packageName]?.applicationId;
+  const downloadProgressOf = (packageName: string): DownloadProgress | null => {
+    const state = downloads[packageName];
+    return state && (state.status === "downloading" || state.status === "verifying") ? state.progress : null;
+  };
+  const startDownload = async (applicationId: string, packageName: string, notify: { title: string; body: string }) => {
+    const current = downloads[packageName];
+    if (current && (current.status === "downloading" || current.status === "verifying" || current.status === "ready")) return;
+    setDownloads((prev) => ({ ...prev, [packageName]: { status: "downloading", progress: { packageName, phase: "downloading", transferredBytes: 0, totalBytes: 0, bytesPerSecond: 0 } } }));
+    try {
+      const result = await downloadPackage(applicationId, (progress) => {
+        setDownloads((prev) => ({ ...prev, [packageName]: { status: progress.phase === "verifying" ? "verifying" : "downloading", progress } }));
+      });
+      if (!result.verified) {
+        setDownloads((prev) => ({ ...prev, [packageName]: { status: "error", error: "安装包校验未通过，已停止，未更改系统。" } }));
+        return;
+      }
+      setDownloads((prev) => ({ ...prev, [packageName]: { status: "ready", result } }));
+      if (!document.hasFocus()) {
+        void notifyDownloadComplete(notify.title, notify.body).catch(() => { /* 通知失败不影响流程 */ });
+      }
+    } catch (reason) {
+      setDownloads((prev) => ({ ...prev, [packageName]: { status: "error", error: String(reason) } }));
+    }
+  };
+  const clearDownload = (packageName: string) => {
+    setDownloads((prev) => { const next = { ...prev }; delete next[packageName]; return next; });
+  };
+  const launchApp = (packageName: string) => {
+    const applicationId = catalogByPackage[packageName]?.applicationId;
+    if (!applicationId) { setNotice(`软件源中未找到 ${packageName} 的适配策略`); return; }
+    launchApplication(applicationId).catch((reason) => setNotice(String(reason)));
+  };
+  const showUpdatesPage = () => {
+    setPage("updates");
+    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
+    if (!installableOffers && !installableLoading) void refreshInstallable();
+  };
   const showInstalledPage = () => {
     setPage("installed");
     setInstallOffer(null); setUpdatePackage(null); setSelectedDevTool(null);
@@ -1547,11 +2000,13 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">U</span><strong>UManager</strong></div>
       <nav aria-label="主导航">
-        <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件管家</button>
+        <div className="nav-section">商店</div>
+        <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件</button>
+        <button className={`nav-item ${page === "updates" ? "active" : ""}`} onClick={showUpdatesPage}><Icon name="update"/>更新{updatesCount > 0 && <span className="nav-badge">{updatesCount}</span>}</button>
+        <div className="nav-section">工具</div>
         <button className={`nav-item ${page === "scripts" ? "active" : ""}`} onClick={showScriptsPage}><Icon name="script"/>维护脚本</button>
         <button className={`nav-item ${page === "dev" ? "active" : ""}`} onClick={showDevToolsPage}><Icon name="dev"/>开发环境</button>
         <button className={`nav-item ${page === "clipboard" ? "active" : ""}`} onClick={showClipboardPage}><Icon name="clipboard"/>剪贴板</button>
-        <button className="nav-item" disabled><Icon name="history"/>操作记录<span className="later">稍后</span></button>
       </nav>
       <div className="sidebar-spacer"/>
       <div className="safety-card"><Icon name="shield"/><div><strong>安全更新</strong><span>仅在确认授权后更改系统</span></div></div>
@@ -1560,36 +2015,62 @@ export default function App() {
     </aside>
 
     {page === "installed" ? <main className="workspace">
-      <header className="workspace-header"><div><h1>软件管家</h1><p>桌面应用、命令行工具与 AI 工具</p></div><div className="header-actions">{result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}<button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button></div></header>
-      <section className="software-panel">
+      <header className="workspace-header">
+        <div><h1>软件</h1><p>桌面应用、命令行工具与 AI 工具</p></div>
+        <div className="header-actions">
+          {result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}
+          <label className="store-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索软件"/></label>
+          <button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button>
+        </div>
+      </header>
+      <section className="software-panel store-panel">
         {pendingLocalDebError && <div className="message error"><strong>无法打开本地 .deb</strong><span>{pendingLocalDebError}</span></div>}
         <div className="category-bar">
           <button className={`category-chip ${categoryFilter === "全部" ? "active" : ""}`} onClick={() => setCategoryFilter("全部")}>全部</button>
           {categoryChips.map((category) => <button key={category} className={`category-chip ${categoryFilter === category ? "active" : ""}`} onClick={() => setCategoryFilter(category)}>{category}</button>)}
         </div>
-        <div className="panel-toolbar"><div className="filter-tabs">
-          <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button>
-          <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>已安装</button>
-          <button className={filter === "updates" ? "active" : ""} onClick={() => setFilter("updates")}>可更新 {updatesCount > 0 && <b>{updatesCount}</b>}</button>
-          <button className={filter === "installable" ? "active" : ""} onClick={() => setFilter("installable")}>可安装</button>
-        </div><label className="search-box"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索软件"/></label></div>
-        <div className="table-head"><span>软件</span><span>版本</span><span>来源</span><span>状态</span></div>
+        <div className="panel-toolbar">
+          <div className="filter-tabs segmented">
+            <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button>
+            <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>已安装</button>
+            <button className={filter === "updates" ? "active" : ""} onClick={() => setFilter("updates")}>可更新 {updatesCount > 0 && <b>{updatesCount}</b>}</button>
+            <button className={filter === "installable" ? "active" : ""} onClick={() => setFilter("installable")}>可安装</button>
+          </div>
+        </div>
         {error && <div className="message error"><strong>无法读取软件信息</strong><span>{error}</span></div>}
         {installableError && <div className="message error"><strong>无法读取可安装软件</strong><span>{installableError}</span></div>}
         {devToolsError && <div className="message error"><strong>无法读取 CLI 工具</strong><span>{devToolsError}</span></div>}
         {result?.warnings.map((warning) => <div className="message" key={warning}>{warning}</div>)}
         {!result && !installableOffers && !devTools && <div className="empty-state"><span className="loader"/><p>正在读取已安装与可安装软件…</p></div>}
         {result && visibleSoftware.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
-        <div className="package-list">{visibleSoftware.map((item) => item.kind === "deb"
-          ? <SoftwareRow item={item.deb!} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} filter={filter} key={item.key}/>
-          : <DevToolRow tool={item.tool!} state={item.toolState ?? null} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
+        <div className="app-grid">{visibleSoftware.map((item) => item.kind === "deb"
+          ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
+          : <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
+      </section>
+    </main> : page === "updates" ? <main className="workspace store-workspace">
+      <header className="workspace-header">
+        <div><h1>更新</h1><p>可用更新的软件与命令行工具</p></div>
+        <div className="header-actions">
+          <button className="secondary-button" onClick={() => setNotice("「全部更新」暂未实现，请逐项更新。")}>全部更新</button>
+          <button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button>
+        </div>
+      </header>
+      <section className="software-panel store-panel">
+        {error && <div className="message error"><strong>无法读取软件信息</strong><span>{error}</span></div>}
+        {installableError && <div className="message error"><strong>无法读取可安装软件</strong><span>{installableError}</span></div>}
+        {devToolsError && <div className="message error"><strong>无法读取 CLI 工具</strong><span>{devToolsError}</span></div>}
+        {!result && !installableOffers && !devTools && <div className="empty-state"><span className="loader"/><p>正在读取更新状态…</p></div>}
+        {result && updatableItems.length === 0 && <div className="empty-state"><p>所有软件均为最新版本。</p></div>}
+        <div className="app-grid">{updatableItems.map((item) => item.kind === "deb"
+          ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
+          : <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
       </section>
     </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)} onUpdate={() => setSelfUpdateOpen(true)}/>}
-    {updatePackage && <UpdateDrawer item={updatePackage} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()}/>}
+    {updatePackage && <UpdateDrawer item={updatePackage} download={downloads[updatePackage.packageName]} onStartDownload={(notify) => void startDownload(applicationIdOf(updatePackage.packageName) ?? "", updatePackage.packageName, notify)} onClearDownload={() => clearDownload(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
     {installOffer && (
-      <InstallDrawer offer={installOffer} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }}/>
+      <InstallDrawer offer={installOffer} download={downloads[installOffer.packageName]} onStartDownload={(notify) => void startDownload(installOffer.applicationId, installOffer.packageName, notify)} onClearDownload={() => clearDownload(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
     )}
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>
@@ -1600,5 +2081,6 @@ export default function App() {
     {selfUpdateOpen && installationInfo && (
       <SelfUpdateDialog info={installationInfo} onClose={() => setSelfUpdateOpen(false)} onUpdated={() => void refreshInstallationInfo()}/>
     )}
+    {notice && <div className="app-notice" role="status" onClick={() => setNotice(null)}><span>{notice}</span><button aria-label="关闭">×</button></div>}
   </div>;
 }

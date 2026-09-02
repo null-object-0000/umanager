@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -101,6 +101,37 @@ export function setNetworkSettings(settings: NetworkSettings): Promise<NetworkSe
   return invoke<NetworkSettings>("set_network_settings", { settings });
 }
 
+export function getLlmSettings(): Promise<LlmSettings> {
+  if (isMock()) return Promise.resolve({ enabled: false, baseUrl: "", apiKey: "", model: "" });
+  return invoke<LlmSettings>("get_llm_settings");
+}
+
+export function setLlmSettings(settings: LlmSettings): Promise<LlmSettings> {
+  if (isMock()) return Promise.resolve(settings);
+  return invoke<LlmSettings>("set_llm_settings", { settings });
+}
+
+export async function translateChangelog(text: string, requestId: string, onDelta: (delta: string) => void): Promise<string> {
+  if (isMock()) {
+    // In dev mock there is no Tauri backend; emit the whole text as one delta.
+    onDelta(text);
+    return text;
+  }
+  const unlisten = await listen<LlmTranslateDelta>("llm-translate-delta", ({ payload }) => {
+    if (payload.requestId === requestId) onDelta(payload.delta);
+  });
+  try {
+    return await invoke<string>("translate_changelog", { text, requestId });
+  } finally {
+    unlisten();
+  }
+}
+
+export function testLlmConnection(settings: LlmSettings): Promise<string> {
+  if (isMock()) return Promise.resolve("Hello");
+  return invoke<string>("test_llm_connection", { settings });
+}
+
 export function getFeedStatus(): Promise<FeedStatus> {
   if (isMock()) {
     return Promise.resolve({
@@ -187,6 +218,16 @@ export async function downloadPackage(applicationId: string, onProgress?: (progr
 
 export function createOperationPlan(applicationId: string): Promise<OperationPlanArtifact> {
   return invoke<OperationPlanArtifact>("create_operation_plan", { applicationId });
+}
+
+export function launchApplication(applicationId: string): Promise<void> {
+  if (isMock()) return Promise.resolve();
+  return invoke<void>("launch_application", { applicationId });
+}
+
+export function openExternalUrl(url: string): Promise<void> {
+  if (isMock()) return Promise.resolve();
+  return invoke<void>("open_external_url", { url });
 }
 
 export function runOperationDryRun(planId: string): Promise<DryRunReport> {

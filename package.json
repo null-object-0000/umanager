@@ -1,7 +1,7 @@
 {
   "name": "umanager",
   "private": true,
-  "version": "0.8.7",
+  "version": "0.8.8",
   "type": "module",
   "packageManager": "npm@11.17.0",
   "engines": {
@@ -14,12 +14,17 @@
     "build:helper": "cargo build --release --manifest-path crates/umanager-helper/Cargo.toml",
     "update-feed": "node scripts/update-feed.mjs",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.4",
