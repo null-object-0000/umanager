@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -153,6 +153,34 @@ export function getFeedStatus(): Promise<FeedStatus> {
 export function refreshFeed(): Promise<FeedStatus> {
   if (isMock()) return getFeedStatus();
   return invoke<FeedStatus>("refresh_feed");
+}
+
+export function getFeedSourceStatuses(): Promise<FeedSourceStatus[]> {
+  if (isMock()) {
+    return Promise.resolve([
+      {
+        sourceId: "tencent",
+        url: "https://null-object-0000.github.io/umanager/v3/feed.tencent.json",
+        enabled: true,
+        signatureVerified: true,
+        lastSuccessAtUnixSeconds: Math.floor(Date.now() / 1000) - 3600,
+        lastError: null,
+        applications: 4,
+        servingFromCache: false,
+      },
+      {
+        sourceId: "common",
+        url: "https://null-object-0000.github.io/umanager/v3/feed.common.json",
+        enabled: true,
+        signatureVerified: true,
+        lastSuccessAtUnixSeconds: Math.floor(Date.now() / 1000) - 3600,
+        lastError: null,
+        applications: 6,
+        servingFromCache: false,
+      },
+    ]);
+  }
+  return invoke<FeedSourceStatus[]>("get_feed_source_statuses");
 }
 
 export function getCategories(): Promise<CategoryCatalog | null> {

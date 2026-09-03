@@ -253,6 +253,19 @@ export interface FeedStatus {
   servingFromCache: boolean;
 }
 
+/// A discovered v3 software source (design §6.3): its registry entry + the
+/// per-source verification / refresh state surfaced in the 「软件源」 UI.
+export interface FeedSourceStatus {
+  sourceId: string;
+  url: string;
+  enabled: boolean;
+  signatureVerified: boolean;
+  lastSuccessAtUnixSeconds: number | null;
+  lastError: string | null;
+  applications: number;
+  servingFromCache: boolean;
+}
+
 export interface FeedCategory {
   id: string;
   label: string;

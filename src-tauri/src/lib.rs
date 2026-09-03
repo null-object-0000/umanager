@@ -411,6 +411,13 @@ async fn get_feed_status() -> Result<feed::FeedStatus, String> {
     Ok(feed::status())
 }
 
+/// Per-source status for the v3 「软件源」 registry (design §6.3). Empty for a
+/// v2 feed (no discoverable sources).
+#[tauri::command]
+async fn get_feed_source_statuses() -> Result<Vec<feed::FeedSourceStatus>, String> {
+    Ok(feed::source_statuses())
+}
+
 /// Force a metadata-feed refresh right now (used by the Settings "立即刷新"
 /// button) and return the updated status. The fetch error itself is surfaced via
 /// `FeedStatus.last_error`, so the caller always gets a coherent snapshot.
@@ -703,6 +710,7 @@ pub fn run() {
             translate_changelog,
             test_llm_connection,
             get_feed_status,
+            get_feed_source_statuses,
             refresh_feed,
             get_categories,
             list_scripts,

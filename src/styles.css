@@ -1482,3 +1482,12 @@ nav { display: grid; gap: 2px; }
   .app-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
   .header-actions time { display: none; }
 }
+
+/* v3 可发现源（「软件信息源」面板里的源列表） */
+.feed-sources { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+.feed-sources-title { color: var(--text-3); font-size: var(--fs-sm); letter-spacing: 0.02em; }
+.feed-source-row { padding: 10px 12px; border: 1px solid var(--hairline); border-radius: var(--radius-sm); background: var(--surface-1); }
+.feed-source-row.unverified { border-color: var(--red-soft); }
+.feed-source-name { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); }
+.feed-source-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; color: var(--text-3); font-size: var(--fs-sm); }
+.feed-source-meta span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

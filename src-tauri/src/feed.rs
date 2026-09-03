@@ -195,6 +195,26 @@ struct CachedFeed {
     feed: Feed,
 }
 
+/// A verified v3 source feed held in memory (v3 multi-source, design §6.1).
+#[derive(Clone)]
+struct CachedSourceFeed {
+    feed: Feed,
+}
+
+/// Per-source status surfaced to the 「软件源」 UI.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedSourceStatus {
+    pub source_id: String,
+    pub url: String,
+    pub enabled: bool,
+    pub signature_verified: bool,
+    pub last_success_at_unix_seconds: Option<u64>,
+    pub last_error: Option<String>,
+    pub applications: usize,
+    pub serving_from_cache: bool,
+}
+
 /// Whether the in-memory feed is recent enough to skip a network refresh.
 fn cached_feed_is_fresh(entry: &CachedFeed) -> bool {
     unix_timestamp_now().saturating_sub(entry.fetched_at_unix_seconds) < FEED_TTL.as_secs()
@@ -202,7 +222,9 @@ fn cached_feed_is_fresh(entry: &CachedFeed) -> bool {
 
 struct FeedState {
     cache: HashMap<String, CachedFeed>,
+    sources: HashMap<String, CachedSourceFeed>,
     status: FeedStatus,
+    source_status: HashMap<String, FeedSourceStatus>,
     catalog_json: Option<String>,
     catalog_signature: Option<String>,
     extra_applications: Vec<Application>,
@@ -242,7 +264,9 @@ fn state_lock() -> &'static Mutex<FeedState> {
         let catalog = Catalog::load().unwrap_or_else(|_| fallback_catalog());
         Mutex::new(FeedState {
             cache: HashMap::new(),
+            sources: HashMap::new(),
             status: initial_status(&catalog),
+            source_status: HashMap::new(),
             catalog_json: None,
             catalog_signature: None,
             extra_applications: Vec::new(),
@@ -375,7 +399,7 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
         let guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
         if let Some(entry) = guard.cache.get(&feed_url) {
             let stale = !cached_feed_is_fresh(entry);
-            let feed = entry.feed.clone();
+            let feed = merged_feed(&entry.feed, &guard.sources);
             drop(guard);
             if stale {
                 tauri::async_runtime::spawn(async move {
@@ -392,7 +416,7 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
         && let Some((feed, fetched_at, extra)) = load_disk_feed(cache_dir)
     {
         let stale = unix_timestamp_now().saturating_sub(fetched_at) >= FEED_TTL.as_secs();
-        {
+        let merged = {
             let state = state_lock();
             let mut guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
             guard.status = FeedStatus {
@@ -417,13 +441,14 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
                     feed: feed.clone(),
                 },
             );
-        }
+            merged_feed(&feed, &guard.sources)
+        };
         if stale {
             tauri::async_runtime::spawn(async move {
                 let _ = refresh_once(false).await;
             });
         }
-        return Ok(feed);
+        return Ok(merged);
     }
 
     // 3. Network — serialized so concurrent startup requests don't double-fetch.
@@ -450,30 +475,43 @@ async fn fetch_and_store(feed_config: &MetadataFeed) -> Result<Feed, String> {
                 // the freshly verified feed is still usable in memory.
                 let _ = persist_feed(cache_dir, &fetched, network_time).await;
             }
-            let mut guard = state_lock().lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
-            guard.status = FeedStatus {
-                configured: true,
-                url: Some(feed_config.url.clone()),
-                signature_enforced: true,
-                signature_verified: fetched.signature_verified,
-                last_success_at_unix_seconds: Some(network_time),
-                generated_at_unix_seconds: Some(fetched.feed.generated_at_unix_seconds),
-                applications: fetched.feed.applications.len(),
-                development_tools: fetched.feed.development_tools.len(),
-                last_error: None,
-                serving_from_cache: false,
+            {
+                let mut guard = state_lock().lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+                guard.status = FeedStatus {
+                    configured: true,
+                    url: Some(feed_config.url.clone()),
+                    signature_enforced: true,
+                    signature_verified: fetched.signature_verified,
+                    last_success_at_unix_seconds: Some(network_time),
+                    generated_at_unix_seconds: Some(fetched.feed.generated_at_unix_seconds),
+                    applications: fetched.feed.applications.len(),
+                    development_tools: fetched.feed.development_tools.len(),
+                    last_error: None,
+                    serving_from_cache: false,
+                };
+                guard.catalog_json = fetched.feed.catalog_json.clone();
+                guard.catalog_signature = fetched.feed.catalog_signature.clone();
+                guard.extra_applications = extra;
+                guard.cache.insert(
+                    feed_config.url.clone(),
+                    CachedFeed {
+                        fetched_at_unix_seconds: network_time,
+                        feed: fetched.feed.clone(),
+                    },
+                );
+                // A new central may have changed the registry; drop stale sources.
+                guard.sources.clear();
+                guard.source_status.clear();
+            }
+            // v3: fetch + verify each enabled source feed (network, no lock held).
+            if !fetched.feed.sources.is_empty() {
+                refresh_v3_sources(&fetched.feed, network_time).await;
+            }
+            let merged = {
+                let guard = state_lock().lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+                merged_feed(&fetched.feed, &guard.sources)
             };
-            guard.catalog_json = fetched.feed.catalog_json.clone();
-            guard.catalog_signature = fetched.feed.catalog_signature.clone();
-            guard.extra_applications = extra;
-            guard.cache.insert(
-                feed_config.url.clone(),
-                CachedFeed {
-                    fetched_at_unix_seconds: network_time,
-                    feed: fetched.feed.clone(),
-                },
-            );
-            Ok(fetched.feed)
+            Ok(merged)
         }
         Err(error) => {
             if let Ok(mut guard) = state_lock().lock() {
@@ -536,8 +574,20 @@ pub async fn effective_applications() -> Result<Vec<Application>, String> {
     let catalog = Catalog::load()?;
     let mut applications = catalog.applications.clone();
     let feed = load(&catalog).await?;
-    let extra = parse_extra_applications(&feed)?;
-    for extra_app in extra {
+    for extra_app in parse_extra_applications(&feed)? {
+        if !applications
+            .iter()
+            .any(|existing| existing.application_id == extra_app.application_id)
+        {
+            applications.push(extra_app);
+        }
+    }
+    // v3: non-central source apps arrive via each source's own signed catalog.
+    let source_extras = {
+        let guard = state_lock().lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+        source_extra_applications(&guard)
+    };
+    for extra_app in source_extras {
         if !applications
             .iter()
             .any(|existing| existing.application_id == extra_app.application_id)
@@ -560,6 +610,194 @@ pub async fn effective_catalog() -> Result<Catalog, String> {
 pub fn catalog_auth() -> Option<(String, String)> {
     let guard = state_lock().lock().ok()?;
     Some((guard.catalog_json.clone()?, guard.catalog_signature.clone()?))
+}
+
+/// Source chain the main program needs to build a v3 plan for an application
+/// that came from a non-central source (design §5/§6.2). Populated from the
+/// central registry entry (source_ref + endorsement) and the verified source
+/// feed's own signed catalog.
+#[derive(Clone, Debug)]
+pub struct SourceCatalogAuth {
+    pub source_ref: umanager_plan::SourceRef,
+    pub endorsement: String,
+    pub catalog_json: String,
+    pub catalog_signature: String,
+}
+
+/// The v3 central registry (from the most recent verified central feed).
+fn central_registry(guard: &FeedState) -> Vec<FeedSourceInfo> {
+    guard
+        .cache
+        .values()
+        .find_map(|entry| (!entry.feed.sources.is_empty()).then(|| entry.feed.sources.clone()))
+        .unwrap_or_default()
+}
+
+/// Per-source status for the 「软件源」 UI, in central registry order.
+pub fn source_statuses() -> Vec<FeedSourceStatus> {
+    let Ok(guard) = state_lock().lock() else {
+        return Vec::new();
+    };
+    let registry = central_registry(&guard);
+    registry
+        .into_iter()
+        .map(|source| {
+            let state = guard.source_status.get(&source.id);
+            let stored = guard.sources.get(&source.id);
+            FeedSourceStatus {
+                source_id: source.id,
+                url: source.url,
+                enabled: source.default_enabled,
+                signature_verified: state.is_some_and(|s| s.signature_verified),
+                last_success_at_unix_seconds: state.and_then(|s| s.last_success_at_unix_seconds),
+                last_error: state.and_then(|s| s.last_error.clone()),
+                applications: stored.map(|c| c.feed.applications.len()).unwrap_or(0),
+                serving_from_cache: stored.is_some(),
+            }
+        })
+        .collect()
+}
+
+/// The feed the app actually reads: for a v2 central this is the central feed
+/// itself; for a v3 central (thin, no applications) it is the union of the
+/// verified source feeds' applications, with selfUpdate / tools / categories /
+/// the registry carried over from the central feed.
+fn merged_feed(central: &Feed, sources: &HashMap<String, CachedSourceFeed>) -> Feed {
+    if central.sources.is_empty() {
+        return central.clone();
+    }
+    let mut applications = HashMap::new();
+    for source in &central.sources {
+        if let Some(cache) = sources.get(&source.id) {
+            for (id, entry) in &cache.feed.applications {
+                applications.entry(id.clone()).or_insert_with(|| entry.clone());
+            }
+        }
+    }
+    Feed {
+        schema_version: central.schema_version,
+        generated_at_unix_seconds: central.generated_at_unix_seconds,
+        applications,
+        catalog_json: central.catalog_json.clone(),
+        catalog_signature: central.catalog_signature.clone(),
+        self_update: central.self_update.clone(),
+        development_tools: central.development_tools.clone(),
+        categories: central.categories.clone(),
+        category_assignments: central.category_assignments.clone(),
+        source: central.source.clone(),
+        sources: central.sources.clone(),
+    }
+}
+
+/// Fetch + verify every enabled v3 source feed and store it (with per-source
+/// status) next to the central feed. Best-effort: a failing source never fails
+/// the whole refresh — its applications simply stay absent (or come from a
+/// previously cached copy) this round.
+async fn refresh_v3_sources(central: &Feed, now: u64) {
+    let fetched: Vec<(FeedSourceInfo, Result<FetchedFeed, String>)> = {
+        let mut results = Vec::new();
+        for source in &central.sources {
+            let outcome = if source.default_enabled {
+                fetch_source_feed(source).await
+            } else {
+                Err("源已停用".to_owned())
+            };
+            results.push((source.clone(), outcome));
+        }
+        results
+    };
+    let Ok(mut guard) = state_lock().lock() else {
+        return;
+    };
+    for (source, outcome) in fetched {
+        match outcome {
+            Ok(fetched) => {
+                guard.sources.insert(
+                    source.id.clone(),
+                    CachedSourceFeed {
+                        feed: fetched.feed.clone(),
+                    },
+                );
+                guard.source_status.insert(
+                    source.id.clone(),
+                    FeedSourceStatus {
+                        source_id: source.id.clone(),
+                        url: source.url.clone(),
+                        enabled: true,
+                        signature_verified: true,
+                        last_success_at_unix_seconds: Some(now),
+                        last_error: None,
+                        applications: fetched.feed.applications.len(),
+                        serving_from_cache: false,
+                    },
+                );
+            }
+            Err(error) => {
+                let applications = guard
+                    .sources
+                    .get(&source.id)
+                    .map(|entry| entry.feed.applications.len())
+                    .unwrap_or(0);
+                let serving_from_cache = guard.sources.contains_key(&source.id);
+                guard.source_status.insert(
+                    source.id.clone(),
+                    FeedSourceStatus {
+                        source_id: source.id.clone(),
+                        url: source.url.clone(),
+                        enabled: true,
+                        signature_verified: false,
+                        last_success_at_unix_seconds: None,
+                        last_error: Some(error),
+                        applications,
+                        serving_from_cache,
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// Feed-added applications contributed by the v3 sources' own signed catalogs.
+fn source_extra_applications(guard: &FeedState) -> Vec<Application> {
+    let mut apps = Vec::new();
+    for source in central_registry(guard) {
+        if let Some(cache) = guard.sources.get(&source.id)
+            && let Ok(mut parsed) = parse_extra_applications(&cache.feed)
+        {
+            apps.append(&mut parsed);
+        }
+    }
+    apps
+}
+
+/// Locate the source chain (sourceRef + endorsement + source catalog) for an
+/// application so the main program can build a v3 plan for a non-central source
+/// app. Returns `None` for central-source or unknown applications.
+pub fn source_catalog_auth_for(application_id: &str) -> Option<SourceCatalogAuth> {
+    let guard = state_lock().lock().ok()?;
+    for source in central_registry(&guard) {
+        let Some(cache) = guard.sources.get(&source.id) else { continue };
+        let Some(catalog_json) = cache.feed.catalog_json.as_ref() else { continue };
+        let Some(catalog_signature) = cache.feed.catalog_signature.as_ref() else { continue };
+        let Some(endorsement) = source.endorsement.as_ref() else { continue };
+        let in_catalog = serde_json::from_str::<Vec<Application>>(catalog_json)
+            .ok()
+            .is_some_and(|apps| apps.iter().any(|app| app.application_id == application_id));
+        if !in_catalog {
+            continue;
+        }
+        return Some(SourceCatalogAuth {
+            source_ref: umanager_plan::SourceRef {
+                source_id: source.id,
+                feed_url: source.url,
+                public_key_hex: source.public_key_hex,
+            },
+            endorsement: endorsement.clone(),
+            catalog_json: catalog_json.clone(),
+            catalog_signature: catalog_signature.clone(),
+        });
+    }
+    None
 }
 
 /// Display-only software categories from the signed feed. Returns `None` when
@@ -603,17 +841,24 @@ pub async fn self_update_entry() -> Result<Option<FeedApplicationEntry>, String>
 
 async fn fetch(feed_config: &MetadataFeed) -> Result<FetchedFeed, String> {
     let hosts = feed_config.hosts.clone();
-    let client = crate::source_engine::restricted_client(&hosts, Duration::from_secs(20))?;
+    fetch_feed_at(&feed_config.url, &hosts, FEED_PUBLIC_KEY_HEX).await
+}
+
+/// Fetch a feed at any level (the central feed or a v3 source feed), verify its
+/// `.sig` against `public_key_hex`, and validate the payload. `hosts` is the
+/// exact-allowlist for this URL and any redirect target.
+async fn fetch_feed_at(url: &str, hosts: &[String], public_key_hex: &str) -> Result<FetchedFeed, String> {
+    let client = crate::source_engine::restricted_client(hosts, Duration::from_secs(20))?;
 
     let response = client
-        .get(&feed_config.url)
+        .get(url)
         .send()
         .await
         .map_err(|error| format!("读取元数据源失败：{error}"))?
         .error_for_status()
         .map_err(|error| format!("元数据源返回错误：{error}"))?;
     if response.url().scheme() != "https"
-        || !crate::source_engine::host_allowed(response.url().host_str(), &hosts)
+        || !crate::source_engine::host_allowed(response.url().host_str(), hosts)
     {
         return Err("元数据源重定向到未授权域名".to_owned());
     }
@@ -631,7 +876,7 @@ async fn fetch(feed_config: &MetadataFeed) -> Result<FetchedFeed, String> {
         return Err("元数据源响应大小异常".to_owned());
     }
 
-    let signature_hex = verify_feed_signature(&client, &feed_config.url, &hosts, &bytes).await?;
+    let signature_hex = verify_feed_signature_at(&client, url, hosts, &bytes, public_key_hex).await?;
     let raw_json = String::from_utf8(bytes.to_vec())
         .map_err(|_| "元数据源内容不是有效的 UTF-8".to_owned())?;
     let feed: Feed = serde_json::from_str(&raw_json)
@@ -645,11 +890,18 @@ async fn fetch(feed_config: &MetadataFeed) -> Result<FetchedFeed, String> {
     })
 }
 
-async fn verify_feed_signature(
+/// Fetch one v3 source feed and verify it against the source's own public key.
+async fn fetch_source_feed(source: &FeedSourceInfo) -> Result<FetchedFeed, String> {
+    let hosts = source.hosts.clone();
+    fetch_feed_at(&source.url, &hosts, &source.public_key_hex).await
+}
+
+async fn verify_feed_signature_at(
     client: &reqwest::Client,
     feed_url: &str,
     hosts: &[String],
     message: &[u8],
+    public_key_hex: &str,
 ) -> Result<String, String> {
     let signature_url = format!("{feed_url}.sig");
     let response = client
@@ -669,12 +921,16 @@ async fn verify_feed_signature(
         .await
         .map_err(|error| format!("读取元数据源签名内容失败：{error}"))?;
     let signature_hex = signature_hex.trim().to_owned();
-    verify_ed25519(message, &signature_hex)?;
+    verify_ed25519_with(message, &signature_hex, public_key_hex)?;
     Ok(signature_hex)
 }
 
 fn verify_ed25519(message: &[u8], signature_hex: &str) -> Result<(), String> {
-    let key_bytes = decode_hex_32(FEED_PUBLIC_KEY_HEX)?;
+    verify_ed25519_with(message, signature_hex, FEED_PUBLIC_KEY_HEX)
+}
+
+fn verify_ed25519_with(message: &[u8], signature_hex: &str, public_key_hex: &str) -> Result<(), String> {
+    let key_bytes = decode_hex_32(public_key_hex)?;
     let signature_bytes = decode_hex_64(signature_hex)?;
     let public_key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &key_bytes);
     public_key
@@ -965,5 +1221,61 @@ mod tests {
         let v4 = r#"{ "schemaVersion": 4, "generatedAtUnixSeconds": 1750000000, "applications": {} }"#;
         let feed: Feed = serde_json::from_str(v4).unwrap();
         assert!(validate(&feed).is_err(), "unsupported schemaVersion should be rejected");
+    }
+
+    #[test]
+    fn merged_feed_unions_source_applications_in_registry_order() {
+        let central = r#"{
+            "schemaVersion": 3,
+            "generatedAtUnixSeconds": 1750000000,
+            "source": { "id": "umanager", "url": "https://e.com/v3/feed.json", "hosts": ["e.com"],
+                        "publicKeyHex": "57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9" },
+            "sources": [
+                { "id": "tencent", "url": "https://e.com/v3/feed.tencent.json", "hosts": ["e.com"],
+                  "publicKeyHex": "67ccb44779ca8123b844dccf62b42d8e4a9139eeefd8d7f3cbd11e9940dd25b5" },
+                { "id": "common", "url": "https://e.com/v3/feed.common.json", "hosts": ["e.com"],
+                  "publicKeyHex": "35a2e5a3961d01d952ea45da7e7fd3238dedda2d431c26bbc3bf07f12929ffee" }
+            ],
+            "selfUpdate": null, "developmentTools": {}, "applications": {}
+        }"#;
+        let central: Feed = serde_json::from_str(central).unwrap();
+        let mut sources = HashMap::new();
+        sources.insert(
+            "tencent".to_owned(),
+            CachedSourceFeed {
+                feed: Feed {
+                    schema_version: 3,
+                    generated_at_unix_seconds: 100,
+                    applications: HashMap::from([
+                        ("qq".to_owned(), FeedApplicationEntry { package_name: "linuxqq".to_owned(), version: "3.2".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "a".to_owned(), download_url: "https://x/qq.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
+                        ("wechat".to_owned(), FeedApplicationEntry { package_name: "wechat".to_owned(), version: "4.0".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "b".to_owned(), download_url: "https://x/wx.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
+                    ]),
+                    catalog_json: None, catalog_signature: None, self_update: None, development_tools: HashMap::new(), categories: Vec::new(), category_assignments: FeedCategoryAssignments { applications: HashMap::new(), development_tools: HashMap::new() }, source: None, sources: Vec::new(),
+                },
+            },
+        );
+        sources.insert(
+            "common".to_owned(),
+            CachedSourceFeed {
+                feed: Feed {
+                    schema_version: 3,
+                    generated_at_unix_seconds: 100,
+                    applications: HashMap::from([
+                        ("wechat".to_owned(), FeedApplicationEntry { package_name: "wechat".to_owned(), version: "9.9".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "c".to_owned(), download_url: "https://x/wx2.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
+                        ("obsidian".to_owned(), FeedApplicationEntry { package_name: "obsidian".to_owned(), version: "1.6".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "d".to_owned(), download_url: "https://x/obs.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
+                    ]),
+                    catalog_json: None, catalog_signature: None, self_update: None, development_tools: HashMap::new(), categories: Vec::new(), category_assignments: FeedCategoryAssignments { applications: HashMap::new(), development_tools: HashMap::new() }, source: None, sources: Vec::new(),
+                },
+            },
+        );
+        let merged = merged_feed(&central, &sources);
+        // Registry order wins: tencent supplies wechat (version 4.0), not common's 9.9.
+        assert_eq!(merged.applications.len(), 3);
+        assert_eq!(merged.applications["wechat"].version, "4.0");
+        assert_eq!(merged.applications["qq"].package_name, "linuxqq");
+        assert_eq!(merged.applications["obsidian"].version, "1.6");
+        // selfUpdate / registry carried from the thin central.
+        assert!(merged.self_update.is_none());
+        assert_eq!(merged.sources.len(), 2);
     }
 }

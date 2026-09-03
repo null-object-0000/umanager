@@ -6,8 +6,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
@@ -607,6 +607,7 @@ function LlmSettingsPanel() {
 
 function FeedStatusPanel() {
   const [status, setStatus] = useState<FeedStatus | null>(null);
+  const [sources, setSources] = useState<FeedSourceStatus[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -617,6 +618,9 @@ function FeedStatusPanel() {
       .then((value) => setStatus(value))
       .catch((reason) => setError(String(reason)))
       .finally(() => setLoading(false));
+    getFeedSourceStatuses()
+      .then((value) => setSources(value))
+      .catch(() => setSources(null));
   };
 
   useEffect(() => { load(); }, []);
@@ -627,6 +631,9 @@ function FeedStatusPanel() {
       .then((value) => setStatus(value))
       .catch((reason) => setError(String(reason)))
       .finally(() => setRefreshing(false));
+    getFeedSourceStatuses()
+      .then((value) => setSources(value))
+      .catch(() => setSources(null));
   };
 
   const healthy = status?.configured && !status.lastError;
@@ -656,6 +663,23 @@ function FeedStatusPanel() {
         <div><dt>覆盖</dt><dd>{status ? `${status.applications} 个应用 · ${status.developmentTools} 个开发工具` : "—"}</dd></div>
         <div><dt>签名</dt><dd>{status?.signatureVerified ? "Ed25519 已校验" : (status?.signatureEnforced ? "校验失败" : "未启用")}</dd></div>
       </dl>
+      {sources && sources.length > 0 && (
+        <div className="feed-sources">
+          <div className="feed-sources-title">发现的可发现源（v3）</div>
+          {sources.map((source) => (
+            <div className={`feed-source-row ${source.signatureVerified ? "" : "unverified"}`} key={source.sourceId}>
+              <div className="feed-source-name">{source.sourceId}<span className={`install-kind-badge ${source.enabled ? "" : "unknown"}`}>{source.enabled ? "已启用" : "停用"}</span></div>
+              <div className="feed-source-meta">
+                <span>{source.signatureVerified ? "已验签" : "验签失败"}</span>
+                <span>{source.applications} 个应用</span>
+                <span>{source.servingFromCache ? "使用本地缓存" : "本次联网获取"}</span>
+                <span title={source.url}>{source.url.replace(/^https:\/\//, "")}</span>
+              </div>
+              {source.lastError && <div className="inline-error">{source.lastError}</div>}
+            </div>
+          ))}
+        </div>
+      )}
     </>}
   </section>;
 }

@@ -83,7 +83,7 @@ pub async fn create_install_plan(
     // from a pinned official URL and installed with a fixed `dpkg --install`, so the
     // website (feed-verified) helper action is used for all of them.
     let action = OperationAction::InstallVerifiedWebsiteDeb;
-    let (catalog_json, catalog_signature) = signed_catalog_auth(app)?;
+    let (catalog_json, catalog_signature, source_ref, source_endorsement, source_catalog_json, source_catalog_signature) = plan_catalog_auth(app)?;
     let created = unix_timestamp();
     let plan = OperationPlan::new(PlanPayload {
         schema_version: PLAN_SCHEMA_VERSION,
@@ -100,10 +100,10 @@ pub async fn create_install_plan(
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
         catalog_json,
         catalog_signature,
-        source_ref: None,
-        source_endorsement: None,
-        source_catalog_json: None,
-        source_catalog_signature: None,
+        source_ref,
+        source_endorsement,
+        source_catalog_json,
+        source_catalog_signature,
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {
@@ -113,16 +113,42 @@ pub async fn create_install_plan(
     })
 }
 
-/// Returns the signed catalog auth pair when the application was added by the
-/// metadata feed (rather than compiled into the embedded catalog).
-fn signed_catalog_auth(app: &Application) -> Result<(Option<String>, Option<String>), String> {
+/// Returns the signed-catalog auth to embed in a plan for a feed-added
+/// application. Central-source apps carry the central `catalog_json`+signature
+/// pair; a non-central-source app instead carries the v3 source chain (the
+/// source's own catalog + signature, endorsed by the central key). Built-in
+/// (embedded-catalog) applications need none of these.
+fn plan_catalog_auth(
+    app: &Application,
+) -> Result<
+    (
+        Option<String>,
+        Option<String>,
+        Option<umanager_plan::SourceRef>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ),
+    String,
+> {
     let embedded = Catalog::load()?;
     if embedded.by_application_id(&app.application_id).is_some() {
-        return Ok((None, None));
+        return Ok((None, None, None, None, None, None));
     }
-    crate::feed::catalog_auth()
-        .map(|(json, signature)| (Some(json), Some(signature)))
-        .ok_or_else(|| "无法取得该应用已签名的软件源目录".to_owned())
+    if let Some(auth) = crate::feed::source_catalog_auth_for(&app.application_id) {
+        return Ok((
+            None,
+            None,
+            Some(auth.source_ref),
+            Some(auth.endorsement),
+            Some(auth.catalog_json),
+            Some(auth.catalog_signature),
+        ));
+    }
+    match crate::feed::catalog_auth() {
+        Some((json, signature)) => Ok((Some(json), Some(signature), None, None, None, None)),
+        None => Err("无法取得该应用已签名的软件源目录".to_owned()),
+    }
 }
 
 fn ensure_installable_transition(
@@ -157,7 +183,7 @@ pub fn create_removal_plan(
         .iter()
         .find(|item| item.package_name == package_name)
         .ok_or_else(|| "软件包未安装或已不再由 UManager 管理".to_owned())?;
-    let (catalog_json, catalog_signature) = signed_catalog_auth(application)?;
+    let (catalog_json, catalog_signature, source_ref, source_endorsement, source_catalog_json, source_catalog_signature) = plan_catalog_auth(application)?;
     let created = unix_timestamp();
     let plan = RemovalPlan::new(RemovalPlanPayload {
         schema_version: PLAN_SCHEMA_VERSION,
@@ -170,10 +196,10 @@ pub fn create_removal_plan(
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
         catalog_json,
         catalog_signature,
-        source_ref: None,
-        source_endorsement: None,
-        source_catalog_json: None,
-        source_catalog_signature: None,
+        source_ref,
+        source_endorsement,
+        source_catalog_json,
+        source_catalog_signature,
     })?;
     let plan_path = persist_immutable_removal_plan(&cache_dir.join("plans"), &plan)?;
     Ok(RemovalPlanArtifact {
