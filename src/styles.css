@@ -721,8 +721,6 @@ nav { display: grid; gap: 2px; }
 .detail-hero-title { margin: 0 0 6px; font-size: var(--fs-3xl); font-weight: 700; letter-spacing: -0.02em; color: var(--text); }
 .detail-hero-subtitle { color: var(--text-3); font-size: var(--fs-base); }
 .detail-hero-desc { margin: 14px 0 0; color: var(--text-2); font-size: var(--fs-md); line-height: 1.5; max-width: 560px; }
-.detail-homepage-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; color: var(--accent); font-size: var(--fs-md); font-weight: 550; text-decoration: none; }
-.detail-homepage-link:hover { text-decoration: underline; }
 .detail-hero-action { flex: none; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
 
 .hero-button {
@@ -847,6 +845,9 @@ nav { display: grid; gap: 2px; }
 .info-panel dt { color: var(--text-3); font-size: var(--fs-sm); }
 .info-panel dd { margin: 0; overflow: hidden; color: var(--text); font: 600 var(--fs-sm) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .info-panel dd:not(.mono) { font-family: inherit; }
+.info-homepage-link { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--accent); font: 600 var(--fs-sm) var(--font-mono); text-decoration: none; }
+.info-homepage-link:hover { text-decoration: underline; }
+.info-homepage-link .ui-icon { flex: none; width: 13px; height: 13px; color: var(--accent); }
 
 .detail-section { padding: 20px 0; border-bottom: 1px solid var(--hairline); }
 .detail-section:last-child { border-bottom: 0; }
@@ -1193,8 +1194,6 @@ nav { display: grid; gap: 2px; }
 .dependency-warning li code { color: var(--yellow-text); font-family: var(--font-mono); font-size: var(--fs-sm); }
 .dependency-warning p { margin: 2px 0 0; color: var(--yellow-text); font-size: var(--fs-sm); line-height: 1.5; }
 
-.self-removal-dialog code { font: 600 var(--fs-sm) var(--font-mono); }
-
 /* =============================================================================
    Settings
    ========================================================================== */
@@ -1242,14 +1241,6 @@ nav { display: grid; gap: 2px; }
 
 .installation-description { display: flex; align-items: flex-start; gap: 9px; margin: 14px 0 0; padding: 13px 14px; color: var(--green-text); border-radius: var(--radius-sm); background: var(--green-soft); font-size: var(--fs-base); line-height: 1.55; }
 .installation-description .ui-icon { width: 17px; height: 17px; margin-top: 1px; flex: none; }
-
-.danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 22px; padding: 18px; border: 1px solid rgba(255, 59, 48, 0.2); border-radius: var(--radius-md); background: #fffafa; }
-.danger-zone > div { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
-.danger-zone strong { color: var(--red-text); font-size: var(--fs-md); }
-.danger-zone span { color: var(--text-2); font-size: var(--fs-base); line-height: 1.5; }
-.self-remove-button { min-width: 110px; height: 34px; padding: 0 13px; color: var(--red); border: 1px solid rgba(255, 59, 48, 0.35); border-radius: var(--radius-pill); background: #fff; font-size: var(--fs-base); font-weight: 600; }
-.self-remove-button:hover:not(:disabled) { color: #fff; border-color: var(--red); background: var(--red); }
-.self-remove-button:disabled { opacity: 0.5; }
 
 /* =============================================================================
    Operation log / terminal

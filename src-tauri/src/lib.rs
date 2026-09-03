@@ -112,7 +112,7 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
                             source_kind: details.source_kind,
                             source_url: Some(details.source_url.clone()),
                             update_state: details.update_state,
-                            homepage: None,
+                            homepage: self_app.homepage.clone(),
                         });
                         result
                             .packages
@@ -607,7 +607,11 @@ async fn create_removal_operation_plan(
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
     let catalog = feed::effective_catalog().await?;
     tauri::async_runtime::spawn_blocking(move || {
-        operation_plan::create_removal_plan(&catalog, &cache_dir, &package_name)
+        if package_name == installation::PACKAGE_NAME {
+            operation_plan::create_self_removal_plan(&cache_dir)
+        } else {
+            operation_plan::create_removal_plan(&catalog, &cache_dir, &package_name)
+        }
     })
     .await
     .map_err(|error| format!("卸载计划任务异常结束：{error}"))?
@@ -647,57 +651,6 @@ async fn remove_managed_package(
     })
     .await
     .map_err(|error| format!("卸载任务异常结束：{error}"))?
-}
-
-#[tauri::command]
-async fn create_self_removal_operation_plan(
-    app: tauri::AppHandle,
-) -> Result<operation_plan::RemovalPlanArtifact, String> {
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    tauri::async_runtime::spawn_blocking(move || {
-        operation_plan::create_self_removal_plan(&cache_dir)
-    })
-    .await
-    .map_err(|error| format!("UManager 卸载计划任务异常结束：{error}"))?
-}
-
-#[tauri::command]
-async fn run_self_removal_dry_run(
-    app: tauri::AppHandle,
-    plan_id: String,
-) -> Result<serde_json::Value, String> {
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    tauri::async_runtime::spawn_blocking(move || {
-        operation_plan::run_self_removal_dry_run(&cache_dir, &plan_id)
-    })
-    .await
-    .map_err(|error| format!("UManager 卸载前复核任务异常结束：{error}"))?
-}
-
-#[tauri::command]
-async fn remove_umanager(
-    app: tauri::AppHandle,
-    plan_id: String,
-) -> Result<serde_json::Value, String> {
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    let event_app = app.clone();
-    let progress: operation_plan::ProgressCallback = std::sync::Arc::new(move |payload| {
-        let _ = event_app.emit("operation-progress", payload);
-    });
-    tauri::async_runtime::spawn_blocking(move || {
-        operation_plan::execute_self_removal(&cache_dir, &plan_id, progress)
-    })
-    .await
-    .map_err(|error| format!("UManager 卸载任务异常结束：{error}"))?
 }
 
 #[tauri::command]
@@ -786,9 +739,6 @@ pub fn run() {
             create_removal_operation_plan,
             run_removal_dry_run,
             remove_managed_package,
-            create_self_removal_operation_plan,
-            run_self_removal_dry_run,
-            remove_umanager,
             notify_download_complete,
             session::get_session_info,
             panel::hide_clipboard_panel,

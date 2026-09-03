@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, createSelfRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, refreshFeed, removeManagedPackage, removeUmanager, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, runSelfRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -23,13 +23,14 @@ import piIcon from "./assets/app-icons/pi.svg?no-inline";
 import codexIcon from "./assets/app-icons/codex.svg?no-inline";
 import githubCliIcon from "./assets/app-icons/github-cli.svg?no-inline";
 import dshIcon from "./assets/app-icons/dsh.svg?no-inline";
+import hermesIcon from "./assets/app-icons/hermes.svg?no-inline";
 import feishuIcon from "./assets/app-icons/feishu.png";
 import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 
 type Filter = "all" | "installed" | "updates" | "installable";
 type Page = "installed" | "updates" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
+const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
@@ -54,7 +55,7 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
@@ -67,6 +68,7 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back
     shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></>,
     dev: <><path d="M8 6 3 12l5 6M16 6l5 6-5 6M14 4l-4 16"/></>,
     script: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></>,
+    external: <><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/></>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -115,13 +117,12 @@ function useModalFocus<T extends HTMLElement>(onClose: () => void, canClose: boo
   return ref;
 }
 
-function DetailShell({ label, icon, title, subtitle, description, homepage, action, canClose, onClose, children }: {
+function DetailShell({ label, icon, title, subtitle, description, action, canClose, onClose, children }: {
   label: string;
   icon: ReactNode;
   title: string;
   subtitle: string;
   description?: string | null;
-  homepage?: string | null;
   action?: ReactNode;
   canClose: boolean;
   onClose: () => void;
@@ -138,7 +139,6 @@ function DetailShell({ label, icon, title, subtitle, description, homepage, acti
             <h1 className="detail-hero-title">{title}</h1>
             <span className="detail-hero-subtitle">{subtitle}</span>
             {description && <p className="detail-hero-desc">{description}</p>}
-            {homepage && <a className="detail-homepage-link" href={homepage} onClick={(event) => { event.preventDefault(); void openExternalUrl(homepage); }}>前往官网</a>}
           </div>
           {action && <div className="detail-hero-action">{action}</div>}
         </header>
@@ -423,6 +423,7 @@ function LocalDebDialog({ initial, onClose, onInstalled }: { initial: LocalDebIn
 }
 
 function RemovalDialog({ item, onClose, onRemoved }: { item: ManagedPackage; onClose: () => void; onRemoved: () => void }) {
+  const isSelfRemoval = item.packageName === "u-manager";
   const [confirmed, setConfirmed] = useState(false);
   const [plan, setPlan] = useState<RemovalPlanArtifact | null>(null);
   const [dryRun, setDryRun] = useState<RemovalExecutionReport | null>(null);
@@ -438,57 +439,21 @@ function RemovalDialog({ item, onClose, onRemoved }: { item: ManagedPackage; onC
   const focusRef = useModalFocus<HTMLElement>(onClose, busy === null);
   return <div className="local-deb-layer">
     <section className="local-deb-dialog removal-dialog" role="dialog" aria-modal="true" aria-label={`卸载 ${item.displayName}`} ref={focusRef} tabIndex={-1}>
-      <header><div><AppMark item={item}/><div><h2>卸载 {item.displayName}</h2><p>{item.vendor} · {item.packageName}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+      <header><div>{isSelfRemoval ? <span className="brand-mark">U</span> : <AppMark item={item}/>}<div><h2>卸载 {item.displayName}</h2><p>{item.vendor} · {item.packageName}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
       <div className="local-deb-content">
-        <div className="removal-warning"><strong>这会从系统中移除该软件</strong><span>UManager 不会请求 purge、自动删除依赖或直接删除你的个人目录；但 Debian 包自带的卸载脚本仍会以 root 权限运行。</span></div>
+        <div className="removal-warning"><strong>{isSelfRemoval ? "这会移除 UManager 程序本身" : "这会从系统中移除该软件"}</strong><span>{isSelfRemoval ? "只执行固定的 /usr/bin/dpkg --remove u-manager；不会请求 purge，也不会删除 UManager 缓存、下载的软件包、操作计划或你的个人文件。" : "UManager 不会请求 purge、自动删除依赖或直接删除你的个人目录；但 Debian 包自带的卸载脚本仍会以 root 权限运行。"}</span></div>
         <dl className="local-deb-facts">
-          <div><dt>包名</dt><dd>{item.packageName}</dd></div><div><dt>动作</dt><dd>dpkg --remove</dd></div>
+          <div><dt>包名</dt><dd>{item.packageName}</dd></div><div><dt>动作</dt><dd>{isSelfRemoval ? "remove-umanager" : "dpkg --remove"}</dd></div>
           <div><dt>已安装</dt><dd>{item.installedVersion}</dd></div><div><dt>架构</dt><dd>{item.architecture}</dd></div>
-          <div className="wide"><dt>范围</dt><dd>仅移除白名单中的 {item.packageName} 包</dd></div>
+          <div className="wide"><dt>{isSelfRemoval ? "执行后" : "范围"}</dt><dd>{isSelfRemoval ? "当前窗口可继续显示结果；关闭后 UManager 将无法再次启动" : `仅移除白名单中的 ${item.packageName} 包`}</dd></div>
         </dl>
         {error && <div className="inline-error removal-error">{error}</div>}
-        {!plan && <><label className="plan-confirmation removal-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}/><span>我已核对软件、包名、版本和架构，并理解卸载脚本将以 root 权限运行。</span></label><button className="download-button" disabled={!confirmed || busy !== null} onClick={() => void run("plan", () => createRemovalOperationPlan(item.packageName), setPlan)}>{busy === "plan" ? "正在锁定计划…" : "确认并锁定卸载计划"}</button></>}
-        {plan && <div className="immutable-plan"><strong>卸载计划已锁定</strong><span>ID：{plan.plan.planId}</span><span>有效至：{new Date(plan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
+        {!plan && <><label className="plan-confirmation removal-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}/><span>{isSelfRemoval ? "我确认要卸载当前 `.deb` 安装的 UManager，并理解保留的缓存数据需要日后手动清理。" : "我已核对软件、包名、版本和架构，并理解卸载脚本将以 root 权限运行。"}</span></label><button className="download-button" disabled={!confirmed || busy !== null} onClick={() => void run("plan", () => createRemovalOperationPlan(item.packageName), setPlan)}>{busy === "plan" ? "正在锁定计划…" : isSelfRemoval ? "确认并锁定自卸载计划" : "确认并锁定卸载计划"}</button></>}
+        {plan && <div className="immutable-plan"><strong>{isSelfRemoval ? "自卸载计划已锁定" : "卸载计划已锁定"}</strong><span>ID：{plan.plan.planId}</span><span>有效至：{new Date(plan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
         {plan && !dryRun && <button className="dry-run-button" disabled={busy !== null} onClick={() => void run("dry-run", () => runRemovalDryRun(plan.plan.planId), setDryRun)}>{busy === "dry-run" ? "正在特权环境复核…" : "授权并执行卸载前复核"}</button>}
         {dryRun && !removed && <><div className="dry-run-success"><strong>✓ 卸载前复核通过</strong><span>helper 已重新核对白名单、当前版本、架构和不可变计划；本次未修改系统。</span></div><button className="remove-confirm-button" disabled={busy !== null} onClick={() => void run("remove", () => { setProgressEvents([]); return removeManagedPackage(plan!.plan.planId, (event) => appendProgress(setProgressEvents, event)); }, (value) => { setRemoved(value); onRemoved(); })}>{busy === "remove" ? "正在卸载…" : `再次确认并卸载 ${item.displayName}`}</button></>}
         <OperationLogPanel events={progressEvents} running={busy === "remove"}/>
-        {removed && <><div className="dry-run-success"><strong>✓ 卸载已完成</strong><span>dpkg 移除命令已成功结束，软件列表已重新扫描。</span></div><button className="download-button" onClick={onClose}>完成</button></>}
-      </div>
-    </section>
-  </div>;
-}
-
-function SelfRemovalDialog({ info, onClose }: { info: InstallationInfo; onClose: () => void }) {
-  const [confirmed, setConfirmed] = useState(false);
-  const [plan, setPlan] = useState<RemovalPlanArtifact | null>(null);
-  const [dryRun, setDryRun] = useState<RemovalExecutionReport | null>(null);
-  const [removed, setRemoved] = useState<RemovalExecutionReport | null>(null);
-  const [busy, setBusy] = useState<"plan" | "dry-run" | "remove" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
-  const run = async <T,>(kind: typeof busy, action: () => Promise<T>, complete: (value: T) => void) => {
-    setBusy(kind); setError(null);
-    try { complete(await action()); } catch (reason) { setError(String(reason)); } finally { setBusy(null); }
-  };
-
-  const focusRef = useModalFocus<HTMLElement>(onClose, busy === null);
-  return <div className="local-deb-layer">
-    <section className="local-deb-dialog removal-dialog self-removal-dialog" role="dialog" aria-modal="true" aria-label="卸载 UManager" ref={focusRef} tabIndex={-1}>
-      <header><div><span className="brand-mark">U</span><div><h2>卸载 UManager</h2><p>{info.packageName} · {info.packageVersion} · {info.architecture}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
-      <div className="local-deb-content">
-        <div className="removal-warning"><strong>这会移除 UManager 程序本身</strong><span>只执行固定的 <code>/usr/bin/dpkg --remove u-manager</code>。不会请求 purge，也不会删除 UManager 缓存、下载的软件包、操作计划或你的个人文件。</span></div>
-        <dl className="local-deb-facts">
-          <div><dt>包名</dt><dd>{info.packageName}</dd></div><div><dt>动作</dt><dd>remove-umanager</dd></div>
-          <div><dt>已安装</dt><dd>{info.packageVersion}</dd></div><div><dt>架构</dt><dd>{info.architecture}</dd></div>
-          <div className="wide"><dt>执行后</dt><dd>当前窗口可继续显示结果；关闭后 UManager 将无法再次启动</dd></div>
-        </dl>
-        {error && <div className="inline-error removal-error">{error}</div>}
-        {!plan && <><label className="plan-confirmation removal-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}/><span>我确认要卸载当前 `.deb` 安装的 UManager，并理解保留的缓存数据需要日后手动清理。</span></label><button className="download-button" disabled={!confirmed || busy !== null} onClick={() => void run("plan", createSelfRemovalOperationPlan, setPlan)}>{busy === "plan" ? "正在锁定计划…" : "确认并锁定自卸载计划"}</button></>}
-        {plan && <div className="immutable-plan"><strong>自卸载计划已锁定</strong><span>ID：{plan.plan.planId}</span><span>有效至：{new Date(plan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
-        {plan && !dryRun && <button className="dry-run-button" disabled={busy !== null} onClick={() => void run("dry-run", () => runSelfRemovalDryRun(plan.plan.planId), setDryRun)}>{busy === "dry-run" ? "正在特权环境复核…" : "授权并执行卸载前复核"}</button>}
-        {dryRun && !removed && <><div className="dry-run-success"><strong>✓ 自卸载前复核通过</strong><span>helper 已重新核对动作、固定包名、版本、架构和不可变计划；本次未修改系统。</span></div><button className="remove-confirm-button" disabled={busy !== null} onClick={() => void run("remove", () => { setProgressEvents([]); return removeUmanager(plan!.plan.planId, (event) => appendProgress(setProgressEvents, event)); }, setRemoved)}>{busy === "remove" ? "正在卸载 UManager…" : "再次确认并卸载 UManager"}</button></>}
-        <OperationLogPanel events={progressEvents} running={busy === "remove"}/>
-        {removed && <div className="dry-run-success"><strong>✓ UManager 已从系统移除</strong><span>关闭当前窗口后程序将退出；缓存和个人数据仍然保留。</span></div>}
+        {removed && <><div className="dry-run-success"><strong>{isSelfRemoval ? "✓ UManager 已从系统移除" : "✓ 卸载已完成"}</strong><span>{isSelfRemoval ? "关闭当前窗口后程序将退出；缓存和个人数据仍然保留。" : "dpkg 移除命令已成功结束，软件列表已重新扫描。"}</span></div><button className="download-button" onClick={onClose}>完成</button></>}
       </div>
     </section>
   </div>;
@@ -687,7 +652,7 @@ function FeedStatusPanel() {
   </section>;
 }
 
-function SettingsPage({ info, loading, error, onRefresh, onRemove }: { info: InstallationInfo | null; loading: boolean; error: string | null; onRefresh: () => void; onRemove: () => void }) {
+function SettingsPage({ info, loading, error, onRefresh }: { info: InstallationInfo | null; loading: boolean; error: string | null; onRefresh: () => void }) {
   const kindLabel = info ? { debianPackage: ".deb 安装版", portable: "便携版", development: "开发版" }[info.installationKind] : "检测中";
   const kindDescription = info?.installationKind === "debianPackage"
     ? "当前可执行文件属于系统中已安装的 Debian 软件包，可通过 UManager 安全卸载。"
@@ -695,7 +660,7 @@ function SettingsPage({ info, loading, error, onRefresh, onRemove }: { info: Ins
       ? "当前从开发构建目录运行，不属于系统软件包；请直接停止开发进程。"
       : "当前可执行文件不属于已安装的 Debian 软件包；退出后可直接删除文件。";
   return <main className="workspace settings-workspace">
-    <header className="workspace-header"><div><h1>设置</h1><p>查看 UManager 版本、安装形态与维护选项</p></div><button className="secondary-button" onClick={onRefresh} disabled={loading}>{loading ? "检测中…" : "重新检测"}</button></header>
+    <header className="workspace-header"><div><h1>设置</h1><p>查看 UManager 版本与安装形态</p></div><button className="secondary-button" onClick={onRefresh} disabled={loading}>{loading ? "检测中…" : "重新检测"}</button></header>
     <section className="settings-panel">
       <div className="settings-section-heading"><div><span className="brand-mark large">U</span><div><h2>UManager</h2><p>Ubuntu 个人软件管家</p></div></div><span className={`install-kind-badge ${info?.installationKind ?? "unknown"}`}>{kindLabel}</span></div>
       {error && <div className="message error"><strong>无法检测安装形态</strong><span>{error}</span></div>}
@@ -709,7 +674,6 @@ function SettingsPage({ info, loading, error, onRefresh, onRemove }: { info: Ins
           <div className="wide"><dt>运行位置</dt><dd title={info.executablePath}>{info.executablePath}</dd></div>
         </dl>
         <p className="installation-description"><Icon name="shield"/>{kindDescription}</p>
-        <div className="danger-zone"><div><strong>卸载 UManager</strong><span>{info.canSelfRemove ? "移除程序本身，保留缓存和个人数据。操作前会展示不可变计划并请求系统授权。" : "此运行形态不能通过 dpkg 卸载。"}</span></div><button className="self-remove-button" disabled={!info.canSelfRemove} onClick={onRemove}>卸载 UManager</button></div>
       </>}
     </section>
     <NetworkSettingsPanel/>
@@ -718,10 +682,13 @@ function SettingsPage({ info, loading, error, onRefresh, onRemove }: { info: Ins
   </main>;
 }
 
-function InfoPanel({ entries }: { entries: { label: string; value: string; mono?: boolean }[] }) {
+function InfoPanel({ entries, homepage }: { entries: { label: string; value: string; mono?: boolean }[]; homepage?: string | null }) {
   return <section className="detail-section info-section">
     <h3>信息</h3>
-    <dl className="info-panel">{entries.map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd className={entry.mono ? "mono" : ""} title={entry.value}>{entry.value}</dd></div>)}</dl>
+    <dl className="info-panel">
+      {entries.map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd className={entry.mono ? "mono" : ""} title={entry.value}>{entry.value}</dd></div>)}
+      {homepage && <div><dt>开发者网站</dt><dd><a className="info-homepage-link" href={homepage} title={homepage} onClick={(event) => { event.preventDefault(); void openExternalUrl(homepage); }}>{homepage}<Icon name="external"/></a></dd></div>}
+    </dl>
   </section>;
 }
 
@@ -840,7 +807,6 @@ function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClos
     title={item.displayName}
     subtitle={`${item.vendor} · ${item.packageName}`}
     description={catalogByPackage[item.packageName]?.description}
-    homepage={item.homepage}
     action={heroAction}
     canClose={!running}
     onClose={onClose}
@@ -857,7 +823,7 @@ function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClos
       <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null}>
         <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 更新计划</span></summary>
         <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div>{details.websiteVersion && <p className="version-source-note">官网/发布标签展示 {details.websiteVersion}；UManager 通过 HTTP Range 读取 `.deb` 控制信息，获得用于比较的完整版本。</p>}</section>
-        <InfoPanel entries={[
+        <InfoPanel homepage={item.homepage} entries={[
           { label: "开发者", value: details.vendor },
           { label: "软件包", value: details.packageName, mono: true },
           { label: "架构", value: details.architecture, mono: true },
@@ -1013,7 +979,6 @@ function InstallDrawer({ offer, download, onStartDownload, onClearDownload, onCl
     title={offer.displayName}
     subtitle={`${offer.vendor} · ${offer.packageName}`}
     description={offer.description}
-    homepage={catalogByPackage[offer.packageName]?.homepage}
     action={heroAction}
     canClose={!running}
     onClose={onClose}
@@ -1028,7 +993,7 @@ function InstallDrawer({ offer, download, onStartDownload, onClearDownload, onCl
       <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null}>
         <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 安装计划</span></summary>
         <section className="detail-section"><h3>安装版本</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div></section>
-        <InfoPanel entries={[
+        <InfoPanel homepage={offer.homepage} entries={[
           { label: "开发者", value: offer.vendor },
           { label: "软件包", value: offer.packageName, mono: true },
           { label: "架构", value: offer.architecture, mono: true },
@@ -1133,7 +1098,6 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
     title={toolchain.displayName}
     subtitle={`${toolchain.vendor} · ${toolchain.manager}`}
     description={toolchain.description}
-    homepage={toolchain.homepage}
     canClose={busy === null}
     onClose={onClose}
   >
@@ -1143,6 +1107,7 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
         <div><dt>管理器</dt><dd>{state.manager} {state.managerVersion}</dd></div>
         <div><dt>默认版本</dt><dd>{state.defaultVersion ?? "未设置"}</dd></div>
         <div className="wide"><dt>管理器目录</dt><dd title={state.managerHome ?? undefined}>{state.managerHome}</dd></div>
+        <div className="wide"><dt>开发者网站</dt><dd><a className="info-homepage-link" href={toolchain.homepage} onClick={(event) => { event.preventDefault(); void openExternalUrl(toolchain.homepage); }}>{toolchain.homepage}<Icon name="external"/></a></dd></div>
       </div>}
       {error && <div className="inline-error">{error}</div>}
 
@@ -1275,18 +1240,17 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
     title={tool.displayName}
     subtitle={`${tool.vendor} · ${tool.binaryName}`}
     description={tool.description}
-    homepage={tool.homepage}
     action={heroAction}
     canClose={busy === null}
     onClose={onClose}
   >
     <div className="drawer-content">
       {state && !state.npmAvailable && <div className="message"><strong>未检测到 npm</strong><span>无法读取 npm 最新版本{tool.installer.kind === "npm" ? "，也无法安装该工具" : ""}。请先在“开发环境”安装并设置 Node.js。</span></div>}
-      <InfoPanel entries={[
+      <InfoPanel homepage={tool.homepage} entries={[
         { label: "当前版本", value: state?.version ?? "未安装", mono: true },
         { label: "最新版本", value: state?.latestVersion ?? (state?.npmAvailable === false ? "无法读取" : "读取中…"), mono: true },
         { label: "安装方式", value: state?.installKind ? devToolInstallKindText[state.installKind] : "—" },
-        { label: "可执行文件", value: state?.binaryPath ?? (tool.installer.kind === "npm" ? `npm 包 ${tool.npmPackage}` : "官方安装脚本"), mono: true },
+        { label: "可执行文件", value: state?.binaryPath ?? (tool.installer.kind === "npm" ? `npm 包 ${tool.npmPackage ?? ""}` : "官方安装脚本"), mono: true },
       ]}/>
       {error && <div className="inline-error">{error}</div>}
       {!installed && !canInstall && <p className="dev-empty">需要 npm 才能安装，请先在“开发环境”安装并设置 Node.js。</p>}
@@ -1689,7 +1653,6 @@ export default function App() {
   const [installationInfoLoading, setInstallationInfoLoading] = useState(false);
   const [installationInfoError, setInstallationInfoError] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
-  const [selfRemovalOpen, setSelfRemovalOpen] = useState(false);
   const [pendingLocalDeb, setPendingLocalDeb] = useState<LocalDebInspection | null>(null);
   const [pendingLocalDebError, setPendingLocalDebError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogApplication[] | null>(null);
@@ -1981,7 +1944,7 @@ export default function App() {
           ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
           : <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
       </section>
-    </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()} onRemove={() => setSelfRemovalOpen(true)}/>}
+    </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} download={downloads[updatePackage.packageName]} onStartDownload={(notify) => void startDownload(applicationIdOf(updatePackage.packageName) ?? "", updatePackage.packageName, notify)} onClearDownload={() => clearDownload(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
@@ -1990,9 +1953,6 @@ export default function App() {
     )}
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>
-    )}
-    {selfRemovalOpen && installationInfo && (
-      <SelfRemovalDialog info={installationInfo} onClose={() => setSelfRemovalOpen(false)}/>
     )}
     {notice && <div className="app-notice" role="status" onClick={() => setNotice(null)}><span>{notice}</span><button aria-label="关闭">×</button></div>}
   </div>;

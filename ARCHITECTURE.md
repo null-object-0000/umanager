@@ -40,14 +40,15 @@ https://null-object-0000.github.io/umanager/feed.json.sig
   "catalogSignature": "<hex Ed25519 over catalogJson>",
   "selfUpdate": { "packageName": "u-manager", "version": "…", "size": …,
                   "sha256": "…", "downloadUrl": "…", "releaseTag": "v…", "assetName": "…" },
-  "developmentTools": { "claude-code": { "npmPackage": "…", "version": "…" } }
+  "developmentTools": { "claude-code": { "npmPackage": "…", "version": "…" },
+                        "hermes": { "npmPackage": null, "version": "…" } }
 }
 ```
 
 - `applications`：所有受管应用的版本数据（版本会变的部分）。
 - `catalogJson` / `catalogSignature`：**新增软件**的完整定义（含允许域名、是否可卸载、下载策略），单独签名，供特权 helper 授权。
 - `selfUpdate`：UManager 自更新来源。
-- `developmentTools`：CLI 开发工具（Claude Code / OpenCode / Pi / Codex）的最新版本。
+- `developmentTools`：CLI 开发工具（Claude Code / OpenCode / Pi / Codex / DSH / Hermes）的最新版本；`npmPackage` 可为空（非 npm 分发的工具，版本由 `feed-sources.json` 的 `toolVersionOverrides` 解析）。
 
 ## 3. 两层清单：静态契约 vs 动态数据
 
@@ -170,7 +171,7 @@ npm run update-feed
 
 **运行时工具链**（`src-tauri/src/dev_tools.rs`）：通过用户级版本管理器管理。`vendors.json` 的 `developmentToolchains` 数组登记一条记录即可接入：`toolchainId` / `displayName` / `vendor` / `homepage`、`manager`（如 `nvm`、`rustup`）、`managerKind`（`shell` 需 source 脚本 / `binary` 直接执行）、`managerHome`、`managerScript` / `managerBinary`、`versionsDirectory`。当前内置 Node.js（nvm，shell）与 Rust（rustup，binary）两条工具链，支持“安装并设为默认”“设为默认”“卸载”。nvm 通过 `/bin/bash -c 'source nvm.sh --no-use; nvm …'` 执行；rustup 直接以参数向量调用，两者都只由固定子命令 + 严格校验的版本/别名 token 组成。
 
-**CLI AI 编程工具**（`src-tauri/src/dev_cli_tools.rs`）：管理单版本、npm 全局安装的工具。`developmentTools` 数组登记字段：`toolId` / `displayName` / `vendor` / `homepage` / `accentColor`、`binaryName`、`npmPackage`、`installer.kind`（`npm` 或 `curlScript`）、`uninstall.kind`（`npm` 或 `removeFiles`）、`update.kind`（`selfCommand` 或回退重跑 installer）。当前内置：
+**CLI AI 编程工具**（`src-tauri/src/dev_cli_tools.rs`）：管理单版本、用户级安装的工具。`developmentTools` 数组登记字段：`toolId` / `displayName` / `vendor` / `homepage` / `accentColor`、`binaryName`、`npmPackage`（可为空，非 npm 分发的工具留空）、`installer.kind`（`npm` 或 `curlScript`）、`uninstall.kind`（`npm` / `removeFiles` / `selfCommand`）、`update.kind`（`selfCommand` 或回退重跑 installer）。当前内置：
 
 | 工具 | npm 包 | 安装方式 | 命令 |
 |---|---|---|---|
@@ -179,8 +180,9 @@ npm run update-feed
 | Pi | `@earendil-works/pi-coding-agent` | 官方脚本 `https://pi.dev/install.sh` | `pi` |
 | Codex CLI | `@openai/codex` | npm 全局 | `codex` |
 | DeepSeek Harness | `@deepseek-ai/dsh` | npm 全局 | `dsh` |
+| Hermes Agent | —（git/Python） | 官方脚本 `https://hermes-agent.nousresearch.com/install.sh`，更新 `hermes update`、卸载 `hermes uninstall --yes` | `hermes` |
 
-检测同时识别三种安装来源：npm 全局、官方安装器（`~/.local/bin` / `~/.opencode/bin`）与 PATH 上的可执行文件；最新版本统一从 npm registry 读取。`curlScript` 型安装以当前用户身份执行厂商官方域名上的 HTTPS 安装脚本，UManager 只固定 URL 与参数，不接收任意 shell，但无法证明脚本内容与发布者身份。
+检测同时识别三种安装来源：npm 全局、官方安装器（`~/.local/bin` / `~/.opencode/bin`）与 PATH 上的可执行文件；最新版本统一从签名 feed 读取（npm 工具走 npm registry，非 npm 工具由 `feed-sources.json` 的 `toolVersionOverrides` 从厂商 GitHub Releases 解析，如 Hermes 从发布标题 `Hermes Agent v0.21.0 …` 提取版本）。`curlScript` 型安装以当前用户身份执行厂商官方域名上的 HTTPS 安装脚本，UManager 只固定 URL 与参数，不接收任意 shell，但无法证明脚本内容与发布者身份。
 
 ## 12. 历史适配器记录（VS Code / 微信 / FlClash）
 
@@ -194,7 +196,7 @@ npm run update-feed
 
 **本地 `.deb` 安装**：Linux 会把 `.deb` 关联到 UManager。应用先无特权读取包名/版本/架构并计算大小与 SHA-256，标记为“用户提供，来源未验证”，拒绝同版本重装、降级和不兼容架构；以不覆盖方式复制到 `imports` 缓存并重新校验；用户确认后生成 15 分钟有效的不可变计划，经 helper dry-run 复核，再次确认后以固定 `/usr/bin/dpkg --install <root-owned-staged-deb>` 执行。
 
-**安装 / 卸载**：下载后复核 HTTPS 精确域名、重定向、大小、SHA-256 与 `.deb` 包元数据；helper 在 dry-run 与真正执行前都会再次核对安装状态、系统架构、计划与官方源记录。卸载走独立不可变计划，仅执行白名单中固定的 `dpkg --remove`，不 `purge`、不自动移除依赖、不删除用户主目录数据。UManager 自身卸载入口在“设置”，仅当当前可执行文件确实包含在已安装的 `u-manager` 包清单中才启用，使用独立的 `remove-umanager` 计划。
+**安装 / 卸载**：下载后复核 HTTPS 精确域名、重定向、大小、SHA-256 与 `.deb` 包元数据；helper 在 dry-run 与真正执行前都会再次核对安装状态、系统架构、计划与官方源记录。卸载走独立不可变计划，仅执行白名单中固定的 `dpkg --remove`，不 `purge`、不自动移除依赖、不删除用户主目录数据。UManager 自身卸载也不再是“设置”里的独立入口：`selfUpdate` 源渲染的 `u-manager` 应用 `removable: true`，因此作为受管软件出现在“软件 / 更新”页，与其他软件共用同一个 `RemovalDialog` 与同一套 `create_removal_operation_plan` / `run_removal_dry_run` / `remove_managed_package` 命令；`create_removal_operation_plan` 对 `u-manager` 分发到 `create_self_removal_plan`，`resolve_removal_action` 再按计划里的 `removeUmanager` 动作路由到 helper 的 `remove-umanager`。
 
 **UManager 自更新**：不再是“设置”里的独立入口，而是作为受管软件的一员出现在“软件 / 更新”页，复用与其他软件完全一致的下载 → SHA-256 校验 → 不可变计划 → 特权复核 → 安装流程。`selfUpdate` 源在 `require_application` 里被解析成普通 `releaseApi` 应用，走同一套 `get_application_details` / `download_package` / `create_operation_plan` / `run_operation_dry_run` / `install_package` 命令；`create_operation_plan` 对 `umanager` 分发到 `create_self_update_plan`，生成 `installSelfUpdate` 计划，helper 用 `install-umanager` 动作复核“必须比当前版本新、必须是 `.deb` 安装版”后执行。安装完成后抽屉按钮显示为“重启 UManager”（调用 `restart_app`）。
 

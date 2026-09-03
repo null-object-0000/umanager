@@ -243,11 +243,11 @@ export function getInstallableApplications(): Promise<InstallableApplication[]> 
   if (isMock()) {
     const aptPlan = (applicationId: string): DownloadPlan => ({ ...mockPlans[applicationId] });
     return Promise.resolve([
-      { applicationId: "vscode", packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
-      { applicationId: "google-chrome", packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", architecture: "amd64", sourceKind: "officialRepository", installedVersion: null, candidateVersion: mockPlans["google-chrome"].version, installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("google-chrome") },
-      { applicationId: "chatgpt", packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "26.818.21641", candidateVersion: "26.818.61809", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
-      { applicationId: "wechat", packageName: "wechat", displayName: "微信", vendor: "腾讯", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: "4.1.1.8", candidateVersion: "4.1.2.1", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
-      { applicationId: "flclash", packageName: "flclash", displayName: "FlClash", vendor: "FlClash", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: null, candidateVersion: "0.8.97+2026082401", installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("flclash"), releaseNotes: "## 0.8.97\n\n- 修复托盘与代理规则导入的问题\n- 优化订阅刷新与连接稳定性\n- 升级内置 Clash 内核", releaseNotesUrl: "https://github.com/chen08209/FlClash/releases/tag/v0.8.97" },
+      { applicationId: "vscode", packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", homepage: "https://code.visualstudio.com/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
+      { applicationId: "google-chrome", packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", homepage: "https://www.google.com/chrome/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: null, candidateVersion: mockPlans["google-chrome"].version, installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("google-chrome") },
+      { applicationId: "chatgpt", packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/app", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "26.818.21641", candidateVersion: "26.818.61809", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
+      { applicationId: "wechat", packageName: "wechat", displayName: "微信", vendor: "腾讯", homepage: "https://linux.weixin.qq.com/", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: "4.1.1.8", candidateVersion: "4.1.2.1", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
+      { applicationId: "flclash", packageName: "flclash", displayName: "FlClash", vendor: "FlClash", homepage: "https://github.com/chen08209/FlClash/releases", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: null, candidateVersion: "0.8.97+2026082401", installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("flclash"), releaseNotes: "## 0.8.97\n\n- 修复托盘与代理规则导入的问题\n- 优化订阅刷新与连接稳定性\n- 升级内置 Clash 内核", releaseNotesUrl: "https://github.com/chen08209/FlClash/releases/tag/v0.8.97" },
     ]);
   }
   return invoke<InstallableApplication[]>("get_installable_applications");
@@ -284,18 +284,6 @@ export function runRemovalDryRun(planId: string): Promise<RemovalExecutionReport
 
 export function removeManagedPackage(planId: string, onProgress?: (event: OperationProgressEvent) => void): Promise<RemovalExecutionReport> {
   return invokeWithOperationProgress<RemovalExecutionReport>("remove_managed_package", planId, onProgress);
-}
-
-export function createSelfRemovalOperationPlan(): Promise<RemovalPlanArtifact> {
-  return invoke<RemovalPlanArtifact>("create_self_removal_operation_plan");
-}
-
-export function runSelfRemovalDryRun(planId: string): Promise<RemovalExecutionReport> {
-  return invoke<RemovalExecutionReport>("run_self_removal_dry_run", { planId });
-}
-
-export function removeUmanager(planId: string, onProgress?: (event: OperationProgressEvent) => void): Promise<RemovalExecutionReport> {
-  return invokeWithOperationProgress<RemovalExecutionReport>("remove_umanager", planId, onProgress);
 }
 
 async function invokeWithDevProgress<T>(command: string, toolchainId: string, version: string, onProgress?: (event: DevOperationProgress) => void): Promise<T> {
@@ -402,6 +390,7 @@ const mockDevTools: DevTool[] = [
   { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: "pi", accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installer: { kind: "curlScript", scriptUrl: "https://pi.dev/install.sh", host: "pi.dev", shell: "sh" }, uninstall: { kind: "removeFiles", paths: ["~/.local/bin/pi"] }, update: { kind: "selfCommand", args: ["update"] } },
   { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: "codex", accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installer: { kind: "npm" }, uninstall: { kind: "npm" }, update: { kind: "selfCommand", args: ["update"] } },
   { toolId: "dsh", displayName: "DeepSeek Harness", vendor: "DeepSeek", homepage: "https://github.com/deepseek-ai/deepseek-harness", icon: "dsh", accentColor: "#4D6BFE", binaryName: "dsh", npmPackage: "@deepseek-ai/dsh", installer: { kind: "npm" }, uninstall: { kind: "npm" }, update: null },
+  { toolId: "hermes", displayName: "Hermes Agent", vendor: "Nous Research", homepage: "https://hermes-agent.nousresearch.com/", icon: "hermes", accentColor: "#8b5cf6", binaryName: "hermes", npmPackage: null, installer: { kind: "curlScript", scriptUrl: "https://hermes-agent.nousresearch.com/install.sh", host: "hermes-agent.nousresearch.com", shell: "bash" }, uninstall: { kind: "selfCommand", args: ["uninstall", "--yes"] }, update: { kind: "selfCommand", args: ["update"] } },
 ];
 
 const mockDevToolStates: Record<string, DevToolState> = {
@@ -410,6 +399,7 @@ const mockDevToolStates: Record<string, DevToolState> = {
   pi: { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: null, accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installerKind: "curlScript", npmAvailable: true, installed: false, installKind: null, version: null, latestVersion: "0.84.3", binaryPath: null, updateAvailable: false, canUninstall: false },
   codex: { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: null, accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.149.0", latestVersion: "0.149.1", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/codex", updateAvailable: true, canUninstall: true },
   dsh: { toolId: "dsh", displayName: "DeepSeek Harness", vendor: "DeepSeek", homepage: "https://github.com/deepseek-ai/deepseek-harness", icon: null, accentColor: "#4D6BFE", binaryName: "dsh", npmPackage: "@deepseek-ai/dsh", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.1.1-rc.2", latestVersion: "0.1.1-rc.2", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/dsh", updateAvailable: false, canUninstall: true },
+  hermes: { toolId: "hermes", displayName: "Hermes Agent", vendor: "Nous Research", homepage: "https://hermes-agent.nousresearch.com/", icon: null, accentColor: "#8b5cf6", binaryName: "hermes", npmPackage: null, installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "0.21.0", latestVersion: "0.21.0", binaryPath: "/home/user/.local/bin/hermes", updateAvailable: false, canUninstall: true },
 };
 
 export function getDevTools(): Promise<DevTool[]> {

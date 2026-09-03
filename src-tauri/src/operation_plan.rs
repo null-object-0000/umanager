@@ -336,14 +336,8 @@ fn resolve_install_action(
 }
 
 pub fn run_removal_dry_run(cache_dir: &Path, plan_id: &str) -> Result<serde_json::Value, String> {
-    run_removal_helper(
-        cache_dir,
-        plan_id,
-        RemovalAction::RemoveManagedPackage,
-        "remove-managed-package",
-        "--dry-run",
-        None,
-    )
+    let (action, helper_action) = resolve_removal_action(cache_dir, plan_id)?;
+    run_removal_helper(cache_dir, plan_id, action, helper_action, "--dry-run", None)
 }
 
 pub fn execute_removal(
@@ -351,43 +345,27 @@ pub fn execute_removal(
     plan_id: &str,
     progress: ProgressCallback,
 ) -> Result<serde_json::Value, String> {
-    run_removal_helper(
-        cache_dir,
-        plan_id,
-        RemovalAction::RemoveManagedPackage,
-        "remove-managed-package",
-        "--execute",
-        Some(progress),
-    )
+    let (action, helper_action) = resolve_removal_action(cache_dir, plan_id)?;
+    run_removal_helper(cache_dir, plan_id, action, helper_action, "--execute", Some(progress))
 }
 
-pub fn run_self_removal_dry_run(
+fn resolve_removal_action(
     cache_dir: &Path,
     plan_id: &str,
-) -> Result<serde_json::Value, String> {
-    run_removal_helper(
-        cache_dir,
-        plan_id,
-        RemovalAction::RemoveUmanager,
-        "remove-umanager",
-        "--dry-run",
-        None,
+) -> Result<(RemovalAction, &'static str), String> {
+    validate_plan_id(plan_id)?;
+    let plan_path = cache_dir.join("plans").join(format!("{plan_id}.json"));
+    let plan: RemovalPlan = serde_json::from_slice(
+        &fs::read(&plan_path).map_err(|error| format!("无法读取卸载计划：{error}"))?,
     )
-}
-
-pub fn execute_self_removal(
-    cache_dir: &Path,
-    plan_id: &str,
-    progress: ProgressCallback,
-) -> Result<serde_json::Value, String> {
-    run_removal_helper(
-        cache_dir,
-        plan_id,
-        RemovalAction::RemoveUmanager,
-        "remove-umanager",
-        "--execute",
-        Some(progress),
-    )
+    .map_err(|error| format!("卸载计划格式无效：{error}"))?;
+    plan.verify_integrity()?;
+    match plan.payload.action {
+        RemovalAction::RemoveManagedPackage => {
+            Ok((RemovalAction::RemoveManagedPackage, "remove-managed-package"))
+        }
+        RemovalAction::RemoveUmanager => Ok((RemovalAction::RemoveUmanager, "remove-umanager")),
+    }
 }
 
 pub fn run_local_dry_run(cache_dir: &Path, plan_id: &str) -> Result<serde_json::Value, String> {
