@@ -21,6 +21,26 @@ const FEED_CACHE_FILE: &str = "feed/feed-cache.json";
 /// `FEED_SIGNING_KEY` and is never shipped with the application.
 const FEED_PUBLIC_KEY_HEX: &str = "57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9";
 
+/// A discoverable metadata feed source, vouched for by the central feed's
+/// `sources[]` registry. The app verifies a source feed against `public_key_hex`
+/// before trusting its applications / catalog (DESIGN-multi-source.md §4/§5).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedSourceInfo {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    pub url: String,
+    /// Exact host names accepted while fetching this source feed (and redirects).
+    pub hosts: Vec<String>,
+    /// Ed25519 public key (64 hex chars / 32 bytes) that signs this source feed.
+    pub public_key_hex: String,
+    #[serde(default)]
+    pub default_enabled: bool,
+}
+
 /// The curated metadata feed published by the UManager project (e.g. GitHub Pages).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +69,14 @@ pub struct Feed {
     /// authorization decision.
     #[serde(default)]
     pub category_assignments: FeedCategoryAssignments,
+    /// v3: the feed's own self-description (id, url, hosts, public key); on the
+    /// central feed this is the trust anchor the app starts from.
+    #[serde(default)]
+    pub source: Option<FeedSourceInfo>,
+    /// v3: registry of discoverable source feeds, each carrying its own public
+    /// key. Present on the central feed only.
+    #[serde(default)]
+    pub sources: Vec<FeedSourceInfo>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -682,11 +710,26 @@ fn decode_hex(input: &str) -> Result<Vec<u8>, String> {
 }
 
 fn validate(feed: &Feed) -> Result<(), String> {
-    if feed.schema_version != FEED_SCHEMA_VERSION {
+    // v2 (current app) and v3 (multi-source) are both accepted; the shape
+    // differs only by the optional `source` / `sources` registry.
+    if !matches!(feed.schema_version, 2 | 3) {
         return Err("不支持的元数据源版本".to_owned());
     }
     if feed.catalog_json.is_some() != feed.catalog_signature.is_some() {
         return Err("元数据源目录字段不完整".to_owned());
+    }
+    if let Some(source) = &feed.source {
+        validate_source_info(source, true).map_err(|error| format!("source：{error}"))?;
+    }
+    let mut seen_source_ids = std::collections::HashSet::new();
+    for source in &feed.sources {
+        validate_source_info(source, false).map_err(|error| format!("source {}：{error}", source.id))?;
+        if !seen_source_ids.insert(&source.id) {
+            return Err(format!("源 id 重复：{}", source.id));
+        }
+        if source.id == "umanager" {
+            return Err("源 id 不能与中央源相同".to_owned());
+        }
     }
     for (id, entry) in &feed.applications {
         validate_application_entry(id, entry).map_err(|error| format!("{id}：{error}"))?;
@@ -707,6 +750,35 @@ fn validate(feed: &Feed) -> Result<(), String> {
             .map_err(|error| format!("{id}：{error}"))?;
         validate_release_notes(&entry.release_notes, &entry.release_notes_url)
             .map_err(|error| format!("{id}：{error}"))?;
+    }
+    Ok(())
+}
+
+/// Validate a `source` / `sources[]` entry. `is_central` relaxes the url check
+/// (the central feed may live anywhere the vendor configured) and requires the
+/// id to be the canonical central id; sources must always be https and carry a
+/// 64-hex public key.
+fn validate_source_info(source: &FeedSourceInfo, is_central: bool) -> Result<(), String> {
+    if source.id.is_empty() || source.id.contains('\0') {
+        return Err("id 为空".to_owned());
+    }
+    if is_central && source.id != "umanager" {
+        return Err("中央源 id 必须为 umanager".to_owned());
+    }
+    if !source.url.starts_with("https://") {
+        return Err("url 必须为 https".to_owned());
+    }
+    if source.hosts.is_empty() {
+        return Err("hosts 不能为空".to_owned());
+    }
+    for host in &source.hosts {
+        if host.is_empty() || host.contains('\0') || host.contains('/') {
+            return Err(format!("hosts 含无效主机：{host}"));
+        }
+    }
+    let key = source.public_key_hex.trim();
+    if key.len() != 64 || !key.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("publicKeyHex 必须是 64 位十六进制（32 字节 Ed25519 公钥）".to_owned());
     }
     Ok(())
 }
@@ -815,5 +887,77 @@ mod tests {
         assert!(feed.categories.is_empty());
         assert!(feed.category_assignments.applications.is_empty());
         assert!(feed.category_assignments.development_tools.is_empty());
+    }
+
+    #[test]
+    fn v3_thin_central_parses_and_validates() {
+        let json = r#"{
+            "schemaVersion": 3,
+            "generatedAtUnixSeconds": 1750000000,
+            "source": {
+                "id": "umanager",
+                "name": "UManager 中央源",
+                "role": "central",
+                "url": "https://null-object-0000.github.io/umanager/v3/feed.json",
+                "hosts": ["null-object-0000.github.io"],
+                "publicKeyHex": "57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9"
+            },
+            "sources": [
+                { "id": "tencent", "name": "腾讯源", "role": "vendor",
+                  "url": "https://null-object-0000.github.io/umanager/v3/feed.tencent.json",
+                  "hosts": ["null-object-0000.github.io"],
+                  "publicKeyHex": "67ccb44779ca8123b844dccf62b42d8e4a9139eeefd8d7f3cbd11e9940dd25b5",
+                  "defaultEnabled": true },
+                { "id": "common", "name": "公共源", "role": "common",
+                  "url": "https://null-object-0000.github.io/umanager/v3/feed.common.json",
+                  "hosts": ["null-object-0000.github.io"],
+                  "publicKeyHex": "35a2e5a3961d01d952ea45da7e7fd3238dedda2d431c26bbc3bf07f12929ffee" }
+            ],
+            "selfUpdate": null,
+            "developmentTools": {},
+            "applications": {}
+        }"#;
+        let feed: Feed = serde_json::from_str(json).unwrap();
+        assert_eq!(feed.schema_version, 3);
+        assert!(feed.applications.is_empty());
+        let central = feed.source.as_ref().expect("source");
+        assert_eq!(central.id, "umanager");
+        assert_eq!(feed.sources.len(), 2);
+        assert_eq!(feed.sources[0].id, "tencent");
+        assert!(feed.sources[0].default_enabled);
+        validate(&feed).expect("v3 feed should validate");
+    }
+
+    #[test]
+    fn v3_rejects_bad_source_key_duplicate_id_and_unsupported_schema() {
+        let bad_key = r#"{
+            "schemaVersion": 3,
+            "generatedAtUnixSeconds": 1750000000,
+            "source": {
+                "id": "umanager",
+                "url": "https://example.com/feed.json",
+                "hosts": ["example.com"],
+                "publicKeyHex": "57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9"
+            },
+            "sources": [{ "id": "tencent", "url": "https://example.com/feed.tencent.json",
+                          "hosts": ["example.com"], "publicKeyHex": "abcd" }],
+            "applications": {}
+        }"#;
+        let feed: Feed = serde_json::from_str(bad_key).unwrap();
+        assert!(validate(&feed).is_err(), "bad publicKeyHex should be rejected");
+
+        let dup =
+            r#"{ "schemaVersion": 3, "generatedAtUnixSeconds": 1750000000,
+                "source": {"id":"umanager","url":"https://e.com/f.json","hosts":["e.com"],"publicKeyHex":"57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9"},
+                "sources":[
+                  {"id":"tencent","url":"https://e.com/t.json","hosts":["e.com"],"publicKeyHex":"67ccb44779ca8123b844dccf62b42d8e4a9139eeefd8d7f3cbd11e9940dd25b5"},
+                  {"id":"tencent","url":"https://e.com/t2.json","hosts":["e.com"],"publicKeyHex":"35a2e5a3961d01d952ea45da7e7fd3238dedda2d431c26bbc3bf07f12929ffee"}
+                ], "applications": {} }"#;
+        let feed: Feed = serde_json::from_str(dup).unwrap();
+        assert!(validate(&feed).is_err(), "duplicate source id should be rejected");
+
+        let v4 = r#"{ "schemaVersion": 4, "generatedAtUnixSeconds": 1750000000, "applications": {} }"#;
+        let feed: Feed = serde_json::from_str(v4).unwrap();
+        assert!(validate(&feed).is_err(), "unsupported schemaVersion should be rejected");
     }
 }
