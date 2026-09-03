@@ -34,6 +34,7 @@ const FALLBACK_DEB_BY_ID: Record<string, string> = {
   feishu: "office",
   wps: "office",
   dingtalk: "office",
+  "tencent-docs": "office",
   flclash: "network",
   localsend: "network",
   bitwarden: "security",

@@ -235,6 +235,45 @@
         "changelogHtmlUrl": "https://www.codebuddy.cn/docs/ide/release-notes/release-notes",
         "versionField": "version"
       }
+    },
+    {
+      "applicationId": "wine",
+      "packageName": "winehq-devel",
+      "displayName": "Wine",
+      "vendor": "WineHQ",
+      "architecture": "amd64",
+      "description": "开源 Windows 兼容层，在 Linux 上直接运行 Windows 程序，无需虚拟机。由 WineHQ 官方 apt 仓库按 Ubuntu 版本分发。",
+      "homepage": "https://www.winehq.org/",
+      "icon": "wine",
+      "accentColor": "#722f37",
+      "removable": true,
+      "source": {
+        "kind": "aptRepository",
+        "repositoryUrl": "https://dl.winehq.org/wine-builds/ubuntu",
+        "repositoryHosts": ["dl.winehq.org"],
+        "packagesIndexUrl": "https://dl.winehq.org/wine-builds/ubuntu/dists/resolute/main/binary-amd64/Packages.gz"
+      }
+    },
+    {
+      "applicationId": "tencent-docs",
+      "packageName": "tdappdesktop",
+      "displayName": "腾讯文档",
+      "vendor": "腾讯",
+      "architecture": "amd64",
+      "description": "腾讯出品的多人在线协作文档，支持 Word、Excel、PPT 与智能表格的云端实时协作，桌面端可离线编辑。",
+      "homepage": "https://docs.qq.com/home",
+      "icon": "tencent-docs",
+      "accentColor": "#1e6fff",
+      "removable": true,
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://docs.qq.com/home/download",
+        "officialPageHosts": ["docs.qq.com"],
+        "downloadUrl": "https://docs.qq.com/api/package/get?channel_id=30001&version_id=latest&package_name=TencentDocs-x64.deb",
+        "downloadHosts": ["*.docs.qq.com"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "TencentDocs-x64.deb"
+      }
     }
   ],
   "releaseNotesOverrides": {
@@ -278,12 +317,27 @@
     "hermes": {
       "releaseApiUrl": "https://api.github.com/repos/NousResearch/hermes-agent/releases?per_page=30",
       "tagPrefix": "v"
+    },
+    "uv": {
+      "releaseApiUrl": "https://api.github.com/repos/astral-sh/uv/releases?per_page=30"
+    },
+    "pnpm": {
+      "releaseApiUrl": "https://api.github.com/repos/pnpm/pnpm/releases?per_page=30",
+      "tagPrefix": "v"
     }
   },
   "toolVersionOverrides": {
     "hermes": {
       "releaseApiUrl": "https://api.github.com/repos/NousResearch/hermes-agent/releases?per_page=30",
       "versionTitleRegex": "^Hermes Agent v(\\d+\\.\\d+\\.\\d+)"
+    },
+    "uv": {
+      "releaseApiUrl": "https://api.github.com/repos/astral-sh/uv/releases/latest",
+      "versionTitleRegex": "^(\\d+\\.\\d+\\.\\d+)"
+    },
+    "pnpm": {
+      "releaseApiUrl": "https://api.github.com/repos/pnpm/pnpm/releases/latest",
+      "versionTitleRegex": "^pnpm (\\d+\\.\\d+(?:\\.\\d+)?)"
     }
   }
 }

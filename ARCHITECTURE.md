@@ -132,7 +132,7 @@ npm run update-feed
 2. `vendors.json` 编译进主程序与 helper；改它=要发新版。
 3. 新增受管软件只改 `feed-sources.json`；不要把手写条目塞进 feed 而绕过签名。
 4. helper 只通过「内置公钥 + 计划内已签名 `catalogJson`」授权 feed 新增软件；不信任未签名字段。
-5. 所有下载域名都是精确白名单，禁止通配/前缀匹配。
+5. 所有下载域名都是精确白名单，禁止通配/前缀匹配。唯一例外：`*.<domain>`（如飞书 `*.feishucdn.com`、腾讯文档 `*.docs.qq.com`）允许该域名及其子域，仅限 CDN 分片主机名会漂移的厂商，实现与语义见 AGENTS.md。
 6. 系统命令一律固定 argv（`dpkg-query`/`dpkg-deb`/`dpkg --compare-versions`/`dpkg --install`/`dpkg --remove`），不经过 shell，不拼接用户输入。
 7. 计划不可变：payload SHA-256 作为 plan_id，15 分钟有效期，只读、归属当前用户。
 8. 私钥只存在于 `FEED_SIGNING_KEY` secret；任何提交都不应包含私钥。
@@ -149,7 +149,7 @@ npm run update-feed
 | kind | 含义 | 例子 |
 |---|---|---|
 | `aptRepository` | 从官方 APT 仓库 `Packages` 索引解析候选版本、大小与 SHA-256 | VS Code、Google Chrome、ChatGPT Desktop、GitHub CLI、Microsoft Edge |
-| `stableDownloadEndpoint` | 从官网固定地址下载，并从官网页面解析展示版本 | 微信、Bitwarden |
+| `stableDownloadEndpoint` | 从官网固定地址下载，并从官网页面解析展示版本 | 微信、Bitwarden、腾讯文档 |
 | `releaseApi` | 从 GitHub Releases API 选择匹配资产，读取 `sha256:` 摘要 | FlClash、LocalSend |
 | `versionEndpoint` | 从官网动态「版本 + 下载地址」接口解析，可带签名/限时地址子步骤 | QQ、QQ 音乐、腾讯会议、WPS Office、Obsidian、飞书 |
 | `browserImport` | 仅登记本机识别与卸载，不在商店提供自动下载 | 钉钉 |

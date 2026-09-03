@@ -385,6 +385,67 @@
         "args": ["update"]
       },
       "description": "Nous Research 开源的终端 AI 智能体，带持久记忆、多智能体协作与跨平台网关，通过官方安装脚本分发。"
+    },
+    {
+      "toolId": "uv",
+      "displayName": "uv",
+      "vendor": "Astral",
+      "homepage": "https://docs.astral.sh/uv/",
+      "icon": "uv",
+      "accentColor": "#2f6feb",
+      "binaryName": "uv",
+      "npmPackage": null,
+      "installer": {
+        "kind": "curlScript",
+        "scriptUrl": "https://astral.sh/uv/install.sh",
+        "host": "astral.sh",
+        "shell": "sh"
+      },
+      "uninstall": {
+        "kind": "removeFiles",
+        "paths": [
+          "~/.local/bin/uv",
+          "~/.local/bin/uvx"
+        ]
+      },
+      "update": {
+        "kind": "selfCommand",
+        "args": [
+          "self",
+          "update"
+        ]
+      },
+      "description": "Astral 出品的极速 Python 包与虚拟环境管理器，Rust 实现，兼管 Python 版本与项目依赖，内置 uvx 隔离运行工具。"
+    },
+    {
+      "toolId": "pnpm",
+      "displayName": "pnpm",
+      "vendor": "pnpm",
+      "homepage": "https://pnpm.io/",
+      "icon": "pnpm",
+      "accentColor": "#f69220",
+      "binaryName": "pnpm",
+      "npmPackage": null,
+      "installer": {
+        "kind": "curlScript",
+        "scriptUrl": "https://get.pnpm.io/install.sh",
+        "host": "get.pnpm.io",
+        "shell": "sh"
+      },
+      "uninstall": {
+        "kind": "removeFiles",
+        "paths": [
+          "~/.local/share/pnpm/bin/pnpm",
+          "~/.local/share/pnpm/bin/pnpx"
+        ]
+      },
+      "update": {
+        "kind": "selfCommand",
+        "args": [
+          "self-update"
+        ]
+      },
+      "description": "快速省磁盘的 Node.js 包管理器，内容寻址存储让多项目共享依赖，原生支持 workspace 与严格依赖隔离。"
     }
   ]
 }

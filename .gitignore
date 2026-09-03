@@ -48,3 +48,6 @@ Desktop.ini
 # Temporary files
 *.tmp
 *.temp
+
+# 本地构建产物（release 由 CI 构建）
+*.deb

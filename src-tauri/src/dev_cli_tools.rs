@@ -16,6 +16,9 @@ fn known_binary_dirs(home: &Path) -> Vec<PathBuf> {
         home.join(".local").join("bin"),
         home.join(".opencode").join("bin"),
         home.join(".npm-global").join("bin"),
+        // pnpm 官方安装脚本（get.pnpm.io）默认把二进制放进 ~/.local/share/pnpm/bin，
+        // 该目录不在桌面进程的 PATH 中，需显式登记才能被检测。
+        home.join(".local").join("share").join("pnpm").join("bin"),
         PathBuf::from("/usr/local/bin"),
         PathBuf::from("/usr/bin"),
         PathBuf::from("/bin"),
@@ -255,6 +258,12 @@ fn classify_install_kind(
     let official_dirs = [
         home.join(".local").join("bin").join(&tool.binary_name),
         home.join(".opencode").join("bin").join(&tool.binary_name),
+        // pnpm 官方安装脚本布局，与其在 known_binary_dirs 中的登记保持一致。
+        home.join(".local")
+            .join("share")
+            .join("pnpm")
+            .join("bin")
+            .join(&tool.binary_name),
     ];
     if official_dirs.iter().any(|candidate| candidate == path) {
         return "officialInstaller".to_owned();
@@ -881,12 +890,14 @@ mod tests {
     #[test]
     fn embedded_tools_are_configured() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 6);
+        assert_eq!(catalog.development_tools.len(), 8);
         assert!(catalog.by_tool_id("claude-code").is_some());
         assert!(catalog.by_tool_id("opencode").is_some());
         assert!(catalog.by_tool_id("pi").is_some());
         assert!(catalog.by_tool_id("codex").is_some());
         assert!(catalog.by_tool_id("dsh").is_some());
         assert!(catalog.by_tool_id("hermes").is_some());
+        assert!(catalog.by_tool_id("uv").is_some());
+        assert!(catalog.by_tool_id("pnpm").is_some());
     }
 }

@@ -183,7 +183,12 @@ function sha256OfFile(filePath) {
 
 // Numeric-aware Debian-ish version comparison so we can pick the highest candidate.
 function compareVersions(a, b) {
-  const split = (value) => value.split(/[.+-]/).filter(Boolean);
+  // `~` is Debian's pre-release / suffix separator — WineHQ ships versions
+  // like `11.16~resolute-1` to tag the distro build target. Without splitting
+  // on it, "11.16~resolute-1" vs "11.9~resolute-1" falls back to opaque string
+  // comparison ("16~resolute" < "9~resolute") and picks the wrong candidate.
+  // With the split, "11.16" sorts above "11.9" numerically as intended.
+  const split = (value) => value.split(/[.+\-~]/).filter(Boolean);
   const pa = split(a);
   const pb = split(b);
   for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
@@ -670,16 +675,22 @@ function extractIcon(debPath) {
   }
 
   // Chromium-family browsers (Chrome, Edge) ship their icon as
-  // /opt/<vendor>/<product>/product_logo_<size>.png instead of the standard
-  // hicolor/pixmaps paths. Only match that narrow, well-known file pattern so
-  // unrelated PNGs elsewhere under /opt are never picked up.
+  // /opt/<vendor>/<product>/product_logo_<size>.png. Electron apps (e.g. Tencent
+  // Docs) commonly ship /opt/<app>/resources/icon.png. Only match those narrow,
+  // well-known patterns so unrelated PNGs elsewhere under /opt are never picked
+  // up (the app's own 1024x1024 icon wins the largest-resolution pick anyway).
   const optBase = join(extractDir, "opt");
   if (existsSync(optBase)) {
     const walkLogos = (dir) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);
         if (entry.isDirectory()) walkLogos(path);
-        else if (/^product_logo_\d+\.png$/i.test(entry.name)) candidates.push(path);
+        else if (
+          /^product_logo_\d+\.png$/i.test(entry.name) ||
+          (entry.name.toLowerCase() === "icon.png" && basename(dir) === "resources")
+        ) {
+          candidates.push(path);
+        }
       }
     };
     walkLogos(optBase);

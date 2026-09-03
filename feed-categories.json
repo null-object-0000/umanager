@@ -24,10 +24,12 @@
       "feishu": "office",
       "wps": "office",
       "dingtalk": "office",
+      "tencent-docs": "office",
       "flclash": "network",
       "localsend": "network",
       "bitwarden": "security",
-      "qq-music": "media"
+      "qq-music": "media",
+      "wine": "dev-tools"
     },
     "developmentTools": {
       "claude-code": "ai-tools",
@@ -35,7 +37,9 @@
       "pi": "ai-tools",
       "codex": "ai-tools",
       "dsh": "ai-tools",
-      "hermes": "ai-tools"
+      "hermes": "ai-tools",
+      "uv": "dev-tools",
+      "pnpm": "dev-tools"
     }
   }
 }

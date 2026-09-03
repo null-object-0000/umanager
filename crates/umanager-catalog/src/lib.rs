@@ -525,7 +525,7 @@ mod tests {
     #[test]
     fn development_tools_are_configuration_driven() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 6);
+        assert_eq!(catalog.development_tools.len(), 8);
         let codex = catalog.by_tool_id("codex").unwrap();
         assert_eq!(codex.binary_name, "codex");
         assert_eq!(codex.npm_package.as_deref(), Some("@openai/codex"));
@@ -560,6 +560,23 @@ mod tests {
         assert!(matches!(
             hermes.update,
             Some(DevToolUpdate::SelfCommand { ref args }) if args == &["update".to_owned()]
+        ));
+        let uv = catalog.by_tool_id("uv").unwrap();
+        assert_eq!(uv.binary_name, "uv");
+        assert_eq!(uv.npm_package, None);
+        assert!(matches!(uv.installer, DevToolInstaller::CurlScript { .. }));
+        assert!(matches!(uv.uninstall, DevToolUninstall::RemoveFiles { .. }));
+        assert!(matches!(
+            uv.update,
+            Some(DevToolUpdate::SelfCommand { ref args }) if args == &["self".to_owned(), "update".to_owned()]
+        ));
+        let pnpm = catalog.by_tool_id("pnpm").unwrap();
+        assert_eq!(pnpm.binary_name, "pnpm");
+        assert_eq!(pnpm.npm_package, None);
+        assert!(matches!(pnpm.installer, DevToolInstaller::CurlScript { .. }));
+        assert!(matches!(
+            pnpm.update,
+            Some(DevToolUpdate::SelfCommand { ref args }) if args == &["self-update".to_owned()]
         ));
     }
 

@@ -29,10 +29,10 @@ UManager 是基于 [Tauri 2](https://tauri.app/)（Rust 后端 + React 前端）
 
 | 类别 | 应用 |
 |---|---|
-| 开发工具 | Visual Studio Code、GitHub CLI |
+| 开发工具 | Visual Studio Code、GitHub CLI、Wine（Windows 兼容层） |
 | 浏览器 | Google Chrome、Microsoft Edge |
 | 聊天协作 | 微信、QQ、飞书、ChatGPT Desktop、钉钉（仅识别 / 卸载） |
-| 办公效率 | WPS Office、腾讯会议、Obsidian、Bitwarden |
+| 办公效率 | WPS Office、腾讯会议、腾讯文档、Obsidian、Bitwarden |
 | 网络 | FlClash、LocalSend |
 | 影音娱乐 | QQ 音乐 |
 
