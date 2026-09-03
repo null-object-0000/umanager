@@ -46,6 +46,20 @@ describe("parseAtomEntries", () => {
     expect(parseAtomEntries(null)).toEqual([]);
     expect(parseAtomEntries(123)).toEqual([]);
   });
+
+  it("handles Blogger-style titles with attributes and prefers the alternate link", () => {
+    const feed = `<feed><entry>
+      <title type="text">Stable Channel Update for Desktop</title>
+      <link href="http://chromereleases.googleblog.com/feeds/1/comments/default" rel="replies"/>
+      <link href="http://chromereleases.googleblog.com/2026/09/stable-channel-update-for-desktop.html" rel="alternate"/>
+      <content type="html">&lt;p&gt;updated to 152.0.7977.75 for Linux&lt;/p&gt;</content>
+    </entry></feed>`;
+    const entries = parseAtomEntries(feed);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].title).toBe("Stable Channel Update for Desktop");
+    expect(entries[0].link).toBe("http://chromereleases.googleblog.com/2026/09/stable-channel-update-for-desktop.html");
+    expect(entries[0].html).toBe("<p>updated to 152.0.7977.75 for Linux</p>");
+  });
 });
 
 describe("selectAtomEntry", () => {
@@ -98,6 +112,15 @@ describe("htmlToMarkdown", () => {
     expect(htmlToMarkdown(html)).toContain("```");
     expect(htmlToMarkdown(html)).toContain("let x = 1;");
   });
+
+  it("normalizes Google-Docs-style attributes so block tags are recognized", () => {
+    const html = '<h2 style="line-height: 1.38;">Security Fixes</h2><p dir="ltr"><span style="color: #666;">updated to 152</span></p>';
+    const md = htmlToMarkdown(html);
+    expect(md).toContain("## Security Fixes");
+    expect(md).toContain("updated to 152");
+    expect(md).not.toContain("line-height");
+    expect(md).not.toContain("color:");
+  });
 });
 
 describe("atomChangelog", () => {
@@ -116,5 +139,11 @@ describe("atomChangelog", () => {
   it("returns null when no entry matches", () => {
     const feed = `<feed><entry><title>Obsidian 1.13.7 Mobile (Public)</title><link href="https://obsidian.md/x"/><content type="html">&lt;p&gt;m&lt;/p&gt;</content></entry></feed>`;
     expect(atomChangelog(feed, ["Desktop", "Public"])).toBeNull();
+  });
+
+  it("upgrades http entry links to https", () => {
+    const feed = `<feed><entry><title type="text">Stable Channel Update for Desktop</title><link href="http://chromereleases.googleblog.com/x.html" rel="alternate"/><content type="html">&lt;p&gt;x&lt;/p&gt;</content></entry></feed>`;
+    const result = atomChangelog(feed, ["Stable Channel Update for Desktop"]);
+    expect(result.releaseNotesUrl).toBe("https://chromereleases.googleblog.com/x.html");
   });
 });

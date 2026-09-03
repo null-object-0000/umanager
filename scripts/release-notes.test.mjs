@@ -3,6 +3,7 @@ import {
   MAX_RELEASE_NOTES_BYTES,
   sanitizeReleaseNotes,
   selectReleaseNotesRelease,
+  selectToolRelease,
   stripReleaseNotesBoilerplate,
 } from "./release-notes.mjs";
 
@@ -129,5 +130,36 @@ describe("selectReleaseNotesRelease", () => {
     expect(selectReleaseNotesRelease(null)).toBeNull();
     expect(selectReleaseNotesRelease([])).toBeNull();
     expect(selectReleaseNotesRelease([null, 42, { tag_name: "ok", draft: false, prerelease: false }])).toEqual({ tag_name: "ok", draft: false, prerelease: false });
+  });
+});
+
+describe("selectToolRelease", () => {
+  it("matches the exact tag, allowing prereleases for rc versions", () => {
+    const releases = [
+      { tag_name: "dsh-v0.1.2-alpha.5", draft: false, prerelease: true },
+      { tag_name: "dsh-v0.1.1-rc.2", draft: false, prerelease: true },
+      { tag_name: "dsh-v0.1.0", draft: false, prerelease: false },
+    ];
+    expect(selectToolRelease(releases, "dsh-v", "0.1.1-rc.2")).toEqual({ tag_name: "dsh-v0.1.1-rc.2", draft: false, prerelease: true });
+  });
+
+  it("skips drafts even on exact match", () => {
+    const releases = [
+      { tag_name: "v1.0.0", draft: true, prerelease: false },
+    ];
+    expect(selectToolRelease(releases, "v", "1.0.0")).toBeNull();
+  });
+
+  it("falls back to the first stable release under the prefix when no exact tag matches", () => {
+    const releases = [
+      { tag_name: "rust-v0.152.1", draft: false, prerelease: false },
+      { tag_name: "rust-v0.152.0", draft: false, prerelease: false },
+    ];
+    expect(selectToolRelease(releases, "rust-v", "0.151.0")).toEqual({ tag_name: "rust-v0.152.1", draft: false, prerelease: false });
+  });
+
+  it("returns null for empty input", () => {
+    expect(selectToolRelease(null, "v", "1.0.0")).toBeNull();
+    expect(selectToolRelease([], "v", "1.0.0")).toBeNull();
   });
 });

@@ -61,9 +61,10 @@ export function cleanReleaseNotesMarkdown(markdown) {
 /**
  * Extract a single version's section from a CHANGELOG.md-style Markdown file.
  *
- * The file is split into `## <version>` sections. This returns the body of the
- * section matching `version` (exact heading), or — as a fallback — the first
- * `##` section in the file (the latest release).
+ * The file is split into `## <version>` sections. Headings may be bare
+ * (`## 2.1.258`, claude-code) or bracketed with a date suffix
+ * (`## [0.84.4] - 2026-08-28`, Pi). The section whose heading carries `version`
+ * is returned; otherwise the first `##` section (the latest) is the fallback.
  *
  * @param {unknown} markdown
  * @param {string} [version]
@@ -72,10 +73,17 @@ export function cleanReleaseNotesMarkdown(markdown) {
 export function extractMarkdownVersionSection(markdown, version) {
   if (typeof markdown !== "string") return "";
   const lines = markdown.split(/\r?\n/);
+  const headingVersion = (line) => {
+    const match = line.trim().match(/^##\s+(.+?)\s*$/);
+    if (!match) return null;
+    const text = match[1];
+    const numeric = text.match(/\d+(?:\.\d+)+(?:[-+][\w.-]+)?/);
+    return numeric ? numeric[0] : text;
+  };
   let target = -1;
   if (version) {
-    const expected = `## ${version}`.trim();
-    target = lines.findIndex((line) => line.trim() === expected);
+    const expected = String(version).replace(/^v/, "");
+    target = lines.findIndex((line) => headingVersion(line) === expected);
   }
   if (target < 0) {
     target = lines.findIndex((line) => /^##\s+\S/.test(line));

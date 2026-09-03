@@ -97,6 +97,10 @@
           "bodyTemplate": "{\"url\":\"{downloadUrl}\"}",
           "signedUrlField": "data.url"
         }
+      },
+      "releaseNotes": {
+        "changelogJsonpUrl": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/linuxLog.js",
+        "releaseNotesUrl": "https://im.qq.com/index/#/log?platform=linux"
       }
     },
     {
@@ -118,6 +122,11 @@
         "payloadKind": "html",
         "downloadUrlField": ".deb",
         "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"]
+      },
+      "releaseNotes": {
+        "changelogListHtmlUrl": "https://y.qq.com/download/download.html",
+        "blockMarker": "ic-linux",
+        "releaseNotesUrl": "https://y.qq.com/download/download.html"
       }
     },
     {
@@ -232,15 +241,39 @@
     "wechat": {
       "versionedHtmlUrl": "https://weixin.qq.com/updates?platform=linux&version={version}"
     },
+    "google-chrome": {
+      "atomUrl": "https://chromereleases.googleblog.com/feeds/posts/default",
+      "titleContains": ["Stable Channel Update for Desktop"]
+    },
     "vscode": {
       "versionedMarkdownUrl": "https://raw.githubusercontent.com/microsoft/vscode-docs/main/release-notes/v{major}_{minor}.md",
       "releaseNotesUrl": "https://code.visualstudio.com/updates/v{major}_{minor}"
+    },
+    "wps": {
+      "changelogBlockHtmlUrl": "https://linux.wps.cn/wpslinuxlog",
+      "blockMarker": "<h2 class=\"log_title\""
     }
   },
   "toolReleaseNotesOverrides": {
     "claude-code": {
       "changelogMarkdownUrl": "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md",
       "releaseNotesUrl": "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md"
+    },
+    "opencode": {
+      "releaseApiUrl": "https://api.github.com/repos/anomalyco/opencode/releases?per_page=30",
+      "tagPrefix": "v"
+    },
+    "codex": {
+      "releaseApiUrl": "https://api.github.com/repos/openai/codex/releases?per_page=30",
+      "tagPrefix": "rust-v"
+    },
+    "pi": {
+      "changelogMarkdownUrl": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/CHANGELOG.md",
+      "releaseNotesUrl": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md"
+    },
+    "dsh": {
+      "releaseApiUrl": "https://api.github.com/repos/deepseek-ai/deepseek-harness/releases?per_page=30",
+      "tagPrefix": "dsh-v"
     }
   }
 }

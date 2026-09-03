@@ -98,3 +98,69 @@ export function extractHtmlVersionSection(html, version) {
     .replace(/<h([1-6])\b[^>]*>/g, "<h$1>");
   return htmlToMarkdown(section);
 }
+
+/**
+ * Extract the changelog bullet list for one platform block from a download
+ * page (QQ Music). The block is located by `blockMarker` (a CSS class such as
+ * `ic-linux`), and its changelog is the first `<ul class="version_list">` after
+ * that marker. Items are the text of `<li class="version_list__item">` entries
+ * (already `- …` bullets in the page).
+ *
+ * @param {unknown} html
+ * @param {string} [blockMarker]
+ * @returns {string[]}
+ */
+export function parseHtmlVersionList(html, blockMarker) {
+  if (typeof html !== "string" || typeof blockMarker !== "string" || !blockMarker) return [];
+  // Prefer a `<li … class="… blockMarker …">` occurrence: a marker like
+  // `ic-linux` also appears inside `<style>` selectors, so a bare `indexOf`
+  // would anchor the search to the wrong (earlier) block. A plain `indexOf`
+  // is kept as a fallback for markers that aren't `<li>` class names.
+  const escaped = blockMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const liMatch = new RegExp(`<li\\b[^>]*\\b${escaped}\\b[^>]*>`).exec(html);
+  let markerIndex = liMatch ? liMatch.index : html.indexOf(blockMarker);
+  if (markerIndex < 0) return [];
+  const listStart = html.indexOf('<ul class="version_list"', markerIndex);
+  if (listStart < 0) return [];
+  const listEnd = html.indexOf("</ul>", listStart);
+  if (listEnd < 0) return [];
+  const items = [];
+  const pattern = /<li[^>]*version_list__item[^>]*>\s*([\s\S]*?)\s*<\/li>/g;
+  let match;
+  while ((match = pattern.exec(html.slice(listStart, listEnd))) !== null) {
+    const text = decodeHtmlEntities(match[1].replace(/<[^>]*>/g, "")).trim();
+    if (text) items.push(text);
+  }
+  return items;
+}
+
+/**
+ * Extract a changelog block from a fixed download/log page (WPS Linux) and
+ * convert it to Markdown.
+ *
+ * The block starts at `blockMarker` (an opening tag such as `<h2 class="log_title"`)
+ * and runs to the next `</div>`. Tag attributes are normalized away (WPS emits
+ * `<p class=…>`, `<strong style=…>`, `<ol class=…>`), `<br>` becomes a newline,
+ * and empty `<strong>`/`<p>` separators are dropped before the shared
+ * `htmlToMarkdown` converter runs.
+ *
+ * @param {unknown} html
+ * @param {string} [blockMarker]
+ * @returns {string}
+ */
+export function extractHtmlBlockToMarkdown(html, blockMarker) {
+  if (typeof html !== "string" || typeof blockMarker !== "string" || !blockMarker) return "";
+  const start = html.indexOf(blockMarker);
+  if (start < 0) return "";
+  const end = html.indexOf("</div>", start);
+  if (end < 0) return "";
+  let block = html.slice(start, end)
+    .replace(/<(h2|h3|h4|p|strong|em|ol|ul|li|code|a|span|br)\b[^>]*>/gi, "<$1>")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<strong>\s*<\/strong>/g, "")
+    .replace(/<p>\s*<\/p>/g, "");
+  // The shared converter leaves the page's leading indentation in front of
+  // headings (16 spaces would turn `**WPS 表格**` into a code block), so trim
+  // each line's leading whitespace.
+  return htmlToMarkdown(block).replace(/^[ \t]+/gm, "").trim();
+}

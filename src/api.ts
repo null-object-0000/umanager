@@ -198,15 +198,16 @@ export function getDownloadPlan(applicationId: string): Promise<DownloadPlan> {
   return invoke<DownloadPlan>("get_download_plan", { applicationId });
 }
 
-export async function downloadPackage(applicationId: string, onProgress?: (progress: DownloadProgress) => void): Promise<DownloadResult> {
+export async function downloadPackage(applicationId: string, packageName: string, onProgress?: (progress: DownloadProgress) => void): Promise<DownloadResult> {
   if (isMock()) {
     const plan = mockPlans[applicationId];
-    onProgress?.({ packageName: plan.packageName, phase: "downloading", transferredBytes: plan.expectedSize, totalBytes: plan.expectedSize, bytesPerSecond: 24 * 1024 * 1024 });
-    onProgress?.({ packageName: plan.packageName, phase: "verifying", transferredBytes: plan.expectedSize, totalBytes: plan.expectedSize, bytesPerSecond: 0 });
+    onProgress?.({ packageName, phase: "downloading", transferredBytes: plan.expectedSize, totalBytes: plan.expectedSize, bytesPerSecond: 24 * 1024 * 1024 });
+    onProgress?.({ packageName, phase: "verifying", transferredBytes: plan.expectedSize, totalBytes: plan.expectedSize, bytesPerSecond: 0 });
     return { plan, actualSize: plan.expectedSize, actualSha256: plan.expectedSha256 ?? "0".repeat(64), packageName: plan.packageName, version: plan.version, architecture: plan.architecture, reusedExistingFile: false, verified: true };
   }
   const unlisten = await listen<DownloadProgress>("apt-download-progress", ({ payload }) => {
-    // 同一时刻只会有一个软件包在下载，后端事件已按当前下载发出，直接转发即可。
+    // 多个软件包可能同时下载：后端事件携带 packageName，只转发当前包的进度，避免相互串台。
+    if (payload.packageName !== packageName) return;
     onProgress?.(payload);
   });
   try {
@@ -295,79 +296,6 @@ export function runSelfRemovalDryRun(planId: string): Promise<RemovalExecutionRe
 
 export function removeUmanager(planId: string, onProgress?: (event: OperationProgressEvent) => void): Promise<RemovalExecutionReport> {
   return invokeWithOperationProgress<RemovalExecutionReport>("remove_umanager", planId, onProgress);
-}
-
-const mockSelfUpdatePlan: DownloadPlan = {
-  applicationId: "umanager",
-  packageName: "u-manager",
-  version: "0.1.1",
-  architecture: "amd64",
-  sourceKind: "officialWebsite",
-  repositoryUrl: null,
-  downloadUrl: "https://github.com/null-object-0000/umanager/releases/download/v0.1.1/UManager_0.1.1_amd64.deb",
-  fileName: "u-manager-0.1.1.deb",
-  expectedSize: 6172448,
-  expectedSha256: "9".repeat(64),
-  targetPath: "/home/user/.cache/io.github.umanager.app/downloads/u-manager-0.1.1.deb",
-  releaseTag: "v0.1.1",
-  assetName: "UManager_0.1.1_amd64.deb",
-  websiteVersion: "0.1.1",
-};
-
-export function getSelfUpdateStatus(): Promise<ApplicationDetails> {
-  if (isMock()) {
-    return Promise.resolve({
-      applicationId: "umanager",
-      displayName: "UManager",
-      packageName: "u-manager",
-      vendor: "UManager contributors",
-      architecture: "amd64",
-      sourceKind: "officialWebsite",
-      sourceUrl: mockSelfUpdatePlan.downloadUrl,
-      installedVersion: "0.1.0",
-      candidateVersion: "0.1.1",
-      updateState: "updateAvailable",
-      websiteVersion: "0.1.1",
-      expectedSize: mockSelfUpdatePlan.expectedSize,
-      sha256: mockSelfUpdatePlan.expectedSha256,
-      metadataBytes: 592,
-      releaseTag: "v0.1.1",
-      assetName: "UManager_0.1.1_amd64.deb",
-      trusted: true,
-      evidence: [
-        { label: "发布 API 域名", actual: "api.github.com", expected: "api.github.com", passed: true },
-        { label: "Debian 软件包名", actual: "u-manager", expected: "u-manager", passed: true },
-        { label: "软件包架构", actual: "amd64", expected: "amd64", passed: true },
-      ],
-    });
-  }
-  return invoke<ApplicationDetails>("get_self_update_status");
-}
-
-export async function downloadSelfUpdate(onProgress?: (progress: DownloadProgress) => void): Promise<DownloadResult> {
-  if (isMock()) {
-    onProgress?.({ packageName: "u-manager", phase: "downloading", transferredBytes: mockSelfUpdatePlan.expectedSize, totalBytes: mockSelfUpdatePlan.expectedSize, bytesPerSecond: 24 * 1024 * 1024 });
-    onProgress?.({ packageName: "u-manager", phase: "verifying", transferredBytes: mockSelfUpdatePlan.expectedSize, totalBytes: mockSelfUpdatePlan.expectedSize, bytesPerSecond: 0 });
-    return { plan: mockSelfUpdatePlan, actualSize: mockSelfUpdatePlan.expectedSize, actualSha256: mockSelfUpdatePlan.expectedSha256 ?? "0".repeat(64), packageName: "u-manager", version: "0.1.1", architecture: "amd64", reusedExistingFile: false, verified: true };
-  }
-  const unlisten = await listen<DownloadProgress>("self-update-download-progress", ({ payload }) => onProgress?.(payload));
-  try {
-    return await invoke<DownloadResult>("download_self_update");
-  } finally {
-    unlisten();
-  }
-}
-
-export function createSelfUpdateOperationPlan(): Promise<OperationPlanArtifact> {
-  return invoke<OperationPlanArtifact>("create_self_update_operation_plan");
-}
-
-export function runSelfUpdateDryRun(planId: string): Promise<OperationExecutionReport> {
-  return invoke<OperationExecutionReport>("run_self_update_dry_run", { planId });
-}
-
-export function installSelfUpdate(planId: string, onProgress?: (event: OperationProgressEvent) => void): Promise<OperationExecutionReport> {
-  return invokeWithOperationProgress<OperationExecutionReport>("install_self_update", planId, onProgress);
 }
 
 async function invokeWithDevProgress<T>(command: string, toolchainId: string, version: string, onProgress?: (event: DevOperationProgress) => void): Promise<T> {

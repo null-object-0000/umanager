@@ -328,9 +328,10 @@ fn resolve_install_action(
         OperationAction::InstallLocalDeb => {
             Err("本地安装包请使用本地安装命令".to_owned())
         }
-        OperationAction::InstallSelfUpdate => {
-            Err("UManager 自更新请使用自更新命令".to_owned())
-        }
+        OperationAction::InstallSelfUpdate => Ok((
+            OperationAction::InstallSelfUpdate,
+            "install-umanager",
+        )),
     }
 }
 
@@ -384,32 +385,6 @@ pub fn execute_self_removal(
         plan_id,
         RemovalAction::RemoveUmanager,
         "remove-umanager",
-        "--execute",
-        Some(progress),
-    )
-}
-
-pub fn run_self_update_dry_run(cache_dir: &Path, plan_id: &str) -> Result<serde_json::Value, String> {
-    run_helper(
-        cache_dir,
-        plan_id,
-        OperationAction::InstallSelfUpdate,
-        "install-umanager",
-        "--dry-run",
-        None,
-    )
-}
-
-pub fn execute_self_update(
-    cache_dir: &Path,
-    plan_id: &str,
-    progress: ProgressCallback,
-) -> Result<serde_json::Value, String> {
-    run_helper(
-        cache_dir,
-        plan_id,
-        OperationAction::InstallSelfUpdate,
-        "install-umanager",
         "--execute",
         Some(progress),
     )

@@ -455,13 +455,15 @@ impl SelfUpdateSource {
             display_name: self.display_name.clone(),
             vendor: self.vendor.clone(),
             architecture: self.architecture.clone(),
-            description: None,
+            description: Some(
+                "UManager 桌面软件管家：统一管理 .deb 应用与 CLI 工具的安装、更新与卸载。".to_owned(),
+            ),
             category: None,
             homepage: None,
             icon: None,
             icon_url: None,
             icon_sha256: None,
-            accent_color: None,
+            accent_color: Some("#0a84ff".to_owned()),
             removable: false,
             source: SourceSpec::ReleaseApi {
                 release_api_url: self.release_api_url.clone(),

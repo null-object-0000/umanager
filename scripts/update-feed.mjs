@@ -29,10 +29,11 @@ import { createHash, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { atomChangelog } from "./changelog-atom.mjs";
-import { extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog } from "./changelog-html.mjs";
+import { extractHtmlBlockToMarkdown, extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog, parseHtmlVersionList } from "./changelog-html.mjs";
+import { jsonpEntryToMarkdown, parseJsonpChangelog, selectJsonpChangelogEntry } from "./changelog-jsonp.mjs";
 import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./changelog-markdown.mjs";
 import { entryOrPrevious } from "./feed-fallback.mjs";
-import { sanitizeReleaseNotes, selectReleaseNotesRelease, stripReleaseNotesBoilerplate } from "./release-notes.mjs";
+import { sanitizeReleaseNotes, selectReleaseNotesRelease, selectToolRelease, stripReleaseNotesBoilerplate } from "./release-notes.mjs";
 import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -340,6 +341,9 @@ async function fetchReleaseNotes(app, config, entry) {
   if (typeof config.versionedHtmlUrl === "string") return fetchVersionedHtmlReleaseNotes(app, config, entry);
   if (typeof config.versionedMarkdownUrl === "string") return fetchVersionedMarkdownReleaseNotes(app, config, entry);
   if (typeof config.changelogHtmlUrl === "string") return fetchChangelogHtmlReleaseNotes(app, config, entry);
+  if (typeof config.changelogListHtmlUrl === "string") return fetchChangelogListHtmlReleaseNotes(app, config, entry);
+  if (typeof config.changelogBlockHtmlUrl === "string") return fetchChangelogBlockHtmlReleaseNotes(app, config);
+  if (typeof config.changelogJsonpUrl === "string") return fetchChangelogJsonpReleaseNotes(app, config, entry);
   if (typeof config.releaseApiUrl !== "string") return null;
   return fetchGitHubReleaseNotes(app, config);
 }
@@ -425,6 +429,76 @@ async function fetchChangelogHtmlReleaseNotes(app, config, entry) {
   );
   const notesUrl = config.releaseNotesUrl ?? config.changelogHtmlUrl;
   const releaseNotesUrl = /^https:\/\//.test(notesUrl) ? notesUrl : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+// Fetch release notes from a fixed download page whose changelog is the
+// `<ul class="version_list">` list inside one platform block (QQ Music's Linux
+// block, located by `blockMarker`). Each `<li>` is already a `- …` bullet.
+async function fetchChangelogListHtmlReleaseNotes(app, config) {
+  let html;
+  try {
+    html = await fetchText(config.changelogListHtmlUrl);
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(
+      htmlChangelogToMarkdown(parseHtmlVersionList(html, config.blockMarker)),
+      app.applicationId,
+    ),
+  );
+  const notesUrl = config.releaseNotesUrl ?? config.changelogListHtmlUrl;
+  const releaseNotesUrl = /^https:\/\//.test(notesUrl) ? notesUrl : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+// Fetch release notes from a fixed changelog page whose body is one rich block
+// located by `blockMarker` (WPS Linux's `log_main` block, starting at the
+// `<h2 class="log_title">` heading). Converted to Markdown via the shared
+// HTML→Markdown converter.
+async function fetchChangelogBlockHtmlReleaseNotes(app, config) {
+  let html;
+  try {
+    html = await fetchText(config.changelogBlockHtmlUrl);
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(extractHtmlBlockToMarkdown(html, config.blockMarker), app.applicationId),
+  );
+  const notesUrl = config.releaseNotesUrl ?? config.changelogBlockHtmlUrl;
+  const releaseNotesUrl = /^https:\/\//.test(notesUrl) ? notesUrl : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+// Fetch release notes from a JSONP changelog script (QQ): the `#/log` SPA loads
+// `.../rainbow/linuxLog.js` whose payload is `var params = [{version, date,
+// feature}, ...]`. Select the entry matching the resolved version, else the
+// first (latest), and render its `feature` list as Markdown.
+async function fetchChangelogJsonpReleaseNotes(app, config, entry) {
+  const version = config.versionField === "version"
+    ? entry?.version
+    : (entry?.websiteVersion ?? entry?.version);
+  if (!version) return null;
+  let text;
+  try {
+    text = await fetchText(config.changelogJsonpUrl);
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const selected = selectJsonpChangelogEntry(parseJsonpChangelog(text), version);
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(jsonpEntryToMarkdown(selected), app.applicationId),
+  );
+  const notesUrl = config.releaseNotesUrl;
+  const releaseNotesUrl = typeof notesUrl === "string" && /^https:\/\//.test(notesUrl) ? notesUrl : null;
   if (!releaseNotes && !releaseNotesUrl) return null;
   return { releaseNotes, releaseNotesUrl };
 }
@@ -869,12 +943,19 @@ async function toolEntry(tool) {
   return entry;
 }
 
-// Fetch a dev tool's changelog from a fixed CHANGELOG.md-style Markdown URL and
-// extract the section matching the tool's resolved version. CI-only config lives
-// in `toolReleaseNotesOverrides` keyed by tool id. Best-effort: failure leaves
-// the note absent, never drops the tool entry.
+// Fetch a dev tool's changelog from either a fixed CHANGELOG.md-style Markdown
+// URL (extracting the section for the resolved version) or a GitHub Releases
+// endpoint (selecting the release whose tag matches the version). CI-only
+// config lives in `toolReleaseNotesOverrides` keyed by tool id. Best-effort: a
+// failure leaves the note absent, never drops the tool entry.
 async function fetchToolReleaseNotes(tool, config, entry) {
-  if (!config || typeof config.changelogMarkdownUrl !== "string" || !entry?.version) return null;
+  if (!config || typeof config !== "object" || !entry?.version) return null;
+  if (typeof config.changelogMarkdownUrl === "string") return fetchToolMarkdownReleaseNotes(tool, config, entry);
+  if (typeof config.releaseApiUrl === "string") return fetchToolGitHubReleaseNotes(tool, config, entry);
+  return null;
+}
+
+async function fetchToolMarkdownReleaseNotes(tool, config, entry) {
   let text;
   try {
     text = await fetchText(config.changelogMarkdownUrl);
@@ -889,6 +970,26 @@ async function fetchToolReleaseNotes(tool, config, entry) {
   const releaseNotesUrl = typeof config.releaseNotesUrl === "string" && /^https:\/\//.test(config.releaseNotesUrl)
     ? config.releaseNotesUrl
     : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+async function fetchToolGitHubReleaseNotes(tool, config, entry) {
+  let payload;
+  try {
+    payload = JSON.parse(await fetchText(config.releaseApiUrl, githubApiHeaders()));
+  } catch (error) {
+    log(`  toolReleaseNotes: ${tool.toolId} — ${error.message}`);
+    return null;
+  }
+  const release = selectToolRelease(payload, config.tagPrefix, entry.version);
+  if (!release) return null;
+  const releaseNotesUrl = typeof release.html_url === "string" && /^https:\/\//.test(release.html_url)
+    ? release.html_url
+    : null;
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(release.body, tool.toolId),
+  );
   if (!releaseNotes && !releaseNotesUrl) return null;
   return { releaseNotes, releaseNotesUrl };
 }

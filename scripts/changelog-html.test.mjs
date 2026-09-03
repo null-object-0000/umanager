@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog } from "./changelog-html.mjs";
+import { extractHtmlBlockToMarkdown, extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog, parseHtmlVersionList } from "./changelog-html.mjs";
 
 describe("parseHtmlChangelog", () => {
   it("extracts h4 changelog bullets and decodes entities", () => {
@@ -67,5 +67,67 @@ describe("extractHtmlVersionSection", () => {
 
   it("returns empty string for non-strings", () => {
     expect(extractHtmlVersionSection(null, "1.0.0")).toBe("");
+  });
+});
+
+describe("parseHtmlVersionList", () => {
+  const page = [
+    '<li class="product_list__item ic-windows" data-type="1">',
+    '<h3>Windows <span>最新版:22.6.1</span></h3>',
+    '<ul class="version_list"><li class="version_list__item" title="win\n">- windows 内容\n</li></ul>',
+    "</li>",
+    '<li class="product_list__item ic-linux" data-type="11">',
+    '<h3>Linux <span class="product_list__version">最新版:1.1.8</span></h3>',
+    '<ul class="version_list"><li class="version_list__item" title="QQ音乐Linux版本正式发布\n">- QQ音乐Linux版本正式发布\n</li><li class="version_list__item" title="修复一些已知问题\n">- 修复一些已知问题\n</li><li class="version_list__item" title="发布时间：2025-09-18">- 发布时间：2025-09-18</li></ul>',
+    "</li>",
+  ].join("");
+
+  it("extracts the version_list items scoped to the block marker", () => {
+    expect(parseHtmlVersionList(page, "ic-linux")).toEqual([
+      "- QQ音乐Linux版本正式发布",
+      "- 修复一些已知问题",
+      "- 发布时间：2025-09-18",
+    ]);
+  });
+
+  it("returns an empty array when the marker is missing", () => {
+    expect(parseHtmlVersionList(page, "ic-android")).toEqual([]);
+    expect(parseHtmlVersionList(page, undefined)).toEqual([]);
+  });
+
+  it("returns an empty array for non-strings", () => {
+    expect(parseHtmlVersionList(null, "ic-linux")).toEqual([]);
+  });
+});
+
+describe("extractHtmlBlockToMarkdown", () => {
+  const page = [
+    '<div class="log">',
+    '  <div class="log_main">',
+    '    <h2 class="log_title">WPS Office for Linux（12.1.2.28080）更新说明</h2>',
+    '    <p class="otl-paragraph"><strong style="font-size: 18px;"><br/></strong></p>',
+    '    <p class="otl-paragraph"><strong style="font-size: 18px;">WPS 表格</strong></p>',
+    '    <ol class="list-paddingleft-2"><li><p>&nbsp;数据透视表日期字段支持自动分组。</p></li></ol>',
+    '  </div>',
+    '  <div class="banner"><p class="banner_txt">12.1.2.28080</p></div>',
+    "</div>",
+  ].join("");
+
+  it("extracts and converts the log block, dropping empty strong separators", () => {
+    const markdown = extractHtmlBlockToMarkdown(page, '<h2 class="log_title"');
+    expect(markdown).toContain("## WPS Office for Linux（12.1.2.28080）更新说明");
+    expect(markdown).toContain("**WPS 表格**");
+    expect(markdown).toContain("-  数据透视表日期字段支持自动分组。");
+    expect(markdown).not.toContain("**\n**");
+  });
+
+  it("does not leak the banner version into the notes", () => {
+    const markdown = extractHtmlBlockToMarkdown(page, '<h2 class="log_title"');
+    expect(markdown).not.toContain("banner");
+  });
+
+  it("returns empty string for missing marker or non-strings", () => {
+    expect(extractHtmlBlockToMarkdown(page, "<h2 class=\"nope\"")).toBe("");
+    expect(extractHtmlBlockToMarkdown(null, "<h2")).toBe("");
   });
 });

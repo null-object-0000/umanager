@@ -52,8 +52,10 @@ export function parseAtomEntries(xml) {
   let match;
   while ((match = entryPattern.exec(xml)) !== null) {
     const block = match[1];
-    const title = firstCapture(/<title>([\s\S]*?)<\/title>/, block) ?? "";
-    const link = firstCapture(/<link\s+href="([^"]+)"/, block) ?? "";
+    // Blogger-style feeds (Chrome Releases) emit `<title type="text">`; the
+    // attribute form must match too.
+    const title = firstCapture(/<title[^>]*>([\s\S]*?)<\/title>/, block) ?? "";
+    const link = entryLink(block);
     const content = firstCapture(/<content[^>]*>([\s\S]*?)<\/content>/, block) ?? "";
     if (title) {
       entries.push({ title: title.trim(), link, html: decodeXmlEntities(content) });
@@ -65,6 +67,24 @@ export function parseAtomEntries(xml) {
 function firstCapture(pattern, text) {
   const match = pattern.exec(text);
   return match ? match[1] : null;
+}
+
+// Return the href of the entry's canonical `rel="alternate"` link, else the
+// first `<link>` href. Blogger emits `href` before `rel`, so a single ordered
+// regex is not enough.
+function entryLink(block) {
+  const tags = block.match(/<link\b[^>]*>/g) ?? [];
+  for (const tag of tags) {
+    if (/\brel="alternate"/.test(tag)) {
+      const href = firstCapture(/href="([^"]+)"/, tag);
+      if (href) return href;
+    }
+  }
+  for (const tag of tags) {
+    const href = firstCapture(/href="([^"]+)"/, tag);
+    if (href) return href;
+  }
+  return "";
 }
 
 /**
@@ -90,6 +110,11 @@ export function htmlToMarkdown(html) {
   // Drop media wrappers + iframes wholesale (videos embedded in release notes).
   text = text.replace(/<div[^>]*>[\s\S]*?<\/div>/g, "");
   text = text.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/g, "");
+
+  // Google Docs-style export (Chrome Releases) decorates nearly every tag with
+  // `style=…`/`dir=…`. Normalize those attributes away — except `<a href>` — so
+  // the block/inline rules below recognize `<h2>`, `<p>`, `<li>`, `<span>` …
+  text = text.replace(/<(h1|h2|h3|h4|p|strong|em|ul|ol|li|code|pre|br|span|b)\b[^>]*>/gi, "<$1>");
 
   // Code blocks before inline code so `<pre><code class>` wins.
   text = text.replace(/<pre><code[^>]*>([\s\S]*?)<\/code><\/pre>/g, "\n```\n$1\n```\n");
@@ -123,7 +148,10 @@ export function htmlToMarkdown(html) {
 export function atomChangelog(xml, titleContains) {
   const entry = selectAtomEntry(parseAtomEntries(xml), titleContains);
   if (!entry) return null;
-  const releaseNotesUrl = /^https:\/\//.test(entry.link) ? entry.link : null;
+  // Chrome's Blogger feed links entries over `http://` even though the site is
+  // served over HTTPS; the app only opens https links, so upgrade the scheme.
+  const link = typeof entry.link === "string" ? entry.link.replace(/^http:/, "https:") : entry.link;
+  const releaseNotesUrl = /^https:\/\//.test(link) ? link : null;
   const releaseNotes = htmlToMarkdown(entry.html);
   if (!releaseNotes && !releaseNotesUrl) return null;
   return { releaseNotes, releaseNotesUrl };

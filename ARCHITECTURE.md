@@ -196,6 +196,8 @@ npm run update-feed
 
 **安装 / 卸载**：下载后复核 HTTPS 精确域名、重定向、大小、SHA-256 与 `.deb` 包元数据；helper 在 dry-run 与真正执行前都会再次核对安装状态、系统架构、计划与官方源记录。卸载走独立不可变计划，仅执行白名单中固定的 `dpkg --remove`，不 `purge`、不自动移除依赖、不删除用户主目录数据。UManager 自身卸载入口在“设置”，仅当当前可执行文件确实包含在已安装的 `u-manager` 包清单中才启用，使用独立的 `remove-umanager` 计划。
 
+**UManager 自更新**：不再是“设置”里的独立入口，而是作为受管软件的一员出现在“软件 / 更新”页，复用与其他软件完全一致的下载 → SHA-256 校验 → 不可变计划 → 特权复核 → 安装流程。`selfUpdate` 源在 `require_application` 里被解析成普通 `releaseApi` 应用，走同一套 `get_application_details` / `download_package` / `create_operation_plan` / `run_operation_dry_run` / `install_package` 命令；`create_operation_plan` 对 `umanager` 分发到 `create_self_update_plan`，生成 `installSelfUpdate` 计划，helper 用 `install-umanager` 动作复核“必须比当前版本新、必须是 `.deb` 安装版”后执行。安装完成后抽屉按钮显示为“重启 UManager”（调用 `restart_app`）。
+
 helper 只接受固定动作（均支持 `--dry-run` 与 `--execute`）：
 
 | 来源 | 动作 |

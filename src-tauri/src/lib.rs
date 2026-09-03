@@ -23,13 +23,21 @@ use std::process::{Command, Stdio};
 use tauri::{Emitter, Manager};
 use umanager_catalog::Catalog;
 
-fn require_application<'a>(
-    catalog: &'a Catalog,
-    application_id: &str,
-) -> Result<&'a umanager_catalog::Application, String> {
-    catalog
-        .by_application_id(application_id)
-        .ok_or_else(|| format!("软件源中不存在应用 {application_id}"))
+/// Resolve an application by id for the generic store commands. In addition to
+/// the managed application catalog, the `umanager` self-update source resolves
+/// here so UManager's own update flows through the exact same download / verify /
+/// plan / install commands as every other application (the plan itself is still
+/// created with the dedicated `installSelfUpdate` action below).
+fn require_application(catalog: &Catalog, application_id: &str) -> Result<umanager_catalog::Application, String> {
+    if let Some(application) = catalog.by_application_id(application_id) {
+        return Ok(application.clone());
+    }
+    if let Some(source) = catalog.self_update_source()
+        && source.application_id == application_id
+    {
+        return Ok(source.to_application());
+    }
+    Err(format!("软件源中不存在应用 {application_id}"))
 }
 
 #[tauri::command]
@@ -75,12 +83,63 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
             )),
         }
     }
+
+    // UManager itself is a managed package too: surface it in the store so its
+    // self-update goes through the same "软件 / 更新" flow as every other app.
+    if let Some(self_app) = catalog
+        .self_update_source()
+        .map(umanager_catalog::SelfUpdateSource::to_application)
+    {
+        let detected = tauri::async_runtime::spawn_blocking(installation::detect)
+            .await
+            .ok()
+            .and_then(|outcome| outcome.ok());
+        if let Some(info) = detected.filter(|info| info.can_self_remove) {
+            if !result
+                .packages
+                .iter()
+                .any(|item| item.package_name == self_app.package_name)
+            {
+                match source_engine::load_details(&self_app, &cache_dir).await {
+                    Ok(details) => {
+                        result.packages.push(scanner::ManagedPackage {
+                            package_name: self_app.package_name.clone(),
+                            display_name: self_app.display_name.clone(),
+                            vendor: self_app.vendor.clone(),
+                            installed_version: info.package_version.unwrap_or_default(),
+                            candidate_version: details.candidate_version.clone(),
+                            architecture: self_app.architecture.clone(),
+                            source_kind: details.source_kind,
+                            source_url: Some(details.source_url.clone()),
+                            update_state: details.update_state,
+                            homepage: None,
+                        });
+                        result
+                            .packages
+                            .sort_by(|left, right| left.display_name.cmp(&right.display_name));
+                    }
+                    Err(error) => result.warnings.push(format!("UManager 更新检查失败：{error}")),
+                }
+            }
+        }
+    }
     Ok(result)
 }
 
 #[tauri::command]
 async fn get_software_catalog() -> Result<Vec<umanager_catalog::Application>, String> {
-    feed::effective_applications().await
+    let mut applications = feed::effective_applications().await?;
+    // Include the self-update source so the store can resolve UManager's own
+    // entry (source kind, accent color, description) exactly like other apps.
+    let catalog = Catalog::load()?;
+    if let Some(source) = catalog.self_update_source()
+        && !applications
+            .iter()
+            .any(|application| application.application_id == source.application_id)
+    {
+        applications.push(source.to_application());
+    }
+    Ok(applications)
 }
 
 #[tauri::command]
@@ -214,7 +273,7 @@ async fn get_application_details(
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    source_engine::load_details(application, &cache_dir).await
+    source_engine::load_details(&application, &cache_dir).await
 }
 
 #[tauri::command]
@@ -228,7 +287,7 @@ async fn get_download_plan(
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    source_engine::build_download_plan(application, &cache_dir).await
+    source_engine::build_download_plan(&application, &cache_dir).await
 }
 
 #[tauri::command]
@@ -246,7 +305,7 @@ async fn download_package(
     let progress: source_engine::ProgressCallback = std::sync::Arc::new(move |payload| {
         let _ = event_app.emit("apt-download-progress", payload);
     });
-    source_engine::download_and_verify(application, cache_dir, progress).await
+    source_engine::download_and_verify(&application, cache_dir, progress).await
 }
 
 #[tauri::command]
@@ -260,7 +319,10 @@ async fn create_operation_plan(
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    operation_plan::create_install_plan(&catalog, application, cache_dir).await
+    if application.application_id == installation::APPLICATION_ID {
+        return operation_plan::create_self_update_plan(&cache_dir).await;
+    }
+    operation_plan::create_install_plan(&catalog, &application, cache_dir).await
 }
 
 #[tauri::command]
@@ -369,7 +431,7 @@ async fn get_categories() -> Option<feed::CategoryCatalog> {
 #[tauri::command]
 async fn launch_application(application_id: String) -> Result<(), String> {
     let catalog = feed::effective_catalog().await?;
-    let application = require_application(&catalog, &application_id)?.clone();
+    let application = require_application(&catalog, &application_id)?;
     tauri::async_runtime::spawn_blocking(move || launcher::launch(&application))
         .await
         .map_err(|error| format!("启动任务异常结束：{error}"))?
@@ -638,94 +700,6 @@ async fn remove_umanager(
     .map_err(|error| format!("UManager 卸载任务异常结束：{error}"))?
 }
 
-fn self_update_application() -> Result<umanager_catalog::Application, String> {
-    let catalog = Catalog::load()?;
-    catalog
-        .self_update_source()
-        .map(umanager_catalog::SelfUpdateSource::to_application)
-        .ok_or_else(|| "软件源未配置 UManager 自更新".to_owned())
-}
-
-#[tauri::command]
-async fn get_self_update_status(
-    app: tauri::AppHandle,
-) -> Result<source_engine::ApplicationDetails, String> {
-    let application = self_update_application()?;
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    // "检查更新" must reflect the live feed, not a stale-while-revalidate
-    // cache copy that can sit up to 30 minutes behind a newly published release.
-    // Force a refresh first; a failed fetch is non-fatal (the status and the
-    // on-disk cache still serve a consistent snapshot).
-    let _ = feed::refresh_once(true).await;
-    source_engine::load_details(&application, &cache_dir).await
-}
-
-#[tauri::command]
-async fn download_self_update(
-    app: tauri::AppHandle,
-) -> Result<source_engine::DownloadResult, String> {
-    let application = self_update_application()?;
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    let event_app = app.clone();
-    let progress: source_engine::ProgressCallback = std::sync::Arc::new(move |payload| {
-        let _ = event_app.emit("self-update-download-progress", payload);
-    });
-    source_engine::download_and_verify(&application, cache_dir, progress).await
-}
-
-#[tauri::command]
-async fn create_self_update_operation_plan(
-    app: tauri::AppHandle,
-) -> Result<operation_plan::PlanArtifact, String> {
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    operation_plan::create_self_update_plan(&cache_dir).await
-}
-
-#[tauri::command]
-async fn run_self_update_dry_run(
-    app: tauri::AppHandle,
-    plan_id: String,
-) -> Result<serde_json::Value, String> {
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    tauri::async_runtime::spawn_blocking(move || {
-        operation_plan::run_self_update_dry_run(&cache_dir, &plan_id)
-    })
-    .await
-    .map_err(|error| format!("UManager 自更新 dry-run 任务异常结束：{error}"))?
-}
-
-#[tauri::command]
-async fn install_self_update(
-    app: tauri::AppHandle,
-    plan_id: String,
-) -> Result<serde_json::Value, String> {
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    let event_app = app.clone();
-    let progress: operation_plan::ProgressCallback = std::sync::Arc::new(move |payload| {
-        let _ = event_app.emit("operation-progress", payload);
-    });
-    tauri::async_runtime::spawn_blocking(move || {
-        operation_plan::execute_self_update(&cache_dir, &plan_id, progress)
-    })
-    .await
-    .map_err(|error| format!("UManager 自更新任务异常结束：{error}"))?
-}
-
 #[tauri::command]
 fn notify_download_complete(title: String, body: String) -> Result<(), String> {
     notify_rust::Notification::new()
@@ -815,11 +789,6 @@ pub fn run() {
             create_self_removal_operation_plan,
             run_self_removal_dry_run,
             remove_umanager,
-            get_self_update_status,
-            download_self_update,
-            create_self_update_operation_plan,
-            run_self_update_dry_run,
-            install_self_update,
             notify_download_complete,
             session::get_session_info,
             panel::hide_clipboard_panel,

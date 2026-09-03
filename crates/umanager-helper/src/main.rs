@@ -1192,9 +1192,64 @@ fn execute_streaming(mut command: Command, label: &str) -> Result<(), String> {
             .cloned()
             .collect::<Vec<_>>()
             .join("\n");
+        if let Some(hint) = dependency_failure_hint(&rendered) {
+            return Err(format!("{label} failed: {hint}"));
+        }
         return Err(format!("{label} failed: {rendered}"));
     }
     Ok(())
+}
+
+/// When `dpkg --install` fails because the package declares dependencies that are
+/// not satisfied on this system, dpkg leaves the package unconfigured and prints
+/// a compact error. UManager deliberately does not resolve dependencies itself,
+/// so instead of echoing the raw dpkg tail back, surface a clear, actionable
+/// message that names the missing packages and the standard `apt-get -f` remedy.
+/// Returns `None` for any other failure so callers keep the original error text.
+fn dependency_failure_hint(rendered: &str) -> Option<String> {
+    if !rendered.to_ascii_lowercase().contains("dependency problems") {
+        return None;
+    }
+    let missing = extract_missing_packages(rendered);
+    let mut message = "安装包存在未满足的系统依赖，dpkg 未能完成配置；请先在终端执行 \
+sudo apt-get install -f 补装依赖后重试"
+        .to_owned();
+    if !missing.is_empty() {
+        message.push_str("。缺少的依赖：");
+        message.push_str(&missing.join("、"));
+    }
+    Some(message)
+}
+
+/// Extracts the concrete package names dpkg reports as missing from a dependency
+/// failure tail. Handles both the `Package X is not installed.` line and the
+/// `... depends on X ...; however:` line (dropping any version constraint).
+fn extract_missing_packages(rendered: &str) -> Vec<String> {
+    let mut packages: Vec<String> = Vec::new();
+    for raw_line in rendered.lines() {
+        let line = raw_line.trim();
+        if let Some(rest) = line.strip_prefix("Package ") {
+            if let Some(name) = rest.strip_suffix(" is not installed.") {
+                push_unique_package(&mut packages, name.trim());
+            }
+        }
+        if let Some(position) = line.find(" depends on ") {
+            let rest = &line[position + " depends on ".len()..];
+            let name = rest
+                .split(|character: char| character == ';' || character == '(' || character.is_whitespace())
+                .next()
+                .unwrap_or("")
+                .trim();
+            push_unique_package(&mut packages, name);
+        }
+    }
+    packages
+}
+
+fn push_unique_package(packages: &mut Vec<String>, name: &str) {
+    if valid_package_name(name) && !packages.iter().any(|existing| existing == name) {
+        packages.push(name.to_owned());
+    }
 }
 
 fn forward_output<R: Read>(
@@ -1640,6 +1695,38 @@ mod tests {
         assert_eq!(
             sanitize_log_line(&"a".repeat(MAX_LOG_LINE_CHARS + 20)).len(),
             MAX_LOG_LINE_CHARS
+        );
+    }
+
+    #[test]
+    fn surfaces_actionable_hint_for_unmet_dependencies() {
+        let tail = "dpkg: dependency problems prevent configuration of bytedance-feishu-stable:\n\
+                    bytedance-feishu-stable depends on pulseaudio-utils; however:\n\
+                     Package pulseaudio-utils is not installed.\n\
+                    dpkg: error processing package bytedance-feishu-stable (--install):\n\
+                     dependency problems - leaving unconfigured\n\
+                    Errors were encountered while processing:\n\
+                     bytedance-feishu-stable";
+        let hint = dependency_failure_hint(tail).unwrap();
+        assert!(hint.contains("sudo apt-get install -f"));
+        assert!(hint.contains("pulseaudio-utils"));
+    }
+
+    #[test]
+    fn non_dependency_failures_keep_the_original_error() {
+        assert!(dependency_failure_hint("dpkg: error: cannot access archive").is_none());
+        assert!(dependency_failure_hint("dpkg remove failed for unrelated reasons").is_none());
+    }
+
+    #[test]
+    fn extracts_versioned_and_multiple_missing_packages() {
+        let tail = "x depends on libgtk-3-0 (>= 3.24); however:\n\
+                     Package libgtk-3-0 is not installed.\n\
+                    x depends on pulseaudio-utils; however:\n\
+                     Package pulseaudio-utils is not installed.\n";
+        assert_eq!(
+            extract_missing_packages(tail),
+            vec!["libgtk-3-0".to_owned(), "pulseaudio-utils".to_owned()]
         );
     }
 

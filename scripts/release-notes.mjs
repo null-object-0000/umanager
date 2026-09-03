@@ -87,3 +87,38 @@ export function selectReleaseNotesRelease(payload, tagPrefix) {
     }) ?? null
   );
 }
+
+/**
+ * Select a GitHub release whose tag equals `tagPrefix + version` (e.g. dsh's
+ * `dsh-v0.1.1-rc.2` for npm version `0.1.1-rc.2`, which is a prerelease).
+ *
+ * The exact-tag match deliberately allows prereleases, since a dev tool's npm
+ * "latest" can point at a release candidate. When no exact tag matches, fall
+ * back to the first non-draft, non-prerelease release under the prefix.
+ *
+ * @param {unknown} payload
+ * @param {string} [tagPrefix]
+ * @param {string} [version]
+ * @returns {object|null}
+ */
+export function selectToolRelease(payload, tagPrefix, version) {
+  const releases = Array.isArray(payload) ? payload : [payload];
+  const prefix = tagPrefix || "";
+  const targetTag = version ? `${prefix}${version}` : "";
+  if (targetTag) {
+    const exact = releases.find(
+      (release) =>
+        release && typeof release === "object" &&
+        !release.draft && String(release.tag_name || "") === targetTag,
+    );
+    if (exact) return exact;
+  }
+  return (
+    releases.find((release) => {
+      if (!release || typeof release !== "object") return false;
+      if (release.draft || release.prerelease) return false;
+      const tag = String(release.tag_name || "");
+      return prefix ? tag.startsWith(prefix) : true;
+    }) ?? null
+  );
+}

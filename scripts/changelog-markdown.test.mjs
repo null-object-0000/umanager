@@ -85,4 +85,35 @@ describe("extractMarkdownVersionSection", () => {
   it("returns empty string for non-strings", () => {
     expect(extractMarkdownVersionSection(null, "1.0.0")).toBe("");
   });
+
+  it("matches bracketed headings with a date suffix (Pi)", () => {
+    const changelog = [
+      "# Changelog",
+      "",
+      "## [Unreleased]",
+      "",
+      "### Fixed",
+      "",
+      "- unreleased thing",
+      "",
+      "## [0.84.4] - 2026-08-28",
+      "",
+      "### New Features",
+      "",
+      "- feature A",
+      "",
+      "## [0.84.3] - 2026-08-20",
+      "",
+      "- feature B",
+    ].join("\n");
+    const section = extractMarkdownVersionSection(changelog, "0.84.4");
+    expect(section).toContain("## [0.84.4] - 2026-08-28");
+    expect(section).toContain("- feature A");
+    expect(section).not.toContain("- unreleased thing");
+  });
+
+  it("tolerates a leading v in the requested version", () => {
+    const changelog = "# Changelog\n\n## 2.1.258\n- fixed A\n";
+    expect(extractMarkdownVersionSection(changelog, "v2.1.258")).toBe("## 2.1.258\n- fixed A");
+  });
 });
