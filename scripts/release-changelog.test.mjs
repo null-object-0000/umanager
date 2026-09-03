@@ -67,6 +67,11 @@ describe("selectPreviousTag", () => {
     expect(selectPreviousTag(["v0.8.8", "v0.8.9"])).toBe("v0.8.9");
   });
 
+  it("ignores the release's own tag when it sits exactly at HEAD", () => {
+    const tags = ["v0.8.8", "v0.8.9", "v0.9.0"];
+    expect(selectPreviousTag(tags, null, "v0.9.0")).toBe("v0.8.9");
+  });
+
   it("returns null when no older tag or no parseable tags exist", () => {
     expect(selectPreviousTag(["v0.8.10"], "0.8.10")).toBeNull();
     expect(selectPreviousTag([], "0.8.10")).toBeNull();

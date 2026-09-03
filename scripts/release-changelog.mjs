@@ -17,7 +17,7 @@
 //   node scripts/release-changelog.mjs --version 0.8.10
 //
 // Without `--version` it releases the tip of the current checkout (previous tag
-// = newest existing `v*` tag).
+// = newest existing `v*` tag, excluding any tag pointing exactly at HEAD).
 
 const COMMIT_TYPES = [
   {
@@ -152,12 +152,19 @@ function compareVersions(left, right) {
  * version is given, i.e. releasing the current tip). Version comparison is
  * split-safe (v0.8.10 > v0.8.9).
  *
+ * When `excludeTag` is given (e.g. the tag pointing exactly at HEAD — the
+ * release being created on a manual re-dispatch) it is filtered out first, so
+ * a manual run after the release tag already exists still resolves the
+ * previous version instead of the release's own tag.
+ *
  * @param {string[]} tags tags (may include a leading `v`)
  * @param {string} [version] version being released
+ * @param {string} [excludeTag] tag to ignore (raw form, as found in `tags`)
  * @returns {string | null} previous tag (raw tag as found in `tags`)
  */
-export function selectPreviousTag(tags, version) {
-  const normalized = tags
+export function selectPreviousTag(tags, version, excludeTag = null) {
+  const candidates = excludeTag ? tags.filter((tag) => tag !== excludeTag) : tags;
+  const normalized = candidates
     .map((tag) => ({ raw: tag, version: tag.replace(/^v/, "") }))
     .filter((entry) => /^\d+(?:\.\d+)*$/.test(entry.version))
     .sort((a, b) => compareVersions(a.version, b.version));
@@ -180,7 +187,17 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const previousTag = selectPreviousTag(tags, version);
+  // Without an explicit version we release the current tip. If HEAD is exactly
+  // the release's own tag (manual re-dispatch after the tag was pushed), that
+  // tag must not count as the "previous" one — exclude it so the range still
+  // starts at the last real release.
+  let headTag = null;
+  try {
+    headTag = execFileSync("git", ["describe", "--tags", "--exact-match", "HEAD"], { cwd, encoding: "utf8" }).trim();
+  } catch {
+    /* HEAD is not exactly tagged: no exclusion needed */
+  }
+  const previousTag = selectPreviousTag(tags, version, headTag);
   if (!previousTag) {
     throw new Error("无法确定上一个版本 tag，无法生成 changelog");
   }
