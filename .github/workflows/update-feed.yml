@@ -79,6 +79,7 @@ jobs:
           name: feed-${{ matrix.group }}
           path: |
             dist/feed.${{ matrix.group }}.json
+            dist/feed.${{ matrix.group }}.json.sig
             dist/icons
           if-no-files-found: warn
           retention-days: 1
