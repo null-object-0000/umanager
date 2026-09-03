@@ -328,6 +328,9 @@ fn installer_label(tool: &DevelopmentTool) -> &'static str {
     }
 }
 
+/// Install an npm-distributed tool at its configured dist-tag (`latest` by
+/// default, e.g. `alpha` for DeepSeek Harness), so the installed version
+/// matches what the metadata feed advertises for that tool.
 fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, String> {
     match &tool.installer {
         DevToolInstaller::Npm => {
@@ -335,12 +338,13 @@ fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, Strin
                 .npm_package
                 .as_deref()
                 .ok_or_else(|| format!("{} 未配置 npm 包", tool.display_name))?;
+            let dist_tag = tool.dist_tag.as_deref().unwrap_or("latest");
             npm_command(
                 home,
                 &[
                     "install".to_owned(),
                     "-g".to_owned(),
-                    format!("{package}@latest"),
+                    format!("{package}@{dist_tag}"),
                 ],
             )
         }

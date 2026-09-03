@@ -171,7 +171,7 @@ npm run update-feed
 
 **运行时工具链**（`src-tauri/src/dev_tools.rs`）：通过用户级版本管理器管理。`vendors.json` 的 `developmentToolchains` 数组登记一条记录即可接入：`toolchainId` / `displayName` / `vendor` / `homepage`、`manager`（如 `nvm`、`rustup`）、`managerKind`（`shell` 需 source 脚本 / `binary` 直接执行）、`managerHome`、`managerScript` / `managerBinary`、`versionsDirectory`。当前内置 Node.js（nvm，shell）与 Rust（rustup，binary）两条工具链，支持“安装并设为默认”“设为默认”“卸载”。nvm 通过 `/bin/bash -c 'source nvm.sh --no-use; nvm …'` 执行；rustup 直接以参数向量调用，两者都只由固定子命令 + 严格校验的版本/别名 token 组成。
 
-**CLI AI 编程工具**（`src-tauri/src/dev_cli_tools.rs`）：管理单版本、用户级安装的工具。`developmentTools` 数组登记字段：`toolId` / `displayName` / `vendor` / `homepage` / `accentColor`、`binaryName`、`npmPackage`（可为空，非 npm 分发的工具留空）、`installer.kind`（`npm` 或 `curlScript`）、`uninstall.kind`（`npm` / `removeFiles` / `selfCommand`）、`update.kind`（`selfCommand` 或回退重跑 installer）。当前内置：
+**CLI AI 编程工具**（`src-tauri/src/dev_cli_tools.rs`）：管理单版本、用户级安装的工具。`developmentTools` 数组登记字段：`toolId` / `displayName` / `vendor` / `homepage` / `accentColor`、`binaryName`、`npmPackage`（可为空，非 npm 分发的工具留空）、`distTag`（可选，npm 工具跟踪的 dist-tag 通道：`latest` / `alpha` / `next`，默认 `latest`；feed 版本解析与 App 的 npm 安装/更新都走该标签）、`installer.kind`（`npm` 或 `curlScript`）、`uninstall.kind`（`npm` / `removeFiles` / `selfCommand`）、`update.kind`（`selfCommand` 或回退重跑 installer）。当前内置：
 
 | 工具 | npm 包 | 安装方式 | 命令 |
 |---|---|---|---|

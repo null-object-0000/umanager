@@ -19,7 +19,7 @@
 //                                      releaseNotes?, releaseNotesUrl? } }
 //   selfUpdate:   { packageName, version, architecture, size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion?,
 //                   releaseNotes?, releaseNotesUrl? }
-//   developmentTools: { [toolId]: { npmPackage, version } }
+//   developmentTools: { [toolId]: { npmPackage?, version } }  // npmPackage omitted for non-npm tools
 //   categories: [ { id, label } ]          // display-only grouping
 //   categoryAssignments: { applications: { [applicationId]: categoryId },
 //                          developmentTools: { [toolId]: categoryId } }
@@ -34,6 +34,7 @@ import { jsonpEntryToMarkdown, parseJsonpChangelog, selectJsonpChangelogEntry } 
 import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./changelog-markdown.mjs";
 import { entryOrPrevious } from "./feed-fallback.mjs";
 import { sanitizeReleaseNotes, selectReleaseNotesRelease, selectToolRelease, stripReleaseNotesBoilerplate } from "./release-notes.mjs";
+import { resolveNpmDistTagVersion } from "./tool-version.mjs";
 import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -966,19 +967,28 @@ async function toolEntry(tool, versionOverrides) {
       fail(tool.toolId, `读取 npm 包信息失败：${error.message}`);
       return null;
     }
-    const resolved = doc?.["dist-tags"]?.latest;
-    if (!resolved) {
-      fail(tool.toolId, `npm ${pkg} 未返回版本`);
+    // tools may pin the npm dist-tag channel they track (e.g. dsh tracks
+    // `alpha`); an unconfigured tool follows npm's `latest` tag.
+    try {
+      version = resolveNpmDistTagVersion(doc, tool.distTag);
+    } catch (error) {
+      fail(tool.toolId, `npm ${pkg}：${error.message}`);
       return null;
     }
-    version = String(resolved);
     publishTime = parseUnixSeconds(doc?.time?.[version]);
   }
 
   const entry = {
-    npmPackage: tool.npmPackage ? `${tool.npmPackage}` : null,
     version: String(version),
   };
+  // Omit `npmPackage` for tools distributed outside npm (e.g. Hermes Agent)
+  // instead of emitting `null`. `FeedToolEntry.npm_package` is optional
+  // (`#[serde(default)]`), so omitting the key is the canonical representation;
+  // older app versions that require a string still can't parse such entries,
+  // so non-npm tools effectively need a recent app version.
+  if (tool.npmPackage) {
+    entry.npmPackage = `${tool.npmPackage}`;
+  }
   entry._versionTimeCandidate = publishTime != null
     ? { time: publishTime, source: "official" }
     : null;
