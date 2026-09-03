@@ -189,6 +189,7 @@
     "displayName": "UManager",
     "vendor": "UManager contributors",
     "architecture": "amd64",
+    "homepage": "https://github.com/null-object-0000/umanager/releases",
     "releaseApiUrl": "https://api.github.com/repos/null-object-0000/umanager/releases/latest",
     "releaseApiHosts": [
       "api.github.com"
@@ -358,6 +359,31 @@
         "kind": "npm"
       },
       "description": "DeepSeek 官方命令行 AI 编程助手，通过可组合的 profile 启动 agent、插件与 Web UI。"
+    },
+    {
+      "toolId": "hermes",
+      "displayName": "Hermes Agent",
+      "vendor": "Nous Research",
+      "homepage": "https://hermes-agent.nousresearch.com/",
+      "icon": "hermes",
+      "accentColor": "#8b5cf6",
+      "binaryName": "hermes",
+      "npmPackage": null,
+      "installer": {
+        "kind": "curlScript",
+        "scriptUrl": "https://hermes-agent.nousresearch.com/install.sh",
+        "host": "hermes-agent.nousresearch.com",
+        "shell": "bash"
+      },
+      "uninstall": {
+        "kind": "selfCommand",
+        "args": ["uninstall", "--yes"]
+      },
+      "update": {
+        "kind": "selfCommand",
+        "args": ["update"]
+      },
+      "description": "Nous Research 开源的终端 AI 智能体，带持久记忆、多智能体协作与跨平台网关，通过官方安装脚本分发。"
     }
   ]
 }

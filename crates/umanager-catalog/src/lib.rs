@@ -48,6 +48,10 @@ pub struct SelfUpdateSource {
     pub display_name: String,
     pub vendor: String,
     pub architecture: String,
+    /// Homepage (GitHub Releases page) shown as the "developer website" link in
+    /// UManager's own store entry.
+    #[serde(default)]
+    pub homepage: Option<String>,
     pub release_api_url: String,
     pub release_api_hosts: Vec<String>,
     pub asset_name_pattern: String,
@@ -110,7 +114,10 @@ pub struct DevelopmentTool {
     /// Command name of the installed CLI, e.g. `claude`.
     pub binary_name: String,
     /// npm package used for installs, updates, and latest-version lookup.
-    pub npm_package: String,
+    /// `None` for tools distributed outside npm (e.g. git/Python installers);
+    /// those need a feed version source configured in `feed-sources.json`.
+    #[serde(default)]
+    pub npm_package: Option<String>,
     /// How a missing tool is installed. `npm` runs a global npm install;
     /// `curlScript` runs the vendor's official one-line installer.
     pub installer: DevToolInstaller,
@@ -144,6 +151,10 @@ pub enum DevToolUninstall {
     Npm,
     #[serde(rename_all = "camelCase")]
     RemoveFiles { paths: Vec<String> },
+    /// Run the already-installed binary with a fixed argument vector, e.g.
+    /// `hermes uninstall --yes` (the vendor's own non-interactive uninstaller).
+    #[serde(rename_all = "camelCase")]
+    SelfCommand { args: Vec<String> },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -459,12 +470,12 @@ impl SelfUpdateSource {
                 "UManager 桌面软件管家：统一管理 .deb 应用与 CLI 工具的安装、更新与卸载。".to_owned(),
             ),
             category: None,
-            homepage: None,
+            homepage: self.homepage.clone(),
             icon: None,
             icon_url: None,
             icon_sha256: None,
             accent_color: Some("#0a84ff".to_owned()),
-            removable: false,
+            removable: true,
             source: SourceSpec::ReleaseApi {
                 release_api_url: self.release_api_url.clone(),
                 release_api_hosts: self.release_api_hosts.clone(),
@@ -507,10 +518,10 @@ mod tests {
     #[test]
     fn development_tools_are_configuration_driven() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 5);
+        assert_eq!(catalog.development_tools.len(), 6);
         let codex = catalog.by_tool_id("codex").unwrap();
         assert_eq!(codex.binary_name, "codex");
-        assert_eq!(codex.npm_package, "@openai/codex");
+        assert_eq!(codex.npm_package.as_deref(), Some("@openai/codex"));
         assert!(matches!(codex.installer, DevToolInstaller::Npm));
         let claude = catalog.by_tool_id("claude-code").unwrap();
         assert!(matches!(claude.installer, DevToolInstaller::CurlScript { .. }));
@@ -526,10 +537,22 @@ mod tests {
         ));
         let dsh = catalog.by_tool_id("dsh").unwrap();
         assert_eq!(dsh.binary_name, "dsh");
-        assert_eq!(dsh.npm_package, "@deepseek-ai/dsh");
+        assert_eq!(dsh.npm_package.as_deref(), Some("@deepseek-ai/dsh"));
         assert!(matches!(dsh.installer, DevToolInstaller::Npm));
         assert!(matches!(dsh.uninstall, DevToolUninstall::Npm));
         assert!(dsh.update.is_none());
+        let hermes = catalog.by_tool_id("hermes").unwrap();
+        assert_eq!(hermes.binary_name, "hermes");
+        assert_eq!(hermes.npm_package, None);
+        assert!(matches!(hermes.installer, DevToolInstaller::CurlScript { .. }));
+        assert!(matches!(
+            hermes.uninstall,
+            DevToolUninstall::SelfCommand { ref args } if args == &["uninstall".to_owned(), "--yes".to_owned()]
+        ));
+        assert!(matches!(
+            hermes.update,
+            Some(DevToolUpdate::SelfCommand { ref args }) if args == &["update".to_owned()]
+        ));
     }
 
     #[test]
@@ -564,7 +587,11 @@ mod tests {
         assert_eq!(source.architecture, "amd64");
         let application = source.to_application();
         assert!(application.is_website_download());
-        assert!(!application.removable);
+        assert!(application.removable);
+        assert_eq!(
+            application.homepage.as_deref(),
+            Some("https://github.com/null-object-0000/umanager/releases")
+        );
         assert!(matches!(application.source, SourceSpec::ReleaseApi { .. }));
     }
 

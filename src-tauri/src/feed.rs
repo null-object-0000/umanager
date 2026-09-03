@@ -90,7 +90,10 @@ pub struct FeedApplicationEntry {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeedToolEntry {
-    pub npm_package: String,
+    /// npm package this tool entry belongs to, for cross-checking at detection
+    /// time. `None` for tools distributed outside npm (e.g. git/Python).
+    #[serde(default)]
+    pub npm_package: Option<String>,
     pub version: String,
     #[serde(default)]
     pub version_updated_at_unix_seconds: Option<u64>,
@@ -692,8 +695,10 @@ fn validate(feed: &Feed) -> Result<(), String> {
         validate_application_entry("selfUpdate", entry)?;
     }
     for (id, entry) in &feed.development_tools {
-        if entry.npm_package.is_empty() || entry.npm_package.contains('\0') {
-            return Err(format!("{id}：npm 包名无效"));
+        if let Some(pkg) = &entry.npm_package {
+            if pkg.is_empty() || pkg.contains('\0') {
+                return Err(format!("{id}：npm 包名无效"));
+            }
         }
         if entry.version.is_empty() || entry.version.contains('\0') {
             return Err(format!("{id}：版本无效"));

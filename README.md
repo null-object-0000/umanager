@@ -17,7 +17,7 @@ UManager 是基于 [Tauri 2](https://tauri.app/)（Rust 后端 + React 前端）
 **开发环境**
 
 - 运行时工具链：Node.js（nvm）与 Rust（rustup）的检测、安装、切换、卸载，全程无 root；
-- CLI AI 编程工具：Claude Code、OpenCode、Pi、Codex CLI、DeepSeek Harness，识别 npm / 官方安装器 / PATH 来源并安装、更新、卸载。
+- CLI AI 编程工具：Claude Code、OpenCode、Pi、Codex CLI、DeepSeek Harness、Hermes Agent，识别 npm / 官方安装器 / PATH 来源并安装、更新、卸载。
 
 **安全模型**
 

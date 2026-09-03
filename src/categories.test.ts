@@ -32,6 +32,7 @@ describe("software categories", () => {
     expect(devToolCategory(null, "pi")).toBe("AI 工具");
     expect(devToolCategory(null, "codex")).toBe("AI 工具");
     expect(devToolCategory(null, "dsh")).toBe("AI 工具");
+    expect(devToolCategory(null, "hermes")).toBe("AI 工具");
   });
 
   it("prefers feed-driven categories and resolves labels from the feed", () => {

@@ -117,6 +117,7 @@ export interface InstallableApplication {
   displayName: string;
   vendor: string;
   description?: string | null;
+  homepage?: string | null;
   architecture: string;
   category?: string | null;
   sourceKind: "officialRepository" | "officialWebsite";
@@ -367,7 +368,7 @@ export interface DevOperationProgress {
 }
 
 export type DevToolInstaller = { kind: "npm" } | { kind: "curlScript"; scriptUrl: string; host: string; shell: string };
-export type DevToolUninstall = { kind: "npm" } | { kind: "removeFiles"; paths: string[] };
+export type DevToolUninstall = { kind: "npm" } | { kind: "removeFiles"; paths: string[] } | { kind: "selfCommand"; args: string[] };
 export type DevToolUpdate = { kind: "selfCommand"; args: string[] };
 
 export interface DevTool {
@@ -379,7 +380,7 @@ export interface DevTool {
   icon: string | null;
   accentColor: string | null;
   binaryName: string;
-  npmPackage: string;
+  npmPackage: string | null;
   installer: DevToolInstaller;
   uninstall: DevToolUninstall;
   update: DevToolUpdate | null;
@@ -393,7 +394,7 @@ export interface DevToolState {
   icon: string | null;
   accentColor: string | null;
   binaryName: string;
-  npmPackage: string;
+  npmPackage: string | null;
   installerKind: "npm" | "curlScript";
   npmAvailable: boolean;
   installed: boolean;

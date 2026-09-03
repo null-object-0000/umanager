@@ -34,7 +34,8 @@
       "opencode": "ai-tools",
       "pi": "ai-tools",
       "codex": "ai-tools",
-      "dsh": "ai-tools"
+      "dsh": "ai-tools",
+      "hermes": "ai-tools"
     }
   }
 }

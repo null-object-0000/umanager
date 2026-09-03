@@ -921,22 +921,64 @@ async function versionEndpointEntry(app, source) {
   return entry;
 }
 
-async function toolEntry(tool) {
-  const pkg = tool.npmPackage;
-  let doc;
-  try {
-    doc = JSON.parse(await fetchText(`https://registry.npmjs.org/${encodeURIComponent(pkg)}`));
-  } catch (error) {
-    fail(tool.toolId, `读取 npm 包信息失败：${error.message}`);
+async function toolEntry(tool, versionOverrides) {
+  const versionOverride = versionOverrides?.[tool.toolId];
+  if (!tool.npmPackage && !versionOverride) {
+    fail(tool.toolId, "未配置 npm 包，也没有版本覆盖源");
     return null;
   }
-  const version = doc?.["dist-tags"]?.latest;
-  if (!version) {
-    fail(tool.toolId, `npm ${pkg} 未返回版本`);
-    return null;
+
+  let version;
+  let publishTime = null;
+  if (versionOverride) {
+    // Non-npm tools (e.g. git/Python installers like Hermes Agent): resolve the
+    // latest version from the vendor's GitHub releases, parsing it out of the
+    // newest release title (e.g. "Hermes Agent v0.21.0 (v2026.8.31)" -> 0.21.0).
+    let payload;
+    try {
+      payload = JSON.parse(await fetchText(versionOverride.releaseApiUrl, githubApiHeaders()));
+    } catch (error) {
+      fail(tool.toolId, `读取版本覆盖源失败：${error.message}`);
+      return null;
+    }
+    const releases = Array.isArray(payload) ? payload : [payload];
+    const release = releases.find(
+      (item) => item && typeof item === "object" && !item.draft && !item.prerelease,
+    );
+    if (!release) {
+      fail(tool.toolId, "版本覆盖源未返回正式发布");
+      return null;
+    }
+    const title = String(release.name ?? release.tag_name ?? "");
+    const match = title.match(new RegExp(versionOverride.versionTitleRegex));
+    if (!match?.[1]) {
+      fail(tool.toolId, `无法从发布标题解析版本：${title}`);
+      return null;
+    }
+    version = match[1];
+    publishTime = parseUnixSeconds(release.published_at);
+  } else {
+    const pkg = tool.npmPackage;
+    let doc;
+    try {
+      doc = JSON.parse(await fetchText(`https://registry.npmjs.org/${encodeURIComponent(pkg)}`));
+    } catch (error) {
+      fail(tool.toolId, `读取 npm 包信息失败：${error.message}`);
+      return null;
+    }
+    const resolved = doc?.["dist-tags"]?.latest;
+    if (!resolved) {
+      fail(tool.toolId, `npm ${pkg} 未返回版本`);
+      return null;
+    }
+    version = String(resolved);
+    publishTime = parseUnixSeconds(doc?.time?.[version]);
   }
-  const entry = { npmPackage: pkg, version: String(version) };
-  const publishTime = parseUnixSeconds(doc?.time?.[version]);
+
+  const entry = {
+    npmPackage: tool.npmPackage ? `${tool.npmPackage}` : null,
+    version: String(version),
+  };
   entry._versionTimeCandidate = publishTime != null
     ? { time: publishTime, source: "official" }
     : null;
@@ -1008,6 +1050,7 @@ async function main() {
   const extraApplications = extra.applications || [];
   const releaseNotesOverrides = extra.releaseNotesOverrides || {};
   const toolReleaseNotesOverrides = extra.toolReleaseNotesOverrides || {};
+  const toolVersionOverrides = extra.toolVersionOverrides || {};
 
   const categoryConfig = readCategoryConfig();
   const categories = (categoryConfig.categories || [])
@@ -1091,7 +1134,7 @@ async function main() {
 
   const developmentTools = {};
   for (const tool of catalog.developmentTools || []) {
-    const entry = await toolEntry(tool);
+    const entry = await toolEntry(tool, toolVersionOverrides);
     // Attach a changelog for tools configured in `toolReleaseNotesOverrides`.
     if (entry && entry.releaseNotes == null && entry.releaseNotesUrl == null) {
       const notes = await fetchToolReleaseNotes(tool, toolReleaseNotesOverrides[tool.toolId], entry);

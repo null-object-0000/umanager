@@ -11,6 +11,8 @@ pub struct InstallableApplication {
     pub display_name: String,
     pub vendor: String,
     pub description: Option<String>,
+    /// Vendor homepage (developer website), shown as a link in the detail drawer.
+    pub homepage: Option<String>,
     pub architecture: String,
     /// `"cli"` for system-level command-line tools, absent for desktop apps.
     pub category: Option<String>,
@@ -64,6 +66,7 @@ async fn offer_for(
         display_name: application.display_name.clone(),
         vendor: application.vendor.clone(),
         description: application.description.clone(),
+        homepage: application.homepage.clone(),
         architecture: application.architecture.clone(),
         category: application.category.clone(),
         source_kind,

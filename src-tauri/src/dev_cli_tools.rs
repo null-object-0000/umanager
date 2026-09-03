@@ -32,7 +32,7 @@ pub struct DevToolState {
     pub icon: Option<String>,
     pub accent_color: Option<String>,
     pub binary_name: String,
-    pub npm_package: String,
+    pub npm_package: Option<String>,
     /// `npm` or `curlScript`, mirroring the configured installer.
     pub installer_kind: String,
     pub npm_available: bool,
@@ -175,7 +175,9 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
         .and_then(|path| capture_version(path))
         .or_else(|| {
             if install_kind.as_deref() == Some("npmGlobal") && npm_available {
-                npm_installed_version(&home, &tool.npm_package)
+                tool.npm_package
+                    .as_deref()
+                    .and_then(|package| npm_installed_version(&home, package))
             } else {
                 None
             }
@@ -257,7 +259,12 @@ fn classify_install_kind(
     if official_dirs.iter().any(|candidate| candidate == path) {
         return "officialInstaller".to_owned();
     }
-    if npm_available && npm_has_package(home, &tool.npm_package) {
+    if npm_available
+        && tool
+            .npm_package
+            .as_deref()
+            .is_some_and(|package| npm_has_package(home, package))
+    {
         return "npmGlobal".to_owned();
     }
     "onPath".to_owned()
@@ -323,14 +330,20 @@ fn installer_label(tool: &DevelopmentTool) -> &'static str {
 
 fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, String> {
     match &tool.installer {
-        DevToolInstaller::Npm => npm_command(
-            home,
-            &[
-                "install".to_owned(),
-                "-g".to_owned(),
-                format!("{}@latest", tool.npm_package),
-            ],
-        ),
+        DevToolInstaller::Npm => {
+            let package = tool
+                .npm_package
+                .as_deref()
+                .ok_or_else(|| format!("{} 未配置 npm 包", tool.display_name))?;
+            npm_command(
+                home,
+                &[
+                    "install".to_owned(),
+                    "-g".to_owned(),
+                    format!("{package}@latest"),
+                ],
+            )
+        }
         DevToolInstaller::CurlScript {
             script_url, shell, ..
         } => {
@@ -356,26 +369,37 @@ fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, Strin
 fn update_command(tool: &DevelopmentTool, home: &Path) -> Result<(Command, &'static str), String> {
     match &tool.update {
         Some(DevToolUpdate::SelfCommand { args }) => {
-            let binary = find_tool_binary(tool, home)
-                .ok_or_else(|| format!("未检测到已安装的 {}", tool.display_name))?;
-            let bin_dir = binary
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from("/usr/bin"));
-            let mut command = Command::new(&binary);
-            command
-                .args(args)
-                .env_clear()
-                .env("PATH", format!("{}:{SAFE_SYSTEM_PATH}", bin_dir.display()))
-                .env("HOME", home)
-                .env("LC_ALL", "C")
-                .env("LANG", "C")
-                .env("LANGUAGE", "C");
-            apply_proxy_environment(&mut command);
-            Ok((command, "官方自更新命令"))
+            Ok((binary_self_command(tool, home, args)?, "官方自更新命令"))
         }
         None => Ok((install_command(tool, home)?, installer_label(tool))),
     }
+}
+
+/// Run the already-installed tool binary with a fixed argument vector under a
+/// clean environment (used for self-updates and the vendor's own
+/// non-interactive uninstaller, e.g. `hermes uninstall --yes`).
+fn binary_self_command(
+    tool: &DevelopmentTool,
+    home: &Path,
+    args: &[String],
+) -> Result<Command, String> {
+    let binary = find_tool_binary(tool, home)
+        .ok_or_else(|| format!("未检测到已安装的 {}", tool.display_name))?;
+    let bin_dir = binary
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("/usr/bin"));
+    let mut command = Command::new(&binary);
+    command
+        .args(args)
+        .env_clear()
+        .env("PATH", format!("{}:{SAFE_SYSTEM_PATH}", bin_dir.display()))
+        .env("HOME", home)
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .env("LANGUAGE", "C");
+    apply_proxy_environment(&mut command);
+    Ok(command)
 }
 
 fn uninstall_command(
@@ -384,23 +408,9 @@ fn uninstall_command(
     install_kind: &str,
 ) -> Result<Command, String> {
     match install_kind {
-        "npmGlobal" => npm_command(
-            home,
-            &[
-                "uninstall".to_owned(),
-                "-g".to_owned(),
-                tool.npm_package.clone(),
-            ],
-        ),
+        "npmGlobal" => npm_uninstall_command(tool, home),
         "officialInstaller" => match &tool.uninstall {
-            DevToolUninstall::Npm => npm_command(
-                home,
-                &[
-                    "uninstall".to_owned(),
-                    "-g".to_owned(),
-                    tool.npm_package.clone(),
-                ],
-            ),
+            DevToolUninstall::Npm => npm_uninstall_command(tool, home),
             DevToolUninstall::RemoveFiles { paths } => {
                 let quoted = paths
                     .iter()
@@ -419,9 +429,26 @@ fn uninstall_command(
                 apply_proxy_environment(&mut command);
                 Ok(command)
             }
+            DevToolUninstall::SelfCommand { args } => binary_self_command(tool, home, args),
         },
         other => Err(format!("无法卸载：安装来源（{other}）不在受支持的白名单内")),
     }
+}
+
+/// `npm uninstall -g <package>` for the tool's configured npm package.
+fn npm_uninstall_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, String> {
+    let package = tool
+        .npm_package
+        .as_deref()
+        .ok_or_else(|| format!("{} 未配置 npm 包", tool.display_name))?;
+    npm_command(
+        home,
+        &[
+            "uninstall".to_owned(),
+            "-g".to_owned(),
+            package.to_owned(),
+        ],
+    )
 }
 
 fn npm_available(home: &Path) -> bool {
@@ -850,11 +877,12 @@ mod tests {
     #[test]
     fn embedded_tools_are_configured() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 5);
+        assert_eq!(catalog.development_tools.len(), 6);
         assert!(catalog.by_tool_id("claude-code").is_some());
         assert!(catalog.by_tool_id("opencode").is_some());
         assert!(catalog.by_tool_id("pi").is_some());
         assert!(catalog.by_tool_id("codex").is_some());
         assert!(catalog.by_tool_id("dsh").is_some());
+        assert!(catalog.by_tool_id("hermes").is_some());
     }
 }
