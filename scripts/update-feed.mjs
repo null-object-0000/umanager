@@ -1598,7 +1598,11 @@ async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, sel
     return false;
   }
   const baseDir = metadataFeed.url.replace(/\/[^/]*$/, "");
-  const v3Base = `${baseDir}/v3`;
+  // `metadataFeed.url` points at the v3 central feed (…/v3/feed.json), so the
+  // v3 world lives in its directory; the source feeds are siblings
+  // (…/v3/feed.<id>.json). Do NOT append another `/v3` here (that used to be
+  // correct when the central was at the site root, but now double-prefixes).
+  const v3Base = baseDir;
   const registryOrder = Object.keys(sourceRegistry || {});
   const publishedGroups = registryOrder.filter((group) => sourceFeeds[group]);
   if (publishedGroups.length === 0) {
