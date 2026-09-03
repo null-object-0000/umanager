@@ -24,3 +24,14 @@ each toolchain's accent color:
 | --- | --- | --- |
 | `nodejs.svg` | `nodedotjs` | `#5fa04e` |
 | `rust.svg` | `rust` | `#c0562a` |
+
+## CLI AI tool icons
+
+Non-`.deb` CLI tools without a locally installed package use the vendor's own
+official app/launcher icon. `hermes.png` is the Hermes Agent desktop app icon,
+fetched from the Nous Research repository and trimmed/resized to a square,
+transparent 256×256 mark:
+
+| Asset | Source | SHA-256 |
+| --- | --- | --- |
+| `hermes.png` | `https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/assets/icon.png` | `0bbeae9f5347ebaa48242fcbdf9eb456c1c71b0d6bc59ec651706fcf54ea2c68` |

@@ -23,7 +23,7 @@ import piIcon from "./assets/app-icons/pi.svg?no-inline";
 import codexIcon from "./assets/app-icons/codex.svg?no-inline";
 import githubCliIcon from "./assets/app-icons/github-cli.svg?no-inline";
 import dshIcon from "./assets/app-icons/dsh.svg?no-inline";
-import hermesIcon from "./assets/app-icons/hermes.svg?no-inline";
+import hermesIcon from "./assets/app-icons/hermes.png";
 import feishuIcon from "./assets/app-icons/feishu.png";
 import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 
