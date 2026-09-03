@@ -1089,11 +1089,11 @@ fn validate(feed: &Feed) -> Result<(), String> {
         return Err("元数据源目录字段不完整".to_owned());
     }
     if let Some(source) = &feed.source {
-        validate_source_info(source, true).map_err(|error| format!("source：{error}"))?;
+        validate_source_info(source).map_err(|error| format!("source：{error}"))?;
     }
     let mut seen_source_ids = std::collections::HashSet::new();
     for source in &feed.sources {
-        validate_source_info(source, false).map_err(|error| format!("source {}：{error}", source.id))?;
+        validate_source_info(source).map_err(|error| format!("source {}：{error}", source.id))?;
         if !seen_source_ids.insert(&source.id) {
             return Err(format!("源 id 重复：{}", source.id));
         }
@@ -1124,16 +1124,14 @@ fn validate(feed: &Feed) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a `source` / `sources[]` entry. `is_central` relaxes the url check
-/// (the central feed may live anywhere the vendor configured) and requires the
-/// id to be the canonical central id; sources must always be https and carry a
-/// 64-hex public key.
-fn validate_source_info(source: &FeedSourceInfo, is_central: bool) -> Result<(), String> {
+/// Validate a `source` self-description or a `sources[]` registry entry. The
+/// same shape is used by the central feed (`source.id = "umanager"`) and by a
+/// source feed (`source.id = <source id>`), so the id is only required to be
+/// non-empty here; the registry's own "id != umanager" rule is enforced in
+/// `validate` and the central identity is established by the built-in public key.
+fn validate_source_info(source: &FeedSourceInfo) -> Result<(), String> {
     if source.id.is_empty() || source.id.contains('\0') {
         return Err("id 为空".to_owned());
-    }
-    if is_central && source.id != "umanager" {
-        return Err("中央源 id 必须为 umanager".to_owned());
     }
     if !source.url.starts_with("https://") {
         return Err("url 必须为 https".to_owned());
@@ -1329,6 +1327,29 @@ mod tests {
         let v4 = r#"{ "schemaVersion": 4, "generatedAtUnixSeconds": 1750000000, "applications": {} }"#;
         let feed: Feed = serde_json::from_str(v4).unwrap();
         assert!(validate(&feed).is_err(), "unsupported schemaVersion should be rejected");
+    }
+
+    #[test]
+    fn v3_source_feed_validates_with_its_own_source_id() {
+        // A source feed self-describes with the source's own id (tencent), not
+        // "umanager" — previously a source feed was wrongly rejected. Its own
+        // catalog pair + source block must validate.
+        let json = r#"{
+            "schemaVersion": 3,
+            "generatedAtUnixSeconds": 1750000000,
+            "source": { "id": "tencent", "name": "腾讯源", "role": "vendor",
+                        "url": "https://null-object-0000.github.io/umanager/v3/feed.tencent.json",
+                        "hosts": ["null-object-0000.github.io"],
+                        "publicKeyHex": "67ccb44779ca8123b844dccf62b42d8e4a9139eeefd8d7f3cbd11e9940dd25b5" },
+            "applications": { "qq": { "packageName": "linuxqq", "version": "3.2", "architecture": "amd64",
+                                       "size": 1, "sha256": "acacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacac", "downloadUrl": "https://x/qq.deb" } },
+            "catalogJson": "[{\"applicationId\":\"qq\",\"packageName\":\"linuxqq\",\"displayName\":\"QQ\",\"vendor\":\"Tencent\",\"architecture\":\"amd64\",\"removable\":true,\"source\":{\"kind\":\"browserImport\",\"homepageUrl\":\"https://e.com\"}}]",
+            "catalogSignature": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }"#;
+        let feed: Feed = serde_json::from_str(json).unwrap();
+        assert_eq!(feed.source.as_ref().unwrap().id, "tencent");
+        assert!(!feed.applications.is_empty());
+        validate(&feed).expect("source feed with its own source id should validate");
     }
 
     #[test]
