@@ -600,6 +600,8 @@ async function fetchChangelogJsonpReleaseNotes(app, config, entry) {
 // first (latest) — same best-effort rule as the other changelog fetchers. The
 // vendor's own 更新时间 is also surfaced as the version-update time: the CDN's
 // Last-Modified on the download object is a legacy 2023 date and unusable.
+// The API rejects requests whose Referer is not the share page (19901), so a
+// `refererUrl` is required.
 async function fetchTencentDocsSmartdocReleaseNotes(app, config, entry) {
   const version = config.versionField === "version"
     ? entry?.version
@@ -613,7 +615,7 @@ async function fetchTencentDocsSmartdocReleaseNotes(app, config, entry) {
         "Content-Type": "application/json",
         "User-Agent": "UManager-feed/1.0",
         Origin: "https://docs.qq.com",
-        Referer: "https://docs.qq.com/",
+        Referer: config.refererUrl ?? "https://docs.qq.com/",
       },
       body: JSON.stringify({ padId: config.padId, pageId: config.pageId, chunked: 1 }),
     });
