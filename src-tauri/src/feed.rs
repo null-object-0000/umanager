@@ -287,6 +287,24 @@ fn cached_feed_path(cache_dir: &Path) -> PathBuf {
     cache_dir.join(FEED_CACHE_FILE)
 }
 
+/// Per-source persisted cache (v3 multi-source, design §6.1). Mirrors
+/// `PersistedFeed`: raw `feed.<id>.json` + signature hex are preserved verbatim
+/// and re-verified against the source's public key on every cold start, so the
+/// merged applications are available even before the first network refresh.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedSourceFeed {
+    source_id: String,
+    fetched_at_unix_seconds: u64,
+    generated_at_unix_seconds: u64,
+    feed_json: String,
+    signature_hex: String,
+}
+
+fn source_feed_path(cache_dir: &Path, source_id: &str) -> PathBuf {
+    cache_dir.join(format!("source-{source_id}.json"))
+}
+
 /// Serializes network fetches (including background/manual refreshes) so at most
 /// one metadata-feed request is in flight. Unlike `state_lock` (a `std` Mutex),
 /// this can be held across `.await`.
@@ -441,6 +459,10 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
                     feed: feed.clone(),
                 },
             );
+            // Cold start: rebuild the per-source feeds from disk (re-verified
+            // against the registry public keys) so the merged feed has
+            // applications before the first network refresh.
+            load_disk_source_feeds(cache_dir, &feed, &mut guard);
             merged_feed(&feed, &guard.sources)
         };
         if stale {
@@ -448,7 +470,12 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
                 let _ = refresh_once(false).await;
             });
         }
-        return Ok(merged);
+        // A v3 central whose source feeds are not yet cached (first run after
+        // upgrade, before any source-<id>.json exists) cannot serve applications
+        // from disk — fall through so the network path fetches them now.
+        if !merged.applications.is_empty() || merged.sources.is_empty() {
+            return Ok(merged);
+        }
     }
 
     // 3. Network — serialized so concurrent startup requests don't double-fetch.
@@ -565,6 +592,77 @@ async fn persist_feed(cache_dir: &Path, fetched: &FetchedFeed, network_time: u64
         .await
         .map_err(|error| format!("无法替换元数据缓存：{error}"))?;
     Ok(())
+}
+
+/// Best-effort persist of one verified source feed, so a cold start can rebuild
+/// the merged applications without a network round trip.
+async fn persist_source_feed(cache_dir: &Path, source_id: &str, fetched: &FetchedFeed) -> Result<(), String> {
+    let persisted = PersistedSourceFeed {
+        source_id: source_id.to_owned(),
+        fetched_at_unix_seconds: unix_timestamp_now(),
+        generated_at_unix_seconds: fetched.feed.generated_at_unix_seconds,
+        feed_json: fetched.raw_json.clone(),
+        signature_hex: fetched.signature_hex.clone(),
+    };
+    let bytes = serde_json::to_vec(&persisted).map_err(|error| format!("无法序列化源缓存：{error}"))?;
+    let path = source_feed_path(cache_dir, source_id);
+    let directory = path.parent().ok_or_else(|| "源缓存路径无效".to_owned())?;
+    tokio::fs::create_dir_all(directory)
+        .await
+        .map_err(|error| format!("无法创建源缓存目录：{error}"))?;
+    let temporary = directory.join(format!("source-{source_id}.json.tmp"));
+    tokio::fs::write(&temporary, &bytes)
+        .await
+        .map_err(|error| format!("无法写入源缓存：{error}"))?;
+    tokio::fs::rename(&temporary, &path)
+        .await
+        .map_err(|error| format!("无法替换源缓存：{error}"))?;
+    Ok(())
+}
+
+/// Rebuild the in-memory per-source cache from disk after a cold start, so the
+/// merged feed has applications before the first network refresh. Each source
+/// feed is re-verified against the central registry's public key; unverifiable
+/// copies are silently discarded and the network refresh will refill them.
+fn load_disk_source_feeds(cache_dir: &Path, central: &Feed, guard: &mut FeedState) {
+    for source in &central.sources {
+        let path = source_feed_path(cache_dir, &source.id);
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(persisted) = serde_json::from_slice::<PersistedSourceFeed>(&bytes) else {
+            continue;
+        };
+        if persisted.source_id != source.id {
+            continue;
+        }
+        let Ok(()) = verify_ed25519_with(persisted.feed_json.as_bytes(), persisted.signature_hex.trim(), &source.public_key_hex) else {
+            continue;
+        };
+        let Ok(feed) = serde_json::from_str::<Feed>(&persisted.feed_json) else {
+            continue;
+        };
+        if validate(&feed).is_err() {
+            continue;
+        }
+        guard.sources.insert(
+            source.id.clone(),
+            CachedSourceFeed { feed: feed.clone() },
+        );
+        guard.source_status.insert(
+            source.id.clone(),
+            FeedSourceStatus {
+                source_id: source.id.clone(),
+                url: source.url.clone(),
+                enabled: source.default_enabled,
+                signature_verified: true,
+                last_success_at_unix_seconds: Some(persisted.fetched_at_unix_seconds),
+                last_error: None,
+                applications: feed.applications.len(),
+                serving_from_cache: true,
+            },
+        );
+    }
 }
 
 /// The full set of applications UManager manages: the compiled-in catalog plus
@@ -706,6 +804,16 @@ async fn refresh_v3_sources(central: &Feed, now: u64) {
         }
         results
     };
+    // Best-effort persist of each freshly verified source feed (cold start will
+    // re-read these from disk, so it never misses applications). Done outside
+    // the state lock to avoid holding the std Mutex across `.await`.
+    for (source, outcome) in &fetched {
+        if let Ok(fetched) = outcome
+            && let Some(cache_dir) = cache_dir()
+        {
+            let _ = persist_source_feed(cache_dir, &source.id, fetched).await;
+        }
+    }
     let Ok(mut guard) = state_lock().lock() else {
         return;
     };

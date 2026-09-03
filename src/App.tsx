@@ -1290,54 +1290,31 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
 
 function DevToolsPage() {
   const [toolchains, setToolchains] = useState<DevToolchain[] | null>(null);
-  const [devTools, setDevTools] = useState<DevTool[] | null>(null);
-  const [devToolStates, setDevToolStates] = useState<Record<string, DevToolState | null>>({});
-  const [devToolsError, setDevToolsError] = useState<string | null>(null);
-  const [selectedDevTool, setSelectedDevTool] = useState<DevTool | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedToolchain, setSelectedToolchain] = useState<DevToolchain | null>(null);
-
-  const loadDevTools = async () => {
-    setDevToolsError(null);
-    try {
-      const tools = await getDevTools();
-      setDevTools(tools);
-      const states = await Promise.all(tools.map(async (tool) => {
-        try { return [tool.toolId, await getDevToolState(tool.toolId)] as const; }
-        catch { return [tool.toolId, null] as const; }
-      }));
-      setDevToolStates(Object.fromEntries(states));
-    } catch (reason) {
-      setDevToolsError(String(reason));
-    }
-  };
-
   const refresh = async () => {
     setLoading(true); setError(null);
-    await Promise.all([
-      (async () => { try { setToolchains(await getDevToolchains()); } catch (reason) { setError(String(reason)); } })(),
-      loadDevTools(),
-    ]);
-    setLoading(false);
+    try {
+      setToolchains(await getDevToolchains());
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { void refresh(); }, []);
-
   return <main className="workspace dev-workspace">
-    <header className="workspace-header"><div><h1>开发环境</h1><p>用户级版本管理器与命令行工具</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
+    <header className="workspace-header"><div><h1>开发环境</h1><p>用户级版本管理器（Node.js / Rust）</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "检查中…" : "重新检查"}</button></div></header>
     <section className="software-panel store-panel">
       {error && <div className="message error"><strong>无法读取开发环境</strong><span>{error}</span></div>}
-      {devToolsError && <div className="message error"><strong>无法读取命令行工具</strong><span>{devToolsError}</span></div>}
-      {loading && !toolchains && !devTools && <div className="empty-state"><span className="loader"/><p>正在读取运行时状态…</p></div>}
-      <div className="dev-section-heading">运行时工具链</div>
+      {loading && !toolchains && <div className="empty-state"><span className="loader"/><p>正在读取运行时状态…</p></div>}
+      {toolchains && <div className="app-grid">
+        {toolchains.map((toolchain) => <DevToolchainRow toolchain={toolchain} key={toolchain.toolchainId} onOpen={() => setSelectedToolchain(toolchain)}/>)}
+      </div>}
       {toolchains && toolchains.length === 0 && <div className="empty-state"><p>软件源中未配置运行时工具链。</p></div>}
-      {toolchains && <div className="app-grid">{toolchains.map((toolchain) => <DevToolchainRow toolchain={toolchain} key={toolchain.toolchainId} onOpen={() => setSelectedToolchain(toolchain)}/>)}</div>}
-      <div className="dev-section-heading">命令行工具</div>
-      {devTools && devTools.length === 0 && <div className="empty-state"><p>没有可用的命令行工具。</p></div>}
-      {devTools && <div className="app-grid">{devTools.map((tool) => <DevToolRow tool={tool} state={devToolStates[tool.toolId] ?? null} category={devToolCategory(null, tool.toolId)} onOpen={() => setSelectedDevTool(tool)} key={tool.toolId}/>)}</div>}
     </section>
     {selectedToolchain && <DevToolchainDrawer toolchain={selectedToolchain} onClose={() => setSelectedToolchain(null)}/>}
-    {selectedDevTool && <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>}
   </main>;
 }
 
@@ -1811,10 +1788,21 @@ export default function App() {
         });
       }
     }
-    // 开发工具（AI CLI 工具、uv/pnpm 等）统一在「开发环境」页展示；「软件」页只保留
-    // 桌面应用与系统级 CLI 工具（.deb），不再作为卡片重复出现。
+    // 开发工具作为卡片在「软件」页展示（原行为）。
+    for (const tool of devTools ?? []) {
+      items.push({
+        key: `devtool-${tool.toolId}`,
+        kind: "devTool",
+        category: devToolCategory(categoryCatalog, tool.toolId),
+        displayName: tool.displayName,
+        vendor: tool.vendor,
+        description: tool.description ?? null,
+        tool,
+        toolState: devToolStates[tool.toolId] ?? null,
+      });
+    }
     return items.sort((a, b) => a.displayName.localeCompare(b.displayName, "zh-CN"));
-  }, [result, installableOffers]);
+  }, [result, installableOffers, devTools, devToolStates, categoryCatalog]);
   const presentCategories = useMemo(() => {
     const set = new Set<string>();
     for (const item of softwareItems) set.add(item.category);
@@ -1936,7 +1924,7 @@ export default function App() {
 
     {page === "installed" ? <main className="workspace">
       <header className="workspace-header">
-        <div><h1>软件</h1><p>桌面应用与系统工具</p></div>
+        <div><h1>软件</h1><p>桌面应用、命令行工具与 AI 工具</p></div>
         <div className="header-actions">
           {result && <time>上次检查 {new Date(result.scannedAtUnixSeconds * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}
           <label className="store-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索软件"/></label>
