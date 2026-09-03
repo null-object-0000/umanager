@@ -26,6 +26,7 @@ import dshIcon from "./assets/app-icons/dsh.svg?no-inline";
 import hermesIcon from "./assets/app-icons/hermes.png";
 import uvIcon from "./assets/app-icons/uv.svg?no-inline";
 import pnpmIcon from "./assets/app-icons/pnpm.svg?no-inline";
+import wineIcon from "./assets/app-icons/wine.svg?no-inline";
 import feishuIcon from "./assets/app-icons/feishu.png";
 import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 import umanagerLogo from "./assets/umanager-logo.png";
@@ -33,7 +34,11 @@ import umanagerLogo from "./assets/umanager-logo.png";
 type Filter = "all" | "installed" | "updates" | "installable";
 type Page = "installed" | "updates" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
+const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
+
+// 「软件」页的商品是「桌面应用、命令行工具与 AI 工具」：开发工具只有在 AI 工具分类
+// 下才作为卡片出现在软件页；其余（pnpm/uv 这类开发环境包管理器）只在「开发环境」页。
+const STORE_DEV_TOOL_CATEGORIES = new Set(["AI 工具"]);
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
@@ -1764,6 +1769,8 @@ export default function App() {
       }
     }
     for (const tool of devTools ?? []) {
+      // 非 AI 工具（pnpm / uv 等开发环境包管理器）只出现在「开发环境」页，不作为软件卡片。
+      if (!STORE_DEV_TOOL_CATEGORIES.has(devToolCategory(categoryCatalog, tool.toolId))) continue;
       items.push({
         key: `devtool-${tool.toolId}`,
         kind: "devTool",

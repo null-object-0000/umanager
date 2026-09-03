@@ -48,6 +48,8 @@ const FALLBACK_DEV_TOOL_BY_ID: Record<string, string> = {
   codex: "ai-tools",
   dsh: "ai-tools",
   hermes: "ai-tools",
+  uv: "dev-tools",
+  pnpm: "dev-tools",
 };
 
 function categoryLabel(catalog: CategoryCatalog | null, id: string | null | undefined): string {
