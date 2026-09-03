@@ -100,6 +100,10 @@ pub async fn create_install_plan(
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
         catalog_json,
         catalog_signature,
+        source_ref: None,
+        source_endorsement: None,
+        source_catalog_json: None,
+        source_catalog_signature: None,
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {
@@ -166,6 +170,10 @@ pub fn create_removal_plan(
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
         catalog_json,
         catalog_signature,
+        source_ref: None,
+        source_endorsement: None,
+        source_catalog_json: None,
+        source_catalog_signature: None,
     })?;
     let plan_path = persist_immutable_removal_plan(&cache_dir.join("plans"), &plan)?;
     Ok(RemovalPlanArtifact {
@@ -197,6 +205,10 @@ pub fn create_self_removal_plan(cache_dir: &Path) -> Result<RemovalPlanArtifact,
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
         catalog_json: None,
         catalog_signature: None,
+        source_ref: None,
+        source_endorsement: None,
+        source_catalog_json: None,
+        source_catalog_signature: None,
     })?;
     let plan_path = persist_immutable_removal_plan(&cache_dir.join("plans"), &plan)?;
     Ok(RemovalPlanArtifact {
@@ -240,6 +252,10 @@ pub async fn create_self_update_plan(cache_dir: &Path) -> Result<PlanArtifact, S
         expires_at_unix_seconds: created + MAX_PLAN_LIFETIME_SECONDS,
         catalog_json: None,
         catalog_signature: None,
+        source_ref: None,
+        source_endorsement: None,
+        source_catalog_json: None,
+        source_catalog_signature: None,
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {

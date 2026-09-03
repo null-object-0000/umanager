@@ -1453,6 +1453,10 @@ mod tests {
             expires_at_unix_seconds: 2,
             catalog_json: None,
             catalog_signature: None,
+            source_ref: None,
+            source_endorsement: None,
+            source_catalog_json: None,
+            source_catalog_signature: None,
         };
         let mut plan = OperationPlan::new(payload).unwrap();
         let catalog = load_catalog().unwrap();
@@ -1481,6 +1485,10 @@ mod tests {
             expires_at_unix_seconds: 2,
             catalog_json: None,
             catalog_signature: None,
+            source_ref: None,
+            source_endorsement: None,
+            source_catalog_json: None,
+            source_catalog_signature: None,
         };
         let mut plan = OperationPlan::new(payload).unwrap();
         let catalog = load_catalog().unwrap();
@@ -1576,6 +1584,10 @@ mod tests {
             expires_at_unix_seconds: 2,
             catalog_json: None,
             catalog_signature: None,
+            source_ref: None,
+            source_endorsement: None,
+            source_catalog_json: None,
+            source_catalog_signature: None,
         };
         let mut plan = RemovalPlan::new(payload).unwrap();
         let catalog = load_catalog().unwrap();
@@ -1613,6 +1625,10 @@ mod tests {
             expires_at_unix_seconds: 2,
             catalog_json: None,
             catalog_signature: None,
+            source_ref: None,
+            source_endorsement: None,
+            source_catalog_json: None,
+            source_catalog_signature: None,
         };
         let mut plan = RemovalPlan::new(payload).unwrap();
         let catalog = load_catalog().unwrap();
@@ -1646,6 +1662,10 @@ mod tests {
             expires_at_unix_seconds: 2,
             catalog_json: None,
             catalog_signature: None,
+            source_ref: None,
+            source_endorsement: None,
+            source_catalog_json: None,
+            source_catalog_signature: None,
         };
         let mut plan = OperationPlan::new(payload).unwrap();
         assert!(self_update_plan_matches(&plan, source));
