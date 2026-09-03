@@ -90,7 +90,7 @@ https://null-object-0000.github.io/umanager/feed.json.sig
 |---|---|
 | `.github/workflows/update-feed.yml` | 定时/手动/相关文件变更时抓取、签名、发布 feed 到 Pages |
 | `.github/workflows/release.yml` | 推送 `v*` tag 时构建 `.deb` 并发布 Release |
-| `scripts/update-feed.mjs` | feed 生成器：抓取厂商来源 + Ed25519 签名 |
+| `scripts/update-feed.mjs` | feed 生成器：抓取厂商来源 + Ed25519 签名；支持 `--group/--partial/--merge` 多源分组模式（DESIGN-multi-source.md §7） |
 | `feed-sources.json` | 新增软件的清单（CI-only，不编译进 App） |
 | `src-tauri/resources/vendors.json` | 内置基础清单 + `metadataFeed` 配置 |
 | `crates/umanager-catalog/src/lib.rs` | 清单/来源/feed 配置的数据模型 |
@@ -159,8 +159,9 @@ npm run update-feed
 ## 10. 中央元数据源运行细节
 
 - **触发**：`.github/workflows/update-feed.yml` 定时（每 6 小时）、手动触发，以及 `vendors.json` / `feed-sources.json` / `scripts/update-feed.mjs` / workflow 变更时；
-- **生成**：`scripts/update-feed.mjs` 读取 `vendors.json` + `feed-sources.json`，逐个解析 APT `Packages` 索引、官网固定地址、GitHub Releases 资产与 npm registry，产出 `feed.json`；
-- **签名**：用 GitHub Actions secret `FEED_SIGNING_KEY` 对 `feed.json` 原文做 Ed25519 签名产出 `feed.json.sig`，并对 `catalogJson` 单独签名（`catalogSignature`）供特权 helper 授权 feed 新增软件；
+- **分组抓取**：按 `feed-sources.json` 的 `sources` 注册表 + 每个应用的 `sourceGroup`（内置应用的归属在脚本内置表里，wechat/wemeet → tencent）把来源拆成并行 job（当前 `tencent` / `common` 两组）。每个 job 用 `--group <id>` 只抓本组应用，**就地完成**上一版兜底与 version-time 合并，产出本组**最终签名源 feed**（`feed.<group>.json`，含本组 `catalogJson`/`catalogSignature`）；组内抓取有界并发（默认 5），`.deb` 只下载一次、图标不变时跳过下载；
+- **合并发布**：`merge` job 用 `--merge` 发现所有源 feed，按 `feed-sources.json` 顺序聚合 `applications` / `catalogJson`；某组 job 挂掉时该组应用回落到上一版中央 feed 条目；`selfUpdate` 与开发工具是**中央独有数据**，由 merge 就地抓取合并；最后把各源 feed（+.sig）复制进发布目录、签名中央 feed。新增源只需注册表加一行 + 个别应用标 `sourceGroup` + matrix 数组加一个 id；默认不带参数的 `npm run update-feed` 仍是单 pass 全量模式（本地/兜底）；
+- **签名**：用 GitHub Actions secret `FEED_SIGNING_KEY` 对 `feed.json` 原文做 Ed25519 签名产出 `feed.json.sig`，并对 `catalogJson` 单独签名（`catalogSignature`）供特权 helper 授权 feed 新增软件；各独立源 feed（`feed.tencent.json` / `feed.common.json`）一期暂用同一把私钥签名，第二期随 schema v3 换成各源独立密钥（DESIGN-multi-source.md §8）；
 - **发布**：`configure-pages` + `upload-pages-artifact` + `deploy-pages` 部署到 GitHub Pages，地址为 `https://<owner>.github.io/<repo>/feed.json`。要让地址生效，需在 Settings → Pages 的 Source 选择「GitHub Actions」，或直接跑一次 `update-feed`（`configure-pages` 会自动启用 Pages）。
 
 应用侧：每次验签成功后，feed 原文 + 签名原子写入缓存（`feed/feed-cache.json`）；之后读取优先本地缓存（每次用内置公钥重新验签），过期时先返回缓存、后台再刷新；后台任务每 30 分钟检查一次，设置页提供「立即刷新」。断网或拉取失败时，只要缓存可用，应用仍展示最近一次成功的数据，并在「设置 → 软件信息源」标注“本地缓存 + 失败原因”。应用会校验 feed 的 HTTPS 精确域名、大小上限、Ed25519 签名与字段格式；失败且无缓存时对应应用显示为不可用。

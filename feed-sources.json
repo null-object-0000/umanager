@@ -1,4 +1,14 @@
 {
+  "sources": {
+    "tencent": {
+      "name": "腾讯源",
+      "role": "vendor"
+    },
+    "common": {
+      "name": "公共源",
+      "role": "common"
+    }
+  },
   "applications": [
     {
       "applicationId": "github-cli",
@@ -73,6 +83,7 @@
       "packageName": "linuxqq",
       "displayName": "QQ",
       "vendor": "腾讯",
+      "sourceGroup": "tencent",
       "architecture": "amd64",
       "description": "腾讯 QQ Linux 桌面版，支持文字、语音、视频聊天与文件传输。",
       "homepage": "https://im.qq.com/index/#/linux",
@@ -108,6 +119,7 @@
       "packageName": "qqmusic",
       "displayName": "QQ 音乐",
       "vendor": "腾讯",
+      "sourceGroup": "tencent",
       "architecture": "amd64",
       "description": "腾讯官方音乐客户端，海量曲库与高品质音质，支持歌单与个性化推荐。",
       "homepage": "https://y.qq.com/download/download.html",
@@ -214,6 +226,7 @@
       "packageName": "codebuddy-cn",
       "displayName": "CodeBuddy IDE",
       "vendor": "腾讯",
+      "sourceGroup": "tencent",
       "architecture": "amd64",
       "description": "腾讯出品的 AI 编程 IDE，基于 VS Code 深度定制，内置代码补全、技术问答与多智能体协作。",
       "homepage": "https://www.codebuddy.cn/ide/",
@@ -259,6 +272,7 @@
       "packageName": "tdappdesktop",
       "displayName": "腾讯文档",
       "vendor": "腾讯",
+      "sourceGroup": "tencent",
       "architecture": "amd64",
       "description": "腾讯出品的多人在线协作文档，支持 Word、Excel、PPT 与智能表格的云端实时协作，桌面端可离线编辑。",
       "homepage": "https://docs.qq.com/home",

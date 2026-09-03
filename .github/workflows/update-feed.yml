@@ -5,6 +5,16 @@ name: update-feed
 # sizes, SHA-256 digests and download URLs, and only falls back to on-device
 # scraping when a vend source cannot be resolved here.
 #
+# Scraping is split into parallel source groups (see DESIGN-multi-source.md §7):
+# each `generate` matrix job scrapes only its group (e.g. the Tencent sources:
+# China endpoints + multi-hundred-MB .deb downloads are the slowest and flakiest
+# part of the feed), finalizes it and publishes that group's own signed source
+# feed (feed.tencent.json / feed.common.json). The `merge` job aggregates every
+# source feed into the central feed.json (canonical app order, full catalog,
+# selfUpdate + dev tools) and deploys them all to Pages. A group whose job
+# failed simply falls back to the previous central feed entries — the rest of
+# the sources still publish.
+#
 # This workflow uses the modern GitHub Pages deployment (no branch to select). The
 # only manual step is to make sure Settings → Pages → Build and deployment →
 # Source is set to "GitHub Actions" (or just run this workflow once: configure-pages
@@ -36,6 +46,49 @@ permissions:
 
 jobs:
   generate:
+    # One parallel job per source group. Add a source: register it in
+    # feed-sources.json (`sources` + per-app `sourceGroup`) and append its id
+    # to this matrix — no script changes needed.
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [tencent, common]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Scrape ${{ matrix.group }} sources (source feed)
+        run: node scripts/update-feed.mjs --group ${{ matrix.group }} --out dist/feed.${{ matrix.group }}.json
+        env:
+          FEED_SIGNING_KEY: ${{ secrets.FEED_SIGNING_KEY }}
+          # Authenticated GitHub API calls avoid the unauthenticated 60/hr
+          # runner-IP rate limit (HTTP 403) that intermittently drops
+          # releaseApi sources (FlClash, LocalSend).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload ${{ matrix.group }} source feed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feed-${{ matrix.group }}
+          path: |
+            dist/feed.${{ matrix.group }}.json
+            dist/icons
+          if-no-files-found: warn
+          retention-days: 1
+
+  merge:
+    # Aggregates the source feeds into the central feed.json (fallback to the
+    # previous feed for whatever a group could not cover), signs and deploys:
+    # feed.json + feed.json.sig + each source feed (+ .sig) + icons.
+    needs: generate
+    if: always()
     runs-on: ubuntu-22.04
     environment:
       name: github-pages
@@ -49,13 +102,28 @@ jobs:
         with:
           node-version-file: ".nvmrc"
 
-      - name: Scrape vendor metadata and build feed.json
-        run: node scripts/update-feed.mjs
+      - name: Download tencent source feed
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: feed-tencent
+          path: partials/tencent
+
+      - name: Download common source feed
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: feed-common
+          path: partials/common
+
+      - name: Merge source feeds and build central feed.json
+        run: node scripts/update-feed.mjs --merge --parts partials --out dist/feed.json
         env:
           FEED_SIGNING_KEY: ${{ secrets.FEED_SIGNING_KEY }}
-          # Authenticated GitHub API calls avoid the unauthenticated 60/hr
-          # runner-IP rate limit (HTTP 403) that intermittently drops
-          # releaseApi sources (FlClash, LocalSend).
+          # merge also scrapes the central-only selfUpdate + dev tools
+          # (GitHub Releases / npm), which need the authenticated API budget.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure GitHub Pages
