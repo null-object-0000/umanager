@@ -8,6 +8,7 @@
 | 1 | **信任模型 B：完整第三方源（验签链）** | 每个源有独立私钥，中央源注册表背书其公钥；安装第三方源新增软件时，计划里携带「中央验签链 + 源自身的 `catalogJson`+签名」，特权 helper 验链后授权 |
 | 2 | **feed schema 升 v3、plan schema 升 v3** | feed 与 plan 同步升级；主程序、helper、`scripts/update-feed.mjs` 三处同步修改（AGENTS.md 约束 #9） |
 | 3 | **分期：CI 双源拆分先落地** | 第一期只改 CI（生成/发布层），中央 feed 输出合同保持 v2 不变，旧版 App 无感；app 侧多源（feed.rs / UI / helper 验链）第二期做 |
+| 4 | **路径版本化：v3 世界整体放 `/v3/`，0.9.1 起为准** | `/v3/feed.json`（瘦中央）+ `/v3/feed.<id>.json`（各源）独立发布、独立密钥；0.9.1 起 `metadataFeed.url` 指向 `/v3/feed.json`；`/feed.json`（v2 聚合）双轨保留服务 ≤0.9.0，弃用后移除。无需 schemaVersion 断代翻转 |
 
 ## 1. 概念
 
@@ -51,7 +52,12 @@
 
 ## 4. feed schema v3
 
-### 4.1 中央源 feed（`feed.json`）
+### 4.1 中央源 feed（v3：瘦中央，`/v3/feed.json`）
+
+> **路径版本化定案**：v3 世界整体发布在 `/v3/` 路径下（`/v3/feed.json` + `/v3/feed.<id>.json`），
+> 与 v2 的 `/feed.json` 完全独立、双轨并存。0.9.1 起 App 的 `vendors.json` 里
+> `metadataFeed.url` 直接指向 `/v3/feed.json`，无需任何 schemaVersion 断代翻转；
+> `/feed.json` 继续由一期逻辑生成（v2 全量聚合），服务 ≤0.9.0 的旧 App，弃用后整体移除。
 
 ```jsonc
 {
@@ -60,7 +66,7 @@
     "id": "umanager",
     "name": "UManager 中央源",
     "role": "central",
-    "url": "https://null-object-0000.github.io/umanager/feed.json",
+    "url": "https://null-object-0000.github.io/umanager/v3/feed.json",
     "hosts": ["null-object-0000.github.io"],
     "publicKeyHex": "57d369d3…0c8f9"
   },
@@ -69,7 +75,7 @@
       "id": "tencent",
       "name": "腾讯源",
       "role": "vendor",
-      "url": "https://null-object-0000.github.io/umanager/feed.tencent.json",
+      "url": "https://null-object-0000.github.io/umanager/v3/feed.tencent.json",
       "hosts": ["null-object-0000.github.io"],
       "publicKeyHex": "<该源 feed 签名公钥 hex>",
       "defaultEnabled": true,
@@ -79,31 +85,31 @@
       "id": "common",
       "name": "公共源",
       "role": "common",
-      "url": "https://null-object-0000.github.io/umanager/feed.common.json",
+      "url": "https://null-object-0000.github.io/umanager/v3/feed.common.json",
       "hosts": ["null-object-0000.github.io"],
       "publicKeyHex": "<该源 feed 签名公钥 hex>",
       "defaultEnabled": true
     }
   ],
   "generatedAtUnixSeconds": 0,
-  "applications": { /* 全部源的精简聚合，结构与 v2 相同 */ },
+  // 瘦中央：不再携带全量 applications —— 应用由各源 feed 提供，App 端逐源拉取后合并
   "selfUpdate": { /* umanager 自身的版本信息，仅中央源 */ },
   "developmentTools": { /* 全部工具 */ },
-  "catalogJson": "<完整新增软件目录（含各源新增）>",
-  "catalogSignature": "<Ed25519 签名，中央私钥>",
+  "catalogJson": "<中央自有新增软件目录（当前为空；各源新增走源自己的 catalogJson + 验签链）>",
+  "catalogSignature": "<Ed25519 签名，中央私钥；目录为空时为一对空串/缺省>",
   "categories": [ /* 不变 */ ],
   "categoryAssignments": { /* 不变 */ }
 }
 ```
 
-- **`source` 自描述 + `sources[]` 注册表是 v3 相对 v2 的全部新增**，其余字段形状不变。
-- `applications` 仍是**全量聚合**（合并所有启用的源），作用有二：
-  1. 兼容只支持 v2 的旧版 App（见 §8 滚动策略）——旧版只读中央源，行为与今天完全一致；
-  2. 新 App 拿到中央源即可秒开列表，逐源刷新是渐进增强。
-- `catalogJson` 保持「完整新增软件目录」（含 future 各源新增的应用），**仍由中央私钥签名**，
-  旧版 App 与 helper 的既有授权路径不变；第三方源新增软件走新的源链（§5）。
+- **`source` 自描述 + `sources[]` 注册表是 v3 相对 v2 的全部新增**；`applications` 从中央源
+  **移除/清空**（瘦中央），不再有冗余聚合——这正是多源的意义：每个源独立维护自己的应用，
+  第三方源无需中央聚合即可上架。
+- `selfUpdate` / `developmentTools` / `categories` 保持**仅中央源**发布（中央独有数据）。
+- 中央的 `catalogJson`/`catalogSignature` 只覆盖**中央自有新增软件**（当前无）；各源新增软件
+  由各源 feed 自己的目录 + 验签链授权（§5），**不再是「中央目录聚合各源」**。
 
-### 4.2 源 feed（`feed.<id>.json`）
+### 4.2 源 feed（`/v3/feed.<id>.json`）
 
 ```jsonc
 {
@@ -112,7 +118,7 @@
     "id": "tencent",
     "name": "腾讯源",
     "role": "vendor",
-    "url": "https://null-object-0000.github.io/umanager/feed.tencent.json",
+    "url": "https://null-object-0000.github.io/umanager/v3/feed.tencent.json",
     "hosts": ["null-object-0000.github.io"],
     "publicKeyHex": "<该源自己的公钥>"
   },
@@ -131,8 +137,9 @@
 - `feed.rs::validate()` 对 v3：校验 `source`/`sources[]` 字段格式（id 非空、url https、
   hosts 精确白名单语法复用 `host_matches` 语义、`publicKeyHex` 是 32 字节 hex）；
   对 `sources[]` 里的每个条目还要校验 id 不重复、id != 中央 id。
-- 老 App 解码 v3 → `schema_version != 2` → 拒绝（现状行为）；因此**中央 feed 的 v3 翻转必须与
-  支持 v3 的 App 发版同步**（§8）。
+- 0.9.1 起 App 只从 `/v3/feed.json` 拉取（`metadataFeed.url`），**`validate()` 接受 v2 | v3**
+  （容忍本地缓存里的旧格式、以及未来回滚场景）；v2 版中央 `/feed.json` 是另一条路径，
+  由旧 App 使用，不存在「同一路径换了 schema 导致断代」的问题。
 - helper 不需要解析整个 v3 feed，它只看到计划里携带的链字段（§5），格式同步校验。
 
 ## 5. 信任模型 B：验签链与 plan v3
@@ -200,13 +207,15 @@ helper 校验顺序（新增步骤插在现有 `catalogJson` 校验之前/并列
 
 ### 6.1 拉取与缓存（`src-tauri/src/feed.rs`）
 
-- 中央源：行为不变（拉 `feed.json`+`.sig`，内置公钥验签，写入 `feed/feed-cache.json`）。
+- 中央源（0.9.1 起）：拉 `/v3/feed.json`+`.sig`，内置公钥验签，写入 `feed/feed-cache.json`。
+  瘦中央不带 `applications`，只提供注册表 + 中央独有数据。
 - 新状态：`AppFeedState` 增加 `sources: HashMap<sourceId, SourceState>`；
   `SourceState = { registry: SourceInfo(来自中央注册表), cache: Option<FeedCache>, lastFetch: …, status: verified | signatureFailed | fetchFailed }`。
 - 源缓存文件：`feed/source-<id>.json` + `feed/source-<id>.json.sig`，与中央缓存同目录，
   每次读取重新验签（沿用现有 stale-while-revalidate 语义：先返回缓存、后台按源各自刷新）。
-- 合并规则（v1）：**中央 wins**。`applications = { ...各源合并... }`，同一 `applicationId` 冲突时取中央条目；
-  源仅补齐中央缺失的应用（通常发生在新源上架、中央聚合还没覆盖的窗口期）。版本比较沿用现有 `compare` 逻辑不做跨源「最高版本胜出」（避免第三方源用高版本号劫持——v1 保守）。
+- 合并规则（v1，瘦中央）：`applications = { ...各启用的源合并... }`，按**注册表顺序**逐源叠加；
+  同一 `applicationId` 出现在多个源时，**前面的源胜出**（中央不再有应用可覆盖源）。版本比较沿用现有
+  `compare` 逻辑不做跨源「最高版本胜出」（避免第三方源用高版本号劫持——v1 保守）。
 
 ### 6.2 计划生成（`src-tauri/src/operation_plan.rs`）
 
@@ -224,7 +233,8 @@ helper 校验顺序（新增步骤插在现有 `catalogJson` 校验之前/并列
 
 > 第一期的产出合同：**中央 feed 仍是 schemaVersion 2**，结构与今天的输出完全一致（旧版 App 无感）；
 > 同时**每个源发布独立签名 feed**（`feed.tencent.json` / `feed.common.json` + 各自 `.sig`，暂用同一把私钥），
-> 旧版 App 不读它们、新版 App 上线后直接可发现。`sources[]` 注册表与各源独立密钥在第二期随 app v3 一起翻转。
+> 旧版 App 不读它们、新版 App 上线后直接可发现。二期（§4/§8）把 v3 世界整体发布到 `/v3/` 路径、
+> 各源换独立密钥，第一期这套根路径产物继续作为 v2 兼容入口双轨保留。
 
 ### 7.1 源注册表（数据驱动）
 
@@ -269,17 +279,18 @@ merge（needs: generate；if: always()）
 
 ## 8. 发布/滚动步骤
 
-1. **第一期（本仓库下一步）**：合并 CI 双源拆分（§7）——产出仍是 v2 中央 feed，App 不需要发版。
-   收益立即兑现：`update-feed` 从 ~6.5 分钟降到 ~3 分钟，腾讯源故障不再拖累全局。
-2. **第二期前置**：feed schema v3 结构 + `crates/umanager-catalog` 结构体 + `feed.rs` 多源拉取/合并/校验 +
-   plan v3 + helper 验链 + 设置页「软件源」UI 一起进入一次 App 发版（v≥0.9.0）。
-   v3-capable App 必须**同时接受 v2 与 v3 中央 feed**（`validate()` 改为 `2 | 3`），保证翻转窗口无空窗。
-3. **翻转**：发版后，CI 中央 feed 切到 schemaVersion 3 并带 `sources[]`；各源 feed 已在一期发布，这里
-   把签名私钥**换成各源独立密钥**并把公钥写进注册表。旧版 App 会在下次拉取时因 schemaVersion 被拒——
-   对本项目（个人自用 + 版本节奏快）可接受；若需要平滑，可把 v2 聚合 feed 保留在
-   `feed-v2.json`（sources 注册表带 `legacyUrl`），但 v1 不实现。
-4. **第三方源**：提供 `feed-sources.json` 之外的「源接入模板」（生成密钥、构建源 feed 的最小脚本 + 文档），
-   helpers 链能力复用，不开新机制。
+1. **第一期（已完成）**：CI 双源拆分（§7）——产出仍是 v2 中央 `feed.json` + 根路径独立源 feed，
+   App 不需要发版。收益：`update-feed` 从 ~6.5 分钟降到 ~2 分钟，腾讯源故障不再拖累全局。
+2. **第二期（0.9.1 发版）**：feed schema v3 结构 + `crates/umanager-catalog` 结构体 + `feed.rs`
+   读 `/v3/feed.json` 的注册表 → 逐源拉取/验签/合并（瘦中央，`validate()` 接受 v2 | v3）+ per-source
+   缓存/状态 + 设置页「软件源」UI + plan v3 + helper 验签链，一起进入 0.9.1。
+3. **v3 世界上线（与 0.9.1 同批）**：CI 开始发布 `/v3/feed.json`（瘦中央）与 `/v3/feed.tencent.json` /
+   `/v3/feed.common.json`（各源），源签名私钥换成各源独立密钥（`FEED_SIGNING_KEY_TENCENT` 等），
+   公钥写进注册表；0.9.1 的 `vendors.json` `metadataFeed.url` 指向 `/v3/feed.json`。
+   **无需断代**：`/feed.json`（v2 聚合）继续由一期逻辑生成，服务 ≤0.9.0 旧 App；
+   弃用旧 App 后从 CI 移除 `/feed.json` 发布即可。
+4. **第三方源**：提供「源接入模板」（生成密钥、构建源 feed 的最小脚本 + 文档），
+   helper 链能力复用，不开新机制。
 
 ## 9. 测试计划
 
@@ -295,9 +306,10 @@ merge（needs: generate；if: always()）
 
 ## 10. 开放问题
 
-- 源级目录与中央目录出现**同一 applicationId 不同定义**（如重复上架）：v1 规则「中央 wins」，
-  是否需要在源上架时做冲突预检（CI 合并时发现重复 id 即告警）——倾向：CI 告警 + 文档约定。
+- 同一 `applicationId` 出现在**多个源**（重复上架）：v1 规则「注册表顺序，前面的源胜出」，
+  是否需要在源上架时做冲突预检（CI 发布时发现重复 id 即告警）——倾向：CI 告警 + 文档约定。
 - 第三方源的 `catalogJson` 里的 hosts 白名单是否允许通配（现有 `*.<domain>` 窄例外语义）：建议沿用，
   但仍要求「下载 URL 由厂商签名或由 App 端 `source_engine` 校验」的现有防线不因多源松动。
 - `sourceEndorsement` 是否需要有效期（配合计划 15 分钟）；倾向：随计划有效期即可，不加额外轮子。
-- v2 兼容路径保留多久（个人项目：发版 1-2 个版本后直接切 v3，不留 feed-v2.json）。
+- `/feed.json`（v2 聚合）双轨保留多久：随 0.9.1 上线后观察旧 App 使用情况，弃用后从 CI 移除发布；
+  移除时不需要给 App 发版（旧 App 读不到 feed 自然走缓存/降级——个人项目可接受）。
