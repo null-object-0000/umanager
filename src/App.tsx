@@ -26,12 +26,13 @@ import dshIcon from "./assets/app-icons/dsh.svg?no-inline";
 import hermesIcon from "./assets/app-icons/hermes.png";
 import feishuIcon from "./assets/app-icons/feishu.png";
 import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
+import umanagerLogo from "./assets/umanager-logo.png";
 
 type Filter = "all" | "installed" | "updates" | "installable";
 type Page = "installed" | "updates" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, "github-cli": githubCliIcon, feishu: feishuIcon };
-const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps" };
+const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
+const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
 let catalogByPackage: Record<string, CatalogApplication> = {};
@@ -439,7 +440,7 @@ function RemovalDialog({ item, onClose, onRemoved }: { item: ManagedPackage; onC
   const focusRef = useModalFocus<HTMLElement>(onClose, busy === null);
   return <div className="local-deb-layer">
     <section className="local-deb-dialog removal-dialog" role="dialog" aria-modal="true" aria-label={`卸载 ${item.displayName}`} ref={focusRef} tabIndex={-1}>
-      <header><div>{isSelfRemoval ? <span className="brand-mark">U</span> : <AppMark item={item}/>}<div><h2>卸载 {item.displayName}</h2><p>{item.vendor} · {item.packageName}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
+      <header><div>{isSelfRemoval ? <span className="brand-mark"><img src={umanagerLogo} alt=""/></span> : <AppMark item={item}/>}<div><h2>卸载 {item.displayName}</h2><p>{item.vendor} · {item.packageName}</p></div></div><button className="close-button" onClick={onClose} disabled={busy !== null} aria-label="关闭">×</button></header>
       <div className="local-deb-content">
         <div className="removal-warning"><strong>{isSelfRemoval ? "这会移除 UManager 程序本身" : "这会从系统中移除该软件"}</strong><span>{isSelfRemoval ? "只执行固定的 /usr/bin/dpkg --remove u-manager；不会请求 purge，也不会删除 UManager 缓存、下载的软件包、操作计划或你的个人文件。" : "UManager 不会请求 purge、自动删除依赖或直接删除你的个人目录；但 Debian 包自带的卸载脚本仍会以 root 权限运行。"}</span></div>
         <dl className="local-deb-facts">
@@ -662,7 +663,7 @@ function SettingsPage({ info, loading, error, onRefresh }: { info: InstallationI
   return <main className="workspace settings-workspace">
     <header className="workspace-header"><div><h1>设置</h1><p>查看 UManager 版本与安装形态</p></div><button className="secondary-button" onClick={onRefresh} disabled={loading}>{loading ? "检测中…" : "重新检测"}</button></header>
     <section className="settings-panel">
-      <div className="settings-section-heading"><div><span className="brand-mark large">U</span><div><h2>UManager</h2><p>Ubuntu 个人软件管家</p></div></div><span className={`install-kind-badge ${info?.installationKind ?? "unknown"}`}>{kindLabel}</span></div>
+      <div className="settings-section-heading"><div><span className="brand-mark large"><img src={umanagerLogo} alt=""/></span><div><h2>UManager</h2><p>Ubuntu 个人软件管家</p></div></div><span className={`install-kind-badge ${info?.installationKind ?? "unknown"}`}>{kindLabel}</span></div>
       {error && <div className="message error"><strong>无法检测安装形态</strong><span>{error}</span></div>}
       {loading && !info && <div className="settings-loading"><span className="loader"/><span>正在核对可执行文件与 dpkg 安装清单…</span></div>}
       {info && <>
@@ -1877,7 +1878,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">U</span><strong>UManager</strong></div>
+      <div className="brand"><span className="brand-mark"><img src={umanagerLogo} alt=""/></span><strong>UManager</strong></div>
       <nav aria-label="主导航">
         <div className="nav-section">商店</div>
         <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件</button>
