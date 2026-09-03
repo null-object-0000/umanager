@@ -44,6 +44,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { atomChangelog } from "./changelog-atom.mjs";
 import { extractHtmlBlockToMarkdown, extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog, parseHtmlVersionList } from "./changelog-html.mjs";
 import { jsonpEntryToMarkdown, parseJsonpChangelog, selectJsonpChangelogEntry } from "./changelog-jsonp.mjs";
+import { parseSmartdocVersionSections, selectSmartdocSection, smartdocSectionToMarkdown, smartdocUpdateTimeToUnixSeconds } from "./changelog-smartdoc.mjs";
 import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./changelog-markdown.mjs";
 import { entryOrPrevious } from "./feed-fallback.mjs";
 import { applyVersionTime, mergeSourceFeeds, parseCatalogApplications, sourceGroupOf as sourceGroupOfApp, validateSourceGroups } from "./feed-merge.mjs";
@@ -67,6 +68,16 @@ const CATEGORY_PATH = resolve(REPO_ROOT, "feed-categories.json");
 // (their endpoints — GitHub / npm — are fast, so splitting them adds nothing).
 const SOURCE_GROUPS = { tencent: ["wechat", "wemeet"] };
 const DEFAULT_SOURCE_GROUP = "common";
+
+// Central feed signing public key (raw Ed25519 hex). Must stay in sync with
+// src-tauri/src/feed.rs FEED_PUBLIC_KEY_HEX and crates/umanager-helper.
+const CENTRAL_PUBLIC_KEY_HEX = "57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9";
+
+// Per-source signing key env name (FEED_SIGNING_KEY_TENCENT / _COMMON): the
+// v3 world signs each source feed with the source's own private key.
+function sourceSigningKeyEnv(group) {
+  return `FEED_SIGNING_KEY_${group.replace(/[^a-zA-Z0-9]+/g, "_").toUpperCase()}`;
+}
 // Bounded concurrency for vendor fetches: network-bound, so a few parallel
 // workers collapse the sequential scrape without hammering vendor endpoints.
 const CONCURRENCY = 5;
@@ -420,6 +431,7 @@ async function fetchReleaseNotes(app, config, entry) {
   if (typeof config.changelogListHtmlUrl === "string") return fetchChangelogListHtmlReleaseNotes(app, config, entry);
   if (typeof config.changelogBlockHtmlUrl === "string") return fetchChangelogBlockHtmlReleaseNotes(app, config);
   if (typeof config.changelogJsonpUrl === "string") return fetchChangelogJsonpReleaseNotes(app, config, entry);
+  if (typeof config.tencentDocsSmartdocUrl === "string") return fetchTencentDocsSmartdocReleaseNotes(app, config, entry);
   if (typeof config.releaseApiUrl !== "string") return null;
   return fetchGitHubReleaseNotes(app, config);
 }
@@ -577,6 +589,53 @@ async function fetchChangelogJsonpReleaseNotes(app, config, entry) {
   const releaseNotesUrl = typeof notesUrl === "string" && /^https:\/\//.test(notesUrl) ? notesUrl : null;
   if (!releaseNotes && !releaseNotesUrl) return null;
   return { releaseNotes, releaseNotesUrl };
+}
+
+// Tencent Docs publishes its Linux desktop changelog as a public smartdoc
+// (https://docs.qq.com/aio/p/…), served by a POST JSON API: `records.block` is
+// a flat map and the page block's `children` give document order. Version
+// headings look like "【Linux】版本号3.11.7" (the newest version sits in the top
+// callout as "版本号3.11.8" + "更新时间：…" + "本次更新："), followed by
+// "- …" bullets. Select the section matching the resolved version, else the
+// first (latest) — same best-effort rule as the other changelog fetchers. The
+// vendor's own 更新时间 is also surfaced as the version-update time: the CDN's
+// Last-Modified on the download object is a legacy 2023 date and unusable.
+async function fetchTencentDocsSmartdocReleaseNotes(app, config, entry) {
+  const version = config.versionField === "version"
+    ? entry?.version
+    : (entry?.websiteVersion ?? entry?.version);
+  if (!version) return null;
+  let payload;
+  try {
+    const response = await fetch(config.tencentDocsSmartdocUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "UManager-feed/1.0",
+        Origin: "https://docs.qq.com",
+        Referer: "https://docs.qq.com/",
+      },
+      body: JSON.stringify({ padId: config.padId, pageId: config.pageId, chunked: 1 }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    payload = JSON.parse(await response.text());
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  if (payload.retcode !== 0) {
+    log(`  releaseNotes: ${app.applicationId} — smartdoc 接口返回 ${payload.retcode}`);
+    return null;
+  }
+  const selected = selectSmartdocSection(parseSmartdocVersionSections(payload, config.pageId), version);
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(smartdocSectionToMarkdown(selected), app.applicationId),
+  );
+  const notesUrl = config.releaseNotesUrl;
+  const releaseNotesUrl = typeof notesUrl === "string" && /^https:\/\//.test(notesUrl) ? notesUrl : null;
+  const updatedAtUnixSeconds = selected?.updateTime ? smartdocUpdateTimeToUnixSeconds(selected.updateTime) : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl, updatedAtUnixSeconds };
 }
 
 async function fetchGitHubReleaseNotes(app, config) {
@@ -1238,6 +1297,12 @@ async function scrapeAppEntry(app, releaseNotesOverrides) {
     if (notes) {
       entry.releaseNotes = notes.releaseNotes;
       entry.releaseNotesUrl = notes.releaseNotesUrl;
+      // A vendor-published release date (e.g. Tencent Docs' changelog 更新时间)
+      // is the authoritative version-update time; it overrides the CDN's
+      // Last-Modified probe (which can be a legacy date for that vendor).
+      if (notes.updatedAtUnixSeconds != null) {
+        entry._versionTimeCandidate = { time: notes.updatedAtUnixSeconds, source: "official" };
+      }
     }
   }
   return entry;
@@ -1515,10 +1580,106 @@ async function runGenerate({ OUT_PATH, config, previousFeed, group = null }) {
 // central-only selfUpdate + development tools, assembles + signs the full
 // catalog, and copies each source feed (+ its signature) into the output dir
 // so Pages hosts feed.tencent.json / feed.common.json alongside feed.json.
+// Publish the v3 world under <outDir>/v3/ (DESIGN-multi-source.md §4/§8):
+//   - one final source feed per group: schemaVersion 3, self-describing
+//     `source`, the group's own `catalogJson` re-signed with the group's key;
+//   - the thin central feed: `source` self-description + `sources[]` registry,
+//     selfUpdate / developmentTools / categories — NO full applications.
+// The v2 world (/feed.json + root source feeds) is unaffected. Publishing is
+// skipped entirely when any required signing key is missing (central or a
+// published group's), so a half-signed v3 world is never deployed.
+async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, selfUpdate, developmentTools }) {
+  const { catalog, sourceRegistry } = config;
+  const metadataFeed = catalog.metadataFeed;
+  if (!metadataFeed?.url || !metadataFeed?.hosts?.length) {
+    log("  v3: 缺少 metadataFeed 配置，跳过 /v3/ 发布");
+    return false;
+  }
+  const baseDir = metadataFeed.url.replace(/\/[^/]*$/, "");
+  const v3Base = `${baseDir}/v3`;
+  const registryOrder = Object.keys(sourceRegistry || {});
+  const publishedGroups = registryOrder.filter((group) => sourceFeeds[group]);
+  if (publishedGroups.length === 0) {
+    log("  v3: 本次没有可发布的源 feed，跳过 /v3/ 发布");
+    return false;
+  }
+  const missingKeys = publishedGroups
+    .map((group) => sourceSigningKeyEnv(group))
+    .filter((env) => !process.env[env]);
+  if (!process.env.FEED_SIGNING_KEY) missingKeys.push("FEED_SIGNING_KEY");
+  if (missingKeys.length > 0) {
+    log(`  v3: 缺少签名密钥（${missingKeys.join("、")}），跳过 /v3/ 发布（v2 世界不受影响）`);
+    return false;
+  }
+
+  const outDir = join(dirname(OUT_PATH), "v3");
+  mkdirSync(outDir, { recursive: true });
+
+  for (const group of publishedGroups) {
+    const src = sourceFeeds[group];
+    const v3Feed = {
+      schemaVersion: 3,
+      source: {
+        id: group,
+        name: sourceRegistry?.[group]?.name ?? group,
+        role: sourceRegistry?.[group]?.role ?? "vendor",
+        url: `${v3Base}/feed.${group}.json`,
+        hosts: metadataFeed.hosts,
+        publicKeyHex: sourceRegistry?.[group]?.publicKeyHex ?? "",
+      },
+      generatedAtUnixSeconds: nowUnixSeconds,
+      applications: src.applications ?? {},
+      catalogJson: src.catalogJson ?? null,
+      catalogSignature: src.catalogJson
+        ? sign(null, Buffer.from(src.catalogJson), process.env[sourceSigningKeyEnv(group)]).toString("hex")
+        : null,
+    };
+    const outPath = join(outDir, `feed.${group}.json`);
+    const bytes = Buffer.from(JSON.stringify(v3Feed, null, 2));
+    writeFileSync(outPath, bytes);
+    writeFileSync(`${outPath}.sig`, sign(null, bytes, process.env[sourceSigningKeyEnv(group)]).toString("hex"));
+    log(`  v3: 已签名源 feed ${group}（schemaVersion 3）`);
+  }
+
+  const sources = publishedGroups.map((group) => ({
+    id: group,
+    name: sourceRegistry?.[group]?.name ?? group,
+    role: sourceRegistry?.[group]?.role ?? "vendor",
+    url: `${v3Base}/feed.${group}.json`,
+    hosts: metadataFeed.hosts,
+    publicKeyHex: sourceRegistry?.[group]?.publicKeyHex ?? "",
+    defaultEnabled: true,
+  }));
+  const centralFeed = {
+    schemaVersion: 3,
+    source: {
+      id: "umanager",
+      name: "UManager 中央源",
+      role: "central",
+      url: `${v3Base}/feed.json`,
+      hosts: metadataFeed.hosts,
+      publicKeyHex: CENTRAL_PUBLIC_KEY_HEX,
+    },
+    sources,
+    generatedAtUnixSeconds: nowUnixSeconds,
+    selfUpdate,
+    developmentTools,
+    categories: config.categories,
+    categoryAssignments: config.categoryAssignments,
+  };
+  const outPath = join(outDir, "feed.json");
+  const bytes = Buffer.from(JSON.stringify(centralFeed, null, 2));
+  writeFileSync(outPath, bytes);
+  writeFileSync(`${outPath}.sig`, sign(null, bytes, process.env.FEED_SIGNING_KEY).toString("hex"));
+  log(`  v3: 已签名瘦中央 feed（sources=${sources.length}）→ ${v3Base}/feed.json`);
+  return true;
+}
+
 async function runMerge({ OUT_PATH, partsDir, config, previousFeed }) {
   const {
     catalog,
     extraApplications,
+    sourceRegistry,
     categories,
     categoryAssignments,
   } = config;
@@ -1604,6 +1765,17 @@ async function runMerge({ OUT_PATH, partsDir, config, previousFeed }) {
     if (existsSync(sig)) copyFileSync(sig, `${dst}.sig`);
     log(`  已复制 ${group} 源 feed 到发布目录`);
   }
+
+  // Publish the v3 world (/v3/feed.json + /v3/feed.<group>.json, thin central
+  // + per-source keys) alongside the v2 world; skipped if keys are missing.
+  await writeV3World({
+    OUT_PATH,
+    sourceFeeds,
+    config,
+    nowUnixSeconds,
+    selfUpdate,
+    developmentTools,
+  });
 
   writeSignedOutput(OUT_PATH, feed);
   log(

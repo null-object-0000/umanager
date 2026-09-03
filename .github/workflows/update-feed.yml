@@ -123,6 +123,9 @@ jobs:
         run: node scripts/update-feed.mjs --merge --parts partials --out dist/feed.json
         env:
           FEED_SIGNING_KEY: ${{ secrets.FEED_SIGNING_KEY }}
+          # v3 世界：每个源用自己独立的私钥签名（DESIGN-multi-source.md §8）
+          FEED_SIGNING_KEY_TENCENT: ${{ secrets.FEED_SIGNING_KEY_TENCENT }}
+          FEED_SIGNING_KEY_COMMON: ${{ secrets.FEED_SIGNING_KEY_COMMON }}
           # merge also scrapes the central-only selfUpdate + dev tools
           # (GitHub Releases / npm), which need the authenticated API budget.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

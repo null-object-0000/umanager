@@ -2,11 +2,13 @@
   "sources": {
     "tencent": {
       "name": "腾讯源",
-      "role": "vendor"
+      "role": "vendor",
+      "publicKeyHex": "67ccb44779ca8123b844dccf62b42d8e4a9139eeefd8d7f3cbd11e9940dd25b5"
     },
     "common": {
       "name": "公共源",
-      "role": "common"
+      "role": "common",
+      "publicKeyHex": "35a2e5a3961d01d952ea45da7e7fd3238dedda2d431c26bbc3bf07f12929ffee"
     }
   },
   "applications": [
@@ -287,6 +289,12 @@
         "downloadHosts": ["*.docs.qq.com"],
         "pageVersionMarker": "",
         "downloadLinkFileName": "TencentDocs-x64.deb"
+      },
+      "releaseNotes": {
+        "tencentDocsSmartdocUrl": "https://docs.qq.com/api/smartdoc/get/publish/doc",
+        "padId": "scqtn9829617css",
+        "pageId": "9IVmaf8DSXs4DrmXIliPDHI",
+        "releaseNotesUrl": "https://docs.qq.com/aio/p/scqtn9829617css?p=9IVmaf8DSXs4DrmXIliPDHI&nlc=1"
       }
     }
   ],
