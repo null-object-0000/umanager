@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -15,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Linux dependencies
         run: |
@@ -50,6 +53,27 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Every release must ship a changelog: the feed generator reads the
+      # release body into `selfUpdate.releaseNotes`, and the app shows it in the
+      # update drawer. The changelog is derived from Conventional commits
+      # between the previous version tag and this release; a tag-push run uses
+      # the tag as the version, a manual run falls back to the current tip.
+      - name: Generate release changelog
+        id: changelog
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then
+            VERSION_ARGS=(--version "${RELEASE_VERSION#v}")
+          else
+            VERSION_ARGS=()
+          fi
+          {
+            echo 'body<<UMANAGER_EOF'
+            node scripts/release-changelog.mjs "${VERSION_ARGS[@]}"
+            echo 'UMANAGER_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -66,6 +90,19 @@ jobs:
             sudo apt install ./UManager___VERSION___amd64.deb
             ```
 
-            已安装 `.deb` 版的用户也可以在 UManager「设置」页内检查并安装更新。
+            已安装 `.deb` 版的用户也可以在 UManager「软件 / 更新」页内检查并安装更新。
+
+            ${{ steps.changelog.outputs.body }}
           releaseDraft: false
           prerelease: false
+
+      # update-feed reads the UManager release (asset digest + release body as
+      # selfUpdate.releaseNotes), so it must run only after this release has been
+      # published. `gh workflow run` returns after the workflow is created, not
+      # after it finishes; the ordering guarantee is "release published first",
+      # which is all update-feed needs.
+      - name: Trigger update-feed after release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run update-feed.yml --ref main

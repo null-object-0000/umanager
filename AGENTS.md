@@ -53,10 +53,17 @@ npm run update-feed   # 本地生成 feed；需网络，设置 FEED_SIGNING_KEY 
 
 ## 发布一个版本
 
+**必须遵守的发布约束：**
+
+1. **每次发布必须带 changelog**。`release.yml` 会用 `scripts/release-changelog.mjs` 从上一个版本 tag 到本次 tag 的 Conventional commits 自动生成 changelog 写入 release body（`update-feed.mjs` 会把 release body 读进 feed 的 `selfUpdate.releaseNotes`，App 更新抽屉展示它）。因此提交信息要遵循 Conventional commits 前缀（`feat` / `fix` / `perf` / `refactor` / `docs` / `chore` / `ci` 等），不要发「无 changelog」的 release。手动触发 `release.yml`（workflow_dispatch）时也会生成 changelog。
+2. **时序：必须先等 UManager 的 release 发布完成，再触发 update-feed**。`release.yml` 在发布 release 成功后会自动 `gh workflow run update-feed.yml`；不要手动提前跑 update-feed（它需要读取新 release 的资产摘要与 body）。
+
+步骤：
+
 1. 同步 bump 三处版本：`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`；
 2. `cargo check --manifest-path src-tauri/Cargo.toml`（同步 `Cargo.lock`）；
-3. commit → `git tag -a vX.Y.Z -m "UManager vX.Y.Z"` → `git push origin main` → `git push origin vX.Y.Z`；
-4. `release.yml` 自动构建 `.deb`；随后 `gh workflow run update-feed` 让 feed 的 `selfUpdate` 刷新到新版本。
+3. commit（按 Conventional commits 写提交信息）→ `git tag -a vX.Y.Z -m "UManager vX.Y.Z"` → `git push origin main` → `git push origin vX.Y.Z`；
+4. `release.yml` 自动构建 `.deb`、用自动生成的 changelog 发布 release，并在 release 完成后自动触发 `update-feed` 让 feed 的 `selfUpdate` 刷新到新版本（带 releaseNotes）。
 
 ## 目录与数据流（一句版）
 
