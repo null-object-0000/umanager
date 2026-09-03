@@ -540,9 +540,13 @@ fn validate_removal_constraints(
             {
                 return Ok(application);
             }
-            let application = feed_added_application(
+            let application = authorize_feed_application(
                 payload.catalog_json.as_deref(),
                 payload.catalog_signature.as_deref(),
+                payload.source_ref.as_ref(),
+                payload.source_endorsement.as_deref(),
+                payload.source_catalog_json.as_deref(),
+                payload.source_catalog_signature.as_deref(),
                 &payload.application_id,
                 &payload.package_name,
                 &payload.architecture,
@@ -841,9 +845,13 @@ fn website_application_for_plan(
     {
         return Ok(application);
     }
-    let application = feed_added_application(
+    let application = authorize_feed_application(
         payload.catalog_json.as_deref(),
         payload.catalog_signature.as_deref(),
+        payload.source_ref.as_ref(),
+        payload.source_endorsement.as_deref(),
+        payload.source_catalog_json.as_deref(),
+        payload.source_catalog_signature.as_deref(),
         &payload.application_id,
         &payload.package_name,
         &payload.architecture,
@@ -866,6 +874,45 @@ fn valid_package_name(value: &str) -> bool {
         && value.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.')
         })
+}
+
+/// Authorizes a feed-added application. Central-source apps verify the plan's
+/// `catalog_json`+`catalog_signature` against the built-in central public key;
+/// non-central-source apps go through the two-level chain (design §5).
+fn authorize_feed_application(
+    catalog_json: Option<&str>,
+    catalog_signature: Option<&str>,
+    source_ref: Option<&umanager_plan::SourceRef>,
+    source_endorsement: Option<&str>,
+    source_catalog_json: Option<&str>,
+    source_catalog_signature: Option<&str>,
+    application_id: &str,
+    package_name: &str,
+    architecture: &str,
+    require_removable: bool,
+) -> Result<Application, String> {
+    if let Some(source_ref) = source_ref {
+        feed_added_application_source(
+            source_ref,
+            source_endorsement,
+            source_catalog_json,
+            source_catalog_signature,
+            application_id,
+            package_name,
+            architecture,
+            require_removable,
+            FEED_PUBLIC_KEY_HEX,
+        )
+    } else {
+        feed_added_application(
+            catalog_json,
+            catalog_signature,
+            application_id,
+            package_name,
+            architecture,
+            require_removable,
+        )
+    }
 }
 
 /// Authorizes an application that is not part of the embedded catalog by
@@ -898,13 +945,62 @@ fn feed_added_application(
         .ok_or_else(|| "signed catalog does not authorize this application".to_owned())
 }
 
+/// Authorizes a feed-added application brought in by a non-central source. Two
+/// independent verifications, then the same catalog lookup: the built-in central
+/// key must endorse the reduced `source_ref` bytes (endorsement), and the
+/// source's own key must sign the source catalog — only then is the application
+/// accepted from that catalog (DESIGN-multi-source.md §5).
+fn feed_added_application_source(
+    source_ref: &umanager_plan::SourceRef,
+    source_endorsement: Option<&str>,
+    source_catalog_json: Option<&str>,
+    source_catalog_signature: Option<&str>,
+    application_id: &str,
+    package_name: &str,
+    architecture: &str,
+    require_removable: bool,
+    central_public_key_hex: &str,
+) -> Result<Application, String> {
+    let (Some(endorsement), Some(json), Some(signature)) =
+        (source_endorsement, source_catalog_json, source_catalog_signature)
+    else {
+        return Err("plan does not carry a complete source chain for this application".to_owned());
+    };
+    if json.len() > MAX_CATALOG_AUTH_BYTES || json.contains('\0') {
+        return Err("source catalog payload is invalid".to_owned());
+    }
+    // 1. The built-in central key must have endorsed this exact source reference
+    //    (reduced `{sourceId, feedUrl, publicKeyHex}` bytes).
+    let canonical = serde_json::to_vec(source_ref)
+        .map_err(|error| format!("cannot canonicalize sourceRef: {error}"))?;
+    verify_ed25519_with(&canonical, endorsement, central_public_key_hex)?;
+    // 2. The source's own key must have signed its catalog.
+    verify_ed25519_with(json.as_bytes(), signature, &source_ref.public_key_hex)?;
+    // 3. The application must exist in the source's signed catalog.
+    let applications: Vec<Application> = serde_json::from_str(json)
+        .map_err(|error| format!("source catalog JSON is invalid: {error}"))?;
+    applications
+        .into_iter()
+        .find(|application| {
+            application.application_id == application_id
+                && application.package_name == package_name
+                && application.architecture == architecture
+                && (!require_removable || application.removable)
+        })
+        .ok_or_else(|| "source catalog does not authorize this application".to_owned())
+}
+
 fn verify_ed25519(message: &[u8], signature_hex: &str) -> Result<(), String> {
-    let key_bytes = decode_hex_32(FEED_PUBLIC_KEY_HEX)?;
+    verify_ed25519_with(message, signature_hex, FEED_PUBLIC_KEY_HEX)
+}
+
+fn verify_ed25519_with(message: &[u8], signature_hex: &str, public_key_hex: &str) -> Result<(), String> {
+    let key_bytes = decode_hex_32(public_key_hex)?;
     let signature_bytes = decode_hex_64(signature_hex)?;
     let public_key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &key_bytes);
     public_key
         .verify(message, &signature_bytes)
-        .map_err(|_| "signed catalog signature verification failed".to_owned())
+        .map_err(|_| "signature verification failed".to_owned())
 }
 
 fn decode_hex_32(input: &str) -> Result<[u8; 32], String> {
@@ -1526,6 +1622,74 @@ mod tests {
                 "y",
                 "amd64",
                 true,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn source_chain_authorizes_only_a_fully_verified_application() {
+        use ring::signature::{Ed25519KeyPair, KeyPair};
+        let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let secret = |seed: u8| {
+            let kp = Ed25519KeyPair::from_seed_unchecked(&[seed; 32]).unwrap();
+            (hex(kp.public_key().as_ref()), kp)
+        };
+        let (_, source_kp) = secret(7);
+        let (central_pub, central_kp) = secret(9);
+
+        let json = r#"[{"applicationId":"qq","packageName":"linuxqq","displayName":"QQ","vendor":"Tencent","architecture":"amd64","removable":true,"source":{"kind":"browserImport","homepageUrl":"https://example.com"}}]"#;
+        let source_ref = umanager_plan::SourceRef {
+            source_id: "tencent".to_owned(),
+            feed_url: "https://example.com/feed.tencent.json".to_owned(),
+            public_key_hex: hex(source_kp.public_key().as_ref()),
+        };
+        let canonical = serde_json::to_vec(&source_ref).unwrap();
+        let endorsement = hex(central_kp.sign(&canonical).as_ref());
+        let source_sig = hex(source_kp.sign(json.as_bytes()).as_ref());
+
+        // Happy path: central endorses source_ref, source key signs its catalog.
+        assert!(
+            feed_added_application_source(
+                &source_ref, Some(&endorsement), Some(json), Some(&source_sig),
+                "qq", "linuxqq", "amd64", true, &central_pub,
+            )
+            .is_ok()
+        );
+
+        // Bad central endorsement (signed by the wrong key) is rejected.
+        let wrong_endorsement = hex(source_kp.sign(&canonical).as_ref());
+        assert!(
+            feed_added_application_source(
+                &source_ref, Some(&wrong_endorsement), Some(json), Some(&source_sig),
+                "qq", "linuxqq", "amd64", true, &central_pub,
+            )
+            .is_err()
+        );
+
+        // Bad source catalog signature is rejected before the lookup even matters.
+        assert!(
+            feed_added_application_source(
+                &source_ref, Some(&endorsement), Some(json), Some(&hex(source_kp.sign(b"other").as_ref())),
+                "qq", "linuxqq", "amd64", true, &central_pub,
+            )
+            .is_err()
+        );
+
+        // A valid chain but the app is absent from the source catalog is rejected.
+        assert!(
+            feed_added_application_source(
+                &source_ref, Some(&endorsement), Some(json), Some(&source_sig),
+                "not-in-catalog", "linuxqq", "amd64", true, &central_pub,
+            )
+            .is_err()
+        );
+
+        // Incomplete chain (missing source signature) is rejected.
+        assert!(
+            feed_added_application_source(
+                &source_ref, Some(&endorsement), Some(json), None,
+                "qq", "linuxqq", "amd64", true, &central_pub,
             )
             .is_err()
         );

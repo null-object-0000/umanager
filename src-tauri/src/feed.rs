@@ -39,6 +39,12 @@ pub struct FeedSourceInfo {
     pub public_key_hex: String,
     #[serde(default)]
     pub default_enabled: bool,
+    /// v3: the central key's signature over this source's reduced record
+    /// `{sourceId, feedUrl, publicKeyHex}`. The app loads it into every plan as
+    /// `source_endorsement` so the helper can verify the source is endorsed
+    /// (DESIGN-multi-source.md §5/§6.2).
+    #[serde(default)]
+    pub endorsement: Option<String>,
 }
 
 /// The curated metadata feed published by the UManager project (e.g. GitHub Pages).

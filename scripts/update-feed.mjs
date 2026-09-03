@@ -1643,15 +1643,29 @@ async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, sel
     log(`  v3: 已签名源 feed ${group}（schemaVersion 3）`);
   }
 
-  const sources = publishedGroups.map((group) => ({
-    id: group,
-    name: sourceRegistry?.[group]?.name ?? group,
-    role: sourceRegistry?.[group]?.role ?? "vendor",
-    url: `${v3Base}/feed.${group}.json`,
-    hosts: metadataFeed.hosts,
-    publicKeyHex: sourceRegistry?.[group]?.publicKeyHex ?? "",
-    defaultEnabled: true,
-  }));
+  const sources = publishedGroups.map((group) => {
+    const feedUrl = `${v3Base}/feed.${group}.json`;
+    const publicKeyHex = sourceRegistry?.[group]?.publicKeyHex ?? "";
+    // Endorsement: the central key signs this source's reduced record. The byte
+    // encoding must match serde_json::to_vec(SourceRef) on the app side
+    // (fields sourceId, feedUrl, publicKeyHex — compact, no spaces), so the
+    // helper can re-verify it against the built-in central key.
+    const endorsement = sign(
+      null,
+      Buffer.from(JSON.stringify({ sourceId: group, feedUrl, publicKeyHex })),
+      process.env.FEED_SIGNING_KEY,
+    ).toString("hex");
+    return {
+      id: group,
+      name: sourceRegistry?.[group]?.name ?? group,
+      role: sourceRegistry?.[group]?.role ?? "vendor",
+      url: feedUrl,
+      hosts: metadataFeed.hosts,
+      publicKeyHex,
+      defaultEnabled: true,
+      endorsement,
+    };
+  });
   const centralFeed = {
     schemaVersion: 3,
     source: {
