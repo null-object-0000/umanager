@@ -218,3 +218,14 @@ helper 的这几张白名单同样从内置 JSON 生成，并重新检查计划�
 React 只调用类型明确的 Tauri commands。Rust 端仅以固定参数调用 `dpkg-query`、`apt-cache`、`dpkg-deb` 和 `dpkg --compare-versions`，不经过 shell，也不接受前端传入的命令或包名。`.deb` 打包配置将 helper 安装到 `/usr/libexec/umanager-helper`，并把 Polkit policy 安装到 `/usr/share/polkit-1/actions/`。
 
 Polkit 授权使用 `auth_admin_keep`：一次「dry-run」特权复核会在当前登录会话内缓存管理员授权，因此紧随其后的「确认并安装/卸载」不会再次弹密码——一次操作只输入一次密码；但任何特权动作仍必须经由 `pkexec` 触发 helper、仍受固定白名单与计划复核约束。
+
+## 15. GNOME 扩展管理（含内置「中国节假日日历」扩展）
+
+「GNOME 扩展」页（`src-tauri/src/gnome_ext.rs`）管理 GNOME Shell 扩展，全程**用户级、无特权、不经 shell**：
+
+- **列表**：扫描用户目录 `~/.local/share/gnome-shell/extensions` 与系统目录 `/usr/share/gnome-shell/extensions`，解析每个扩展的 `metadata.json`（uuid/name/description/version/shell-version/url），启用状态通过固定 argv 的 `gnome-extensions list --enabled` 判断。
+- **启用/禁用**：固定 argv 调用 `gnome-extensions enable|disable <uuid>`；uuid 经字符白名单校验（字母数字 + `@ . _ -`），杜绝 shell 注入与路径穿越。
+- **卸载**：只允许删除用户扩展目录内的目录；系统级扩展只读、拒绝卸载，卸载前用 canonicalize 校验目标位于用户目录内。
+- **内置「中国节假日日历」扩展**（`umanager-calendar@umanager.app`）：扩展文件（`metadata.json` / `extension.js` / `stylesheet.css` / `holidays.json`）随 App 编译打包（`include_str!`），离线可用。扩展 hook GNOME 顶部日历（`Main.panel.statusArea.dateMenu._calendar` 的 `_rebuildCalendar` 与菜单 `open-state-changed`），对 `calendar-day` 按钮追加样式类（红=法定休、绿=调休上班）并把节日标记「休/班」直接写进日期 label（GNOME 45+ 已移除 `St.Widget.set_tooltip_text()`，故不用悬浮提示）。数据格式为 `{"days": [{"date": "YYYY-MM-DD", "name": "…", "isOffDay": bool}]}`，每次打开日历菜单重新读取扩展目录内 `holidays.json`，因此 UManager 更新数据后无需重启 Shell。
+- **节假日数据**：内置 2024–2026 年数据（源自 [NateScarlet/holiday-cn](https://github.com/NateScarlet/holiday-cn)，与国务院公告一致，`isOffDay` 区分法定休/调休上班）。「更新节假日数据」通过 `restricted_client`（仅允许 `raw.githubusercontent.com`、HTTPS-only、大小上限 256 KiB）拉取 2024–2027 各年 JSON，跳过尚未公布（days 为空）的年份，合并写回扩展目录 `holidays.json`。这是唯一的外网数据源，且只写用户扩展目录，不触碰任何系统路径。
+- **生效时机**：GNOME Shell 只在登录时扫描扩展目录（运行中的 Shell 不识别新目录），因此 Wayland 会话下**新安装**的扩展无法即时 `enable`。安装时除写入扩展文件外，还会把 uuid 写入持久化启用列表（`gsettings org.gnome.shell enabled-extensions`，重登后 Shell 自动启用），`gnome-extensions enable` 仅作即时尝试、失败不报错；UI 会显示「待重登生效」并提示注销重登（或 Alt+F2 `r` 重启 Shell）。卸载/禁用时同步从持久化列表移除。

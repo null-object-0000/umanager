@@ -1,0 +1,8 @@
+{
+  "uuid": "umanager-calendar@umanager.app",
+  "name": "中国节假日日历",
+  "description": "在顶部日历中标注中国大陆法定节假日（红色·休）与调休上班日（绿色·班）。数据随 UManager 更新，无需手动维护。",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "version": 1,
+  "url": "https://github.com/umanager/umanager"
+}

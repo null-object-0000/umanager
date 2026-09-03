@@ -1,0 +1,27 @@
+/* UManager 中国节假日日历扩展样式。
+ *
+ * 呈现：格子内第一行公历日期、第二行节日短名 + 休/班（如「中秋休」）。
+ * 颜色：休=红、班=绿。用 !important 确保覆盖 GNOME 主题对
+ * calendar-weekend / calendar-today 等内置样式的颜色定义。
+ *
+ * 顶部日历格子固定 3em×3em，因此两行文字采用略小字号 + 紧凑行距，
+ * 既容纳节日名又不撑破格子。
+ */
+
+.calendar .calendar-day.umanager-holiday-rest {
+    color: #e5484d !important;
+    font-weight: 700;
+}
+
+.calendar .calendar-day.umanager-holiday-work {
+    color: #188038 !important;
+    font-weight: 700;
+}
+
+/* 两行显示（日期 + 节日名/休班）：压缩字号与行距，保证 3em 格子内放得下 */
+.calendar .calendar-day.umanager-holiday-rest,
+.calendar .calendar-day.umanager-holiday-work {
+    font-size: 0.8em;
+    line-height: 1.12;
+    text-align: center;
+}
