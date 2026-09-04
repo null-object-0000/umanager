@@ -119,10 +119,10 @@ pub struct DevelopmentTool {
     #[serde(default)]
     pub npm_package: Option<String>,
     /// npm dist-tag channel whose version the metadata feed resolves and that
-    /// installs/updates target (`latest` by default; `alpha`/`next` for
-    /// pre-release channels — e.g. DeepSeek Harness tracks `alpha` because its
-    /// npm `latest` tag lags behind the newest release). Both the feed
-    /// generator and the app's npm install command must agree on this channel.
+    /// installs/updates target (`latest` by default; a tool may pin a
+    /// pre-release channel such as `next` when its own `latest` tag lags the
+    /// newest release). Both the feed generator and the app's npm install
+    /// command must agree on this channel.
     #[serde(default)]
     pub dist_tag: Option<String>,
     /// How a missing tool is installed. `npm` runs a global npm install;
@@ -545,7 +545,7 @@ mod tests {
         let dsh = catalog.by_tool_id("dsh").unwrap();
         assert_eq!(dsh.binary_name, "dsh");
         assert_eq!(dsh.npm_package.as_deref(), Some("@deepseek-ai/dsh"));
-        assert_eq!(dsh.dist_tag.as_deref(), Some("alpha"));
+        assert_eq!(dsh.dist_tag.as_deref(), Some("latest"));
         assert!(matches!(dsh.installer, DevToolInstaller::Npm));
         assert!(matches!(dsh.uninstall, DevToolUninstall::Npm));
         assert!(dsh.update.is_none());

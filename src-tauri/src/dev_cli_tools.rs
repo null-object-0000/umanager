@@ -236,17 +236,21 @@ fn find_binary(binary_name: &str, home: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Resolve an installed tool binary. Mirrors `find_binary`, and additionally
-/// checks the directory of the resolved npm executable so npm-global installs
-/// under nvm (whose bin directory is not in the GUI process `PATH`) are still
-/// found — this covers both state detection and self-update resolution.
+/// Resolve an installed tool binary. Prefers the bin directory of the npm that
+/// `resolve_npm` chooses — the nvm version currently in use — so detection
+/// follows the active nvm install rather than a stale inherited `PATH`; then
+/// falls back to `find_binary` (on-`PATH` + known install dirs) for non-nvm
+/// layouts. The npm-resolved path also keeps npm-global installs under nvm
+/// (whose bin directory is not in the GUI process `PATH`) visible, covering both
+/// state detection and self-update resolution.
 fn find_tool_binary(tool: &DevelopmentTool, home: &Path) -> Option<PathBuf> {
-    if let Some(found) = find_binary(&tool.binary_name, home) {
-        return Some(found);
+    if let Some(npm) = resolve_npm(home) {
+        let candidate = npm.parent()?.join(&tool.binary_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
     }
-    let npm = resolve_npm(home)?;
-    let candidate = npm.parent()?.join(&tool.binary_name);
-    candidate.is_file().then_some(candidate)
+    find_binary(&tool.binary_name, home)
 }
 
 fn classify_install_kind(
@@ -338,8 +342,8 @@ fn installer_label(tool: &DevelopmentTool) -> &'static str {
 }
 
 /// Install an npm-distributed tool at its configured dist-tag (`latest` by
-/// default, e.g. `alpha` for DeepSeek Harness), so the installed version
-/// matches what the metadata feed advertises for that tool.
+/// default; a tool may pin a pre-release channel such as `next`), so the
+/// installed version matches what the metadata feed advertises for that tool.
 fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, String> {
     match &tool.installer {
         DevToolInstaller::Npm => {
@@ -468,39 +472,43 @@ fn npm_available(home: &Path) -> bool {
     resolve_npm(home).is_some()
 }
 
-/// Resolve the npm executable: prefer one already on `PATH`, then fall back to the
-/// nvm-installed Node.js that UManager manages (default alias first, then newest).
+/// Resolve the npm executable. When nvm is installed, detection follows the nvm
+/// version currently in use — `$NVM_BIN` (set by `nvm use`) first, then the
+/// `default` alias resolved with nvm semantics (a partial prefix such as `24`
+/// selects the highest installed version), then the newest install — so the
+/// resolved npm matches the nvm version the user is actually using, rather than
+/// a stale inherited `PATH`. Only when nvm isn't installed do we fall back to an
+/// `npm` on `PATH` (system node / another manager).
 fn resolve_npm(home: &Path) -> Option<PathBuf> {
-    if let Some(npm) = find_on_path("npm") {
-        return Some(npm);
-    }
-    let nvm_dir = nvm_dir(home)?;
-    let versions_dir = nvm_dir.join("versions").join("node");
-    let mut candidates: Vec<PathBuf> = std::fs::read_dir(&versions_dir)
-        .ok()?
-        .flatten()
-        .filter_map(|entry| {
-            let npm = entry.path().join("bin").join("npm");
-            npm.is_file().then_some(npm)
-        })
-        .collect();
-    if candidates.is_empty() {
+    if let Some(nvm_dir) = nvm_dir(home) {
+        let versions_dir = nvm_dir.join("versions").join("node");
+        // The version currently active in this process environment.
+        if let Some(nvm_bin) = std::env::var_os("NVM_BIN").map(PathBuf::from) {
+            let npm = nvm_bin.join("npm");
+            if npm.is_file() {
+                return Some(npm);
+            }
+        }
+        // The `default` alias, resolved like nvm (full version / partial prefix
+        // / named LTS) — what a fresh shell would activate.
+        if let Ok(alias) = std::fs::read_to_string(nvm_dir.join("alias").join("default")) {
+            if let Some(version_dir) = resolve_nvm_default(&versions_dir, &nvm_dir, alias.trim()) {
+                let npm = version_dir.join("bin").join("npm");
+                if npm.is_file() {
+                    return Some(npm);
+                }
+            }
+        }
+        // Newest installed version as a last resort within nvm.
+        if let Some(newest) = newest_version_dir(&versions_dir) {
+            let npm = newest.join("bin").join("npm");
+            if npm.is_file() {
+                return Some(npm);
+            }
+        }
         return None;
     }
-
-    if let Ok(alias) = std::fs::read_to_string(nvm_dir.join("alias").join("default")) {
-        let version = alias.trim().trim_start_matches('v');
-        let preferred = versions_dir
-            .join(format!("v{version}"))
-            .join("bin")
-            .join("npm");
-        if preferred.is_file() {
-            return Some(preferred);
-        }
-    }
-
-    candidates.sort_by_key(|path| version_parts_from_npm_path(path));
-    candidates.pop()
+    find_on_path("npm")
 }
 
 fn nvm_dir(home: &Path) -> Option<PathBuf> {
@@ -514,12 +522,97 @@ fn nvm_dir(home: &Path) -> Option<PathBuf> {
 }
 
 fn version_parts_from_npm_path(path: &Path) -> Vec<u64> {
+    // The nvm version dir is a leaf like `v24.20.0`. A naive `starts_with('v')`
+    // would also match the `versions` directory component in the path, so require
+    // `v` followed by a digit and take the last such part.
     let path_text = path.to_string_lossy();
     let version = path_text
         .split('/')
-        .find(|part| part.starts_with('v') && part.len() > 1)
+        .filter(|part| {
+            part.len() > 1 && part.starts_with('v') && part.as_bytes()[1].is_ascii_digit()
+        })
+        .last()
         .unwrap_or("v0");
     version_parts(version.trim_start_matches('v'))
+}
+
+/// Resolve an nvm `default` alias to a version directory, mirroring nvm: a full
+/// version ("v24.20.0"), a partial prefix ("24"/"24.20" → highest match), or a
+/// named LTS ("lts/*" / "lts/iron" → the mapped version).
+fn resolve_nvm_default(versions_dir: &Path, nvm_dir: &Path, alias: &str) -> Option<PathBuf> {
+    let alias = alias.trim();
+    if let Some(name) = alias.strip_prefix("lts/") {
+        let lts_dir = nvm_dir.join("alias").join("lts");
+        if name == "*" {
+            return highest_lts_version(&lts_dir, versions_dir);
+        }
+        let mapped = std::fs::read_to_string(lts_dir.join(name)).ok()?;
+        return resolve_version_dir(versions_dir, mapped.trim());
+    }
+    resolve_version_dir(versions_dir, alias)
+}
+
+/// Match `version` (leading `v` optional) against the installed node versions:
+/// an exact directory, or — for a partial prefix such as `24` — the highest
+/// installed version sharing that component prefix.
+fn resolve_version_dir(versions_dir: &Path, version: &str) -> Option<PathBuf> {
+    let version = version.trim().trim_start_matches('v');
+    if version.is_empty() {
+        return None;
+    }
+    let exact = versions_dir.join(format!("v{version}"));
+    if exact.is_dir() {
+        return Some(exact);
+    }
+    let prefix = version_parts(version);
+    let mut matches: Vec<PathBuf> = std::fs::read_dir(versions_dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_dir() {
+                return None;
+            }
+            let name = path.file_name()?.to_string_lossy();
+            let candidate = name.strip_prefix('v')?;
+            let parts = version_parts(candidate);
+            if parts.len() < prefix.len() {
+                return None;
+            }
+            (parts[..prefix.len()] == prefix[..]).then_some(path)
+        })
+        .collect();
+    matches.sort_by_key(|path| version_parts_from_npm_path(path));
+    matches.pop()
+}
+
+/// The highest installed node version directory under `versions_dir`.
+fn newest_version_dir(versions_dir: &Path) -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(versions_dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            path.is_dir().then_some(path)
+        })
+        .collect();
+    dirs.sort_by_key(|path| version_parts_from_npm_path(path));
+    dirs.pop()
+}
+
+/// Highest version referenced by an nvm LTS alias file under `lts_dir` (each
+/// file maps an LTS line name to a concrete version, e.g. `lts/iron` -> v24.20.0).
+fn highest_lts_version(lts_dir: &Path, versions_dir: &Path) -> Option<PathBuf> {
+    let mut mapped: Vec<PathBuf> = std::fs::read_dir(lts_dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let version = std::fs::read_to_string(entry.path()).ok()?;
+            resolve_version_dir(versions_dir, version.trim())
+        })
+        .collect();
+    mapped.sort_by_key(|path| version_parts_from_npm_path(path));
+    mapped.pop()
 }
 
 fn npm_command(home: &Path, args: &[String]) -> Result<Command, String> {
@@ -899,5 +992,62 @@ mod tests {
         assert!(catalog.by_tool_id("hermes").is_some());
         assert!(catalog.by_tool_id("uv").is_some());
         assert!(catalog.by_tool_id("pnpm").is_some());
+    }
+
+    #[test]
+    fn resolves_exact_and_partial_nvm_default_aliases() {
+        let root = std::env::temp_dir().join(format!("umanager-nvm-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let versions = root.join("versions").join("node");
+        for v in ["v22.14.0", "v24.19.0", "v24.20.0"] {
+            std::fs::create_dir_all(versions.join(v)).unwrap();
+        }
+        let dir_name = |p: Option<PathBuf>| {
+            p.map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        };
+        // Exact full version (with or without the leading `v`).
+        assert_eq!(
+            dir_name(resolve_version_dir(&versions, "v24.19.0")),
+            Some("v24.19.0".to_owned())
+        );
+        assert_eq!(
+            dir_name(resolve_version_dir(&versions, "24.20.0")),
+            Some("v24.20.0".to_owned())
+        );
+        // Partial prefix -> highest matching version, not the lowest.
+        assert_eq!(dir_name(resolve_version_dir(&versions, "24")), Some("v24.20.0".to_owned()));
+        assert_eq!(dir_name(resolve_version_dir(&versions, "v24")), Some("v24.20.0".to_owned()));
+        assert_eq!(dir_name(resolve_version_dir(&versions, "24.19")), Some("v24.19.0".to_owned()));
+        // Empty / no match.
+        assert_eq!(dir_name(resolve_version_dir(&versions, "")), None);
+        assert_eq!(dir_name(resolve_version_dir(&versions, "18")), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolves_named_lts_default_alias() {
+        let root = std::env::temp_dir().join(format!("umanager-nvm-lts-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let versions = root.join("versions").join("node");
+        std::fs::create_dir_all(versions.join("v22.14.0")).unwrap();
+        std::fs::create_dir_all(versions.join("v24.20.0")).unwrap();
+        let lts_dir = root.join("alias").join("lts");
+        std::fs::create_dir_all(&lts_dir).unwrap();
+        std::fs::write(lts_dir.join("iron"), "v24.20.0\n").unwrap();
+
+        let dir_name = |p: Option<PathBuf>| {
+            p.map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        };
+        // lts/* -> highest LTS-mapped version.
+        assert_eq!(
+            dir_name(highest_lts_version(&lts_dir, &versions)),
+            Some("v24.20.0".to_owned())
+        );
+        // lts/<name> -> the mapped version.
+        assert_eq!(
+            dir_name(resolve_nvm_default(&versions, &root, "lts/iron")),
+            Some("v24.20.0".to_owned())
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

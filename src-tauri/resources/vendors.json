@@ -352,7 +352,7 @@
       "accentColor": "#4D6BFE",
       "binaryName": "dsh",
       "npmPackage": "@deepseek-ai/dsh",
-      "distTag": "alpha",
+      "distTag": "latest",
       "installer": {
         "kind": "npm"
       },

@@ -30,7 +30,7 @@ const SYSTEM_EXTENSIONS_DIR: &str = "/usr/share/gnome-shell/extensions";
 /// 节假日在线刷新的唯一数据源（GitHub raw 上的 holiday-cn 官方仓库）。
 const HOLIDAY_SOURCE_HOST: &str = "raw.githubusercontent.com";
 const HOLIDAY_MIN_YEAR: u16 = 2024;
-const HOLIDAY_MAX_YEAR: u16 = 2027;
+const HOLIDAY_MAX_YEAR: u16 = 2030;
 const MAX_HOLIDAY_JSON_BYTES: u64 = 256 * 1024;
 
 // ---------------------------------------------------------------------------
@@ -336,18 +336,9 @@ pub fn uninstall(app: &AppHandle, uuid: &str) -> Result<(), String> {
 // UManager 内置日历扩展
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct HolidayDay {
-    date: String,
-    name: String,
-    #[serde(default)]
-    is_off_day: bool,
-}
-
 #[derive(Clone, Debug, Deserialize)]
 struct HolidayYearFile {
-    days: Vec<HolidayDay>,
+    days: Vec<crate::holiday_fixed::FixedHolidayDay>,
 }
 
 fn calendar_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -449,16 +440,20 @@ pub async fn refresh_holiday_data_impl(app: &AppHandle) -> Result<HolidayRefresh
     let hosts = vec![HOLIDAY_SOURCE_HOST.to_owned()];
     let client = crate::source_engine::restricted_client(&hosts, Duration::from_secs(20))?;
 
-    let mut merged: Vec<HolidayDay> = Vec::new();
+    let mut merged: Vec<crate::holiday_fixed::FixedHolidayDay> = Vec::new();
     let mut years: Vec<u16> = Vec::new();
 
+    // 拉取各年官方数据：已公布年份保留官方安排（含调休/连休）；未公布年份（days 为空
+    // 或文件缺失）用"固定节日当天"补齐，保证即便官方没出调休也能看到节日当天。
+    let mut official_years: std::collections::HashSet<u16> = std::collections::HashSet::new();
     for year in HOLIDAY_MIN_YEAR..=HOLIDAY_MAX_YEAR {
         let url = format!(
             "https://{HOLIDAY_SOURCE_HOST}/NateScarlet/holiday-cn/master/{year}.json"
         );
-        let response = match client.get(&url).send().await {
-            Ok(response) => response,
-            Err(error) => return Err(format!("拉取 {year} 年节假日数据失败：{error}")),
+        let fetched = client.get(&url).send().await.ok();
+        let Some(response) = fetched else {
+            // 文件缺失（如 2028+），纯粹靠固定节日补齐。
+            continue;
         };
         if response
             .content_length()
@@ -468,21 +463,33 @@ pub async fn refresh_holiday_data_impl(app: &AppHandle) -> Result<HolidayRefresh
         }
         let bytes = match response.bytes().await {
             Ok(bytes) => bytes,
-            Err(error) => return Err(format!("读取 {year} 年节假日数据失败：{error}")),
+            Err(_error) => continue,
         };
         if bytes.len() as u64 > MAX_HOLIDAY_JSON_BYTES {
             return Err(format!("{year} 年节假日数据大小异常"));
         }
         let parsed: HolidayYearFile = match serde_json::from_slice(&bytes) {
             Ok(parsed) => parsed,
-            Err(error) => return Err(format!("{year} 年节假日数据格式无效：{error}")),
+            Err(_error) => continue,
         };
-        if parsed.days.is_empty() {
-            // 国务院尚未公布该年安排（如 2027），跳过。
-            continue;
+        if !parsed.days.is_empty() {
+            // 官方已公布该年（含调休/连休），原样采用。
+            official_years.insert(year);
+            years.push(year);
+            merged.extend(parsed.days);
         }
-        years.push(year);
-        merged.extend(parsed.days);
+        // days 为空（官方占位但未公布）时不插入 official_years，走下方固定节日补齐。
+    }
+
+    // 为"官方未公布"的年份补充固定节日当天（元旦/除夕/春节/清明/劳动/端午/中秋/国庆）。
+    // merge_fixed_holidays 会跳过官方已覆盖的日期，绝不覆盖官方的调休/连休标记。
+    crate::holiday_fixed::merge_fixed_holidays(&mut merged, HOLIDAY_MIN_YEAR, HOLIDAY_MAX_YEAR);
+    // 已公布年份 years 已记录；未公布年份（不在 official_years 内）补入 years 便于 UI 展示
+    // 其"固定节日"数据。
+    for year in HOLIDAY_MIN_YEAR..=HOLIDAY_MAX_YEAR {
+        if !official_years.contains(&year) {
+            years.push(year);
+        }
     }
 
     if merged.is_empty() {
@@ -490,6 +497,8 @@ pub async fn refresh_holiday_data_impl(app: &AppHandle) -> Result<HolidayRefresh
     }
     merged.sort_by(|left, right| left.date.cmp(&right.date));
     merged.dedup_by(|left, right| left.date == right.date);
+    years.sort_unstable();
+    years.dedup();
 
     let payload = serde_json::json!({ "days": merged });
     let content = serde_json::to_string_pretty(&payload)
@@ -579,7 +588,7 @@ mod tests {
 
     #[test]
     fn holidays_json_roundtrips_with_is_off_day() {
-        let day = HolidayDay {
+        let day = crate::holiday_fixed::FixedHolidayDay {
             date: "2026-01-04".to_owned(),
             name: "元旦".to_owned(),
             is_off_day: false,

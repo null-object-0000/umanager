@@ -160,11 +160,17 @@ export default class UManagerCalendarExtension extends Extension {
         return `${y}-${m}-${d}`;
     }
 
-    /** 该日期是否是一个假期段的首日：若前一天也是节假日/调休日，则为段中/末尾。 */
-    _isHolidayStart(date) {
+    /** 该日期是否应显示节日名：前一日是"同名"节日才不算首日。
+     *  例如春节(02-06)前一日是除夕(02-05)——名字不同，春节仍是它自己的首日，显示「春节」；
+     *  而假期段内的国庆节(10-02..10-07)因前一日同名「国庆节」，只显示「休」。 */
+    _isHolidayStart(date, name) {
         const prev = new Date(date);
         prev.setDate(prev.getDate() - 1);
-        return !this._holidays.has(this._dateKey(prev));
+        const prevHoliday = this._holidays.get(this._dateKey(prev));
+        if (!prevHoliday)
+            return true;
+        // 前一日也是节假日：只有同名才视为同一假期段（不显示名字）。
+        return prevHoliday.name !== name;
     }
 
     _applyMarks() {
@@ -186,7 +192,7 @@ export default class UManagerCalendarExtension extends Extension {
             let label;
             if (!holiday.isOffDay) {
                 label = '班';
-            } else if (this._isHolidayStart(button._date)) {
+            } else if (this._isHolidayStart(button._date, holiday.name)) {
                 label = shortName(holiday.name);
             } else {
                 label = '休';

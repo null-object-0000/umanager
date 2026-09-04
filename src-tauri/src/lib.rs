@@ -5,6 +5,7 @@ mod dev_cli_tools;
 mod dev_tools;
 mod feed;
 mod gnome_ext;
+mod holiday_fixed;
 mod icon;
 mod installable;
 mod installation;
