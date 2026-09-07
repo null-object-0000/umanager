@@ -473,17 +473,3 @@ export interface GnomeExtension {
   enabled: boolean;
 }
 
-export interface CalendarStatus {
-  installed: boolean;
-  enabled: boolean;
-  /** 已写入持久化启用列表，重登后会自动启用（新装扩展在 Wayland 下需重登才被 Shell 扫描）。 */
-  pendingEnable: boolean;
-  dataYears: number[];
-  dataDays: number;
-}
-
-export interface HolidayRefreshReport {
-  years: number[];
-  days: number;
-}
-

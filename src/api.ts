@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CalendarStatus, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, GnomeExtension, HolidayRefreshReport, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, GnomeExtension, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -555,24 +555,4 @@ export function setGnomeExtensionEnabled(uuid: string, enabled: boolean): Promis
 export function uninstallGnomeExtension(uuid: string): Promise<void> {
   if (isMock()) return Promise.resolve();
   return invoke<void>("uninstall_gnome_extension", { uuid });
-}
-
-export function getUManagerCalendarStatus(): Promise<CalendarStatus> {
-  if (isMock()) return Promise.resolve({ installed: false, enabled: false, pendingEnable: false, dataYears: [], dataDays: 0 });
-  return invoke<CalendarStatus>("get_umanager_calendar_status");
-}
-
-export function installUManagerCalendar(): Promise<CalendarStatus> {
-  if (isMock()) return Promise.resolve({ installed: true, enabled: true, pendingEnable: true, dataYears: [2024, 2025, 2026], dataDays: 108 });
-  return invoke<CalendarStatus>("install_umanager_calendar");
-}
-
-export function uninstallUManagerCalendar(): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("uninstall_umanager_calendar");
-}
-
-export function refreshHolidayData(): Promise<HolidayRefreshReport> {
-  if (isMock()) return Promise.resolve({ years: [2024, 2025, 2026], days: 108 });
-  return invoke<HolidayRefreshReport>("refresh_holiday_data");
 }

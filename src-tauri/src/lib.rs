@@ -5,7 +5,6 @@ mod dev_cli_tools;
 mod dev_tools;
 mod feed;
 mod gnome_ext;
-mod holiday_fixed;
 mod icon;
 mod installable;
 mod installation;
@@ -764,11 +763,7 @@ pub fn run() {
             clipboard_history::drag_clipboard_image,
             gnome_ext::list_gnome_extensions,
             gnome_ext::set_gnome_extension_enabled,
-            gnome_ext::uninstall_gnome_extension,
-            gnome_ext::get_umanager_calendar_status,
-            gnome_ext::install_umanager_calendar,
-            gnome_ext::uninstall_umanager_calendar,
-            gnome_ext::refresh_holiday_data
+            gnome_ext::uninstall_gnome_extension
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UManager");

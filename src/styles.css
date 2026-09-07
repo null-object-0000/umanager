@@ -1496,26 +1496,6 @@ nav { display: grid; gap: 2px; }
    GNOME 扩展页
    ========================================================================== */
 
-.gnome-calendar-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px 20px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-card);
-  background: linear-gradient(180deg, rgba(0, 113, 227, 0.06), transparent 90%), var(--surface-1);
-}
-.gnome-calendar-head { display: flex; align-items: center; gap: 13px; min-width: 0; }
-.gnome-calendar-head .brand-mark { width: 42px; height: 42px; border-radius: var(--radius-icon); background: var(--accent-soft); color: var(--accent); }
-.gnome-calendar-head .brand-mark .ui-icon { width: 22px; height: 22px; }
-.gnome-calendar-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.gnome-calendar-title strong { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
-.gnome-calendar-title span { color: var(--text-2); font-size: var(--fs-sm); }
-.gnome-calendar-data { color: var(--text-3); font-size: var(--fs-sm); }
-.gnome-calendar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.gnome-hint { margin: 0; color: var(--text-3); font-size: var(--fs-xs); }
-.gnome-hint code { font-family: var(--font-mono, monospace); font-size: 0.95em; background: rgba(0, 0, 0, 0.05); border-radius: 4px; padding: 1px 5px; }
-
 .gnome-ext-list { display: flex; flex-direction: column; gap: 10px; }
 .gnome-ext-row {
   display: flex;
@@ -1526,7 +1506,6 @@ nav { display: grid; gap: 2px; }
   border-radius: var(--radius-sm);
   background: var(--surface-1);
 }
-.gnome-ext-row.self { border-color: rgba(0, 113, 227, 0.35); background: linear-gradient(180deg, rgba(0, 113, 227, 0.05), transparent), var(--surface-1); }
 .gnome-ext-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
 .gnome-ext-main strong { font-size: var(--fs-base); font-weight: 650; color: var(--text); }
 .gnome-ext-main code { font-family: var(--font-mono, monospace); font-size: 0.9em; color: var(--text-3); }
@@ -1559,5 +1538,3 @@ nav { display: grid; gap: 2px; }
 }
 .gnome-status-badge.enabled { color: var(--green-text); background: var(--green-soft); }
 .gnome-status-badge.disabled { color: var(--text-3); background: rgba(0, 0, 0, 0.06); }
-.gnome-status-badge.installed { color: var(--orange-text); background: var(--orange-soft); }
-.gnome-status-badge.missing { color: var(--text-3); background: rgba(0, 0, 0, 0.06); }

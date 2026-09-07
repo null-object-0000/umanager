@@ -1,37 +1,23 @@
 //! GNOME Shell 扩展管理。
 //!
-//! 提供两类能力：
-//! 1. 通用扩展管理：列出已安装扩展（用户级 + 系统级）、启用/禁用、卸载用户级扩展。
-//!    全部通过固定 argv 的 `gnome-extensions` 命令执行，不经 shell。
-//! 2. UManager 内置「中国节假日日历」扩展（`umanager-calendar@umanager.app`）：
-//!    安装 / 卸载 / 在线刷新节假日数据。数据打包进 App，可离线可用；
-//!    在线刷新仅从固定的 GitHub raw 域名拉取公开的 holiday-cn JSON。
+//! 提供通用扩展管理能力：列出已安装扩展（用户级 + 系统级）、启用/禁用、
+//! 卸载用户级扩展。全部通过固定 argv 的 `gnome-extensions` 命令执行，不经 shell。
 //!
 //! 安全要点：
 //! - 命令固定 argv，uuid 经过字符白名单校验，杜绝 shell 注入与路径穿越。
 //! - 卸载只允许发生在用户扩展目录（`~/.local/share/gnome-shell/extensions`）内，
 //!   系统级扩展（`/usr/share/gnome-shell/extensions`）只读、不可卸载。
-//! - 在线刷新使用 `restricted_client`（仅允许 `raw.githubusercontent.com`，
-//!   HTTPS-only），且不写任何系统路径，只更新扩展目录内的数据文件。
+//! - **不再内置任何具体扩展**（如中国节假日日历已拆为独立仓库
+//!   `holiday-calendar-cn`，由用户自行安装）；这里只管理任意已安装的扩展。
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 use tauri::{AppHandle, Manager};
-
-/// UManager 内置日历扩展的 UUID（GNOME 扩展目录名 = UUID）。
-pub const CALENDAR_UUID: &str = "umanager-calendar@umanager.app";
 
 const USER_EXTENSIONS_REL: &str = ".local/share/gnome-shell/extensions";
 const SYSTEM_EXTENSIONS_DIR: &str = "/usr/share/gnome-shell/extensions";
-
-/// 节假日在线刷新的唯一数据源（GitHub raw 上的 holiday-cn 官方仓库）。
-const HOLIDAY_SOURCE_HOST: &str = "raw.githubusercontent.com";
-const HOLIDAY_MIN_YEAR: u16 = 2024;
-const HOLIDAY_MAX_YEAR: u16 = 2030;
-const MAX_HOLIDAY_JSON_BYTES: u64 = 256 * 1024;
 
 // ---------------------------------------------------------------------------
 // 数据结构
@@ -50,26 +36,6 @@ pub struct GnomeExtensionInfo {
     /// `user`（本机用户安装）或 `system`（随系统分发，只读）。
     pub origin: String,
     pub enabled: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CalendarStatus {
-    pub installed: bool,
-    /// 运行中的 GNOME Shell 是否已加载（重登前新安装的扩展为 false）。
-    pub enabled: bool,
-    /// 已写入持久化启用列表（gsettings enabled-extensions），重登后会自动启用。
-    pub pending_enable: bool,
-    /// holidays.json 中实际覆盖的年份（从日期前缀提取）。
-    pub data_years: Vec<u16>,
-    pub data_days: usize,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HolidayRefreshReport {
-    pub years: Vec<u16>,
-    pub days: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -145,21 +111,17 @@ fn enabled_uuids() -> Result<HashSet<String>, String> {
 ///
 /// 注意：`gnome-extensions enable` 只在**运行中的 Shell 已认识的扩展**
 /// （Shell 启动时扫描出的目录）上生效；Wayland 会话下**新安装**的扩展目录
-/// 要等下次登录才会被扫描。因此对 UManager 内置日历扩展，失败时回退到
-/// 持久化启用列表（gsettings `enabled-extensions`），登录后 Shell 会自动启用。
+/// 要等下次登录才会被扫描。因此当 enable/disable 对"新装扩展"失败时，
+/// 回退到持久化启用列表（gsettings `enabled-extensions`），登录后 Shell 会自动启用。
 pub fn set_enabled(uuid: &str, enabled: bool) -> Result<(), String> {
     validate_uuid(uuid)?;
     let action = if enabled { "enable" } else { "disable" };
     match run_gnome(&[action, uuid]) {
         Ok(_) => Ok(()),
-        Err(error) => {
-            if uuid == CALENDAR_UUID {
-                // 新目录尚未被运行中的 Shell 识别：写入持久化列表，重登后生效。
-                set_persistent_enabled(CALENDAR_UUID, enabled)?;
-                Ok(())
-            } else {
-                Err(error)
-            }
+        Err(_error) => {
+            // 新装目录尚未被运行中的 Shell 识别：写入持久化列表，重登后生效。
+            set_persistent_enabled(uuid, enabled)?;
+            Ok(())
         }
     }
 }
@@ -227,13 +189,6 @@ fn set_persistent_enabled(uuid: &str, enabled: bool) -> Result<(), String> {
         return Err(format!("无法写入扩展启用列表：{}", stderr.trim()));
     }
     Ok(())
-}
-
-/// 日历扩展是否已写入持久化启用列表（重登后将自动启用）。
-fn calendar_pending_enable() -> bool {
-    read_enabled_extensions()
-        .map(|list| list.iter().any(|item| item == CALENDAR_UUID))
-        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -313,203 +268,17 @@ pub fn list(app: &AppHandle) -> Result<Vec<GnomeExtensionInfo>, String> {
 /// 卸载用户级扩展：只允许删除用户扩展目录内的目录，系统级扩展拒绝。
 pub fn uninstall(app: &AppHandle, uuid: &str) -> Result<(), String> {
     validate_uuid(uuid)?;
-    if uuid == CALENDAR_UUID {
-        return uninstall_calendar(app);
-    }
     let user_dir = user_extensions_dir(app)?;
     let target = extension_path(&user_dir, uuid)?;
     if !target.exists() {
         return Err(format!("扩展 {uuid} 未安装"));
     }
-    if target
-        .canonicalize()
-        .is_ok_and(|path| path.starts_with(Path::new(SYSTEM_EXTENSIONS_DIR)))
-    {
+    if target.canonicalize().is_ok_and(|path| path.starts_with(Path::new(SYSTEM_EXTENSIONS_DIR))) {
         return Err("系统级扩展不能通过 UManager 卸载".to_owned());
     }
     ensure_within_user_dir(&user_dir, &target)?;
     std::fs::remove_dir_all(&target).map_err(|error| format!("删除扩展目录失败：{error}"))?;
     Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// UManager 内置日历扩展
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug, Deserialize)]
-struct HolidayYearFile {
-    days: Vec<crate::holiday_fixed::FixedHolidayDay>,
-}
-
-fn calendar_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let user_dir = user_extensions_dir(app)?;
-    extension_path(&user_dir, CALENDAR_UUID)
-}
-
-fn read_holidays_json(path: &Path) -> Option<(Vec<u16>, usize)> {
-    let text = std::fs::read_to_string(path.join("holidays.json")).ok()?;
-    let data: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let days = data.get("days")?.as_array()?;
-    let mut years: HashSet<u16> = HashSet::new();
-    for day in days {
-        if let Some(date) = day.get("date").and_then(|value| value.as_str()) {
-            if date.len() >= 4 {
-                if let Ok(year) = date[..4].parse::<u16>() {
-                    years.insert(year);
-                }
-            }
-        }
-    }
-    let mut sorted: Vec<u16> = years.into_iter().collect();
-    sorted.sort_unstable();
-    Some((sorted, days.len()))
-}
-
-pub fn calendar_status(app: &AppHandle) -> Result<CalendarStatus, String> {
-    let dir = calendar_dir(app)?;
-    if !dir.join("metadata.json").exists() {
-        return Ok(CalendarStatus {
-            installed: false,
-            enabled: false,
-            pending_enable: false,
-            data_years: Vec::new(),
-            data_days: 0,
-        });
-    }
-    let enabled = enabled_uuids().unwrap_or_default().contains(CALENDAR_UUID);
-    let pending_enable = calendar_pending_enable();
-    let (data_years, data_days) = read_holidays_json(&dir).unwrap_or_default();
-    Ok(CalendarStatus {
-        installed: true,
-        enabled,
-        pending_enable,
-        data_years,
-        data_days,
-    })
-}
-
-/// 安装 UManager 日历扩展：把打包的扩展文件写入用户扩展目录。
-/// 文件随 App 编译（include_str!），完全离线可用。
-///
-/// 安装即把 uuid 写入持久化启用列表（gsettings enabled-extensions），
-/// 这样即使运行中的 GNOME Shell 尚未识别新目录，重登后也会自动启用；
-/// 若 Shell 已能识别则立即生效。
-pub fn install_calendar(app: &AppHandle) -> Result<CalendarStatus, String> {
-    let dir = calendar_dir(app)?;
-    std::fs::create_dir_all(&dir).map_err(|error| format!("创建扩展目录失败：{error}"))?;
-
-    let files: [(&str, &str); 4] = [
-        ("metadata.json", include_str!("../resources/umanager-calendar/metadata.json")),
-        ("extension.js", include_str!("../resources/umanager-calendar/extension.js")),
-        ("stylesheet.css", include_str!("../resources/umanager-calendar/stylesheet.css")),
-        ("holidays.json", include_str!("../resources/umanager-calendar/holidays.json")),
-    ];
-    for (name, content) in files {
-        std::fs::write(dir.join(name), content)
-            .map_err(|error| format!("写入扩展文件 {name} 失败：{error}"))?;
-    }
-
-    // 先确保持久化启用，再尝试即时启用（新目录在 Wayland 下需重登才被 Shell 扫描）。
-    set_persistent_enabled(CALENDAR_UUID, true)?;
-    let _ = set_enabled(CALENDAR_UUID, true);
-    calendar_status(app)
-}
-
-pub fn uninstall_calendar(app: &AppHandle) -> Result<(), String> {
-    let user_dir = user_extensions_dir(app)?;
-    let dir = calendar_dir(app)?;
-    if !dir.exists() {
-        return Ok(());
-    }
-    let _ = set_enabled(CALENDAR_UUID, false);
-    let _ = set_persistent_enabled(CALENDAR_UUID, false);
-    ensure_within_user_dir(&user_dir, &dir)?;
-    std::fs::remove_dir_all(&dir).map_err(|error| format!("删除扩展目录失败：{error}"))?;
-    Ok(())
-}
-
-/// 在线刷新节假日数据：从 holiday-cn 官方仓库拉取 2024–2027 各年 JSON，
-/// 跳过未发布（days 为空）的年份，合并写入扩展目录的 holidays.json。
-/// 仅允许 `raw.githubusercontent.com`（HTTPS-only）。
-pub async fn refresh_holiday_data_impl(app: &AppHandle) -> Result<HolidayRefreshReport, String> {
-    let dir = calendar_dir(app)?;
-    if !dir.join("metadata.json").exists() {
-        return Err("请先安装「中国节假日日历」扩展，再刷新数据".to_owned());
-    }
-
-    let hosts = vec![HOLIDAY_SOURCE_HOST.to_owned()];
-    let client = crate::source_engine::restricted_client(&hosts, Duration::from_secs(20))?;
-
-    let mut merged: Vec<crate::holiday_fixed::FixedHolidayDay> = Vec::new();
-    let mut years: Vec<u16> = Vec::new();
-
-    // 拉取各年官方数据：已公布年份保留官方安排（含调休/连休）；未公布年份（days 为空
-    // 或文件缺失）用"固定节日当天"补齐，保证即便官方没出调休也能看到节日当天。
-    let mut official_years: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    for year in HOLIDAY_MIN_YEAR..=HOLIDAY_MAX_YEAR {
-        let url = format!(
-            "https://{HOLIDAY_SOURCE_HOST}/NateScarlet/holiday-cn/master/{year}.json"
-        );
-        let fetched = client.get(&url).send().await.ok();
-        let Some(response) = fetched else {
-            // 文件缺失（如 2028+），纯粹靠固定节日补齐。
-            continue;
-        };
-        if response
-            .content_length()
-            .is_some_and(|size| size > MAX_HOLIDAY_JSON_BYTES)
-        {
-            return Err(format!("{year} 年节假日数据大小异常"));
-        }
-        let bytes = match response.bytes().await {
-            Ok(bytes) => bytes,
-            Err(_error) => continue,
-        };
-        if bytes.len() as u64 > MAX_HOLIDAY_JSON_BYTES {
-            return Err(format!("{year} 年节假日数据大小异常"));
-        }
-        let parsed: HolidayYearFile = match serde_json::from_slice(&bytes) {
-            Ok(parsed) => parsed,
-            Err(_error) => continue,
-        };
-        if !parsed.days.is_empty() {
-            // 官方已公布该年（含调休/连休），原样采用。
-            official_years.insert(year);
-            years.push(year);
-            merged.extend(parsed.days);
-        }
-        // days 为空（官方占位但未公布）时不插入 official_years，走下方固定节日补齐。
-    }
-
-    // 为"官方未公布"的年份补充固定节日当天（元旦/除夕/春节/清明/劳动/端午/中秋/国庆）。
-    // merge_fixed_holidays 会跳过官方已覆盖的日期，绝不覆盖官方的调休/连休标记。
-    crate::holiday_fixed::merge_fixed_holidays(&mut merged, HOLIDAY_MIN_YEAR, HOLIDAY_MAX_YEAR);
-    // 已公布年份 years 已记录；未公布年份（不在 official_years 内）补入 years 便于 UI 展示
-    // 其"固定节日"数据。
-    for year in HOLIDAY_MIN_YEAR..=HOLIDAY_MAX_YEAR {
-        if !official_years.contains(&year) {
-            years.push(year);
-        }
-    }
-
-    if merged.is_empty() {
-        return Err("没有获取到任何年份的节假日数据".to_owned());
-    }
-    merged.sort_by(|left, right| left.date.cmp(&right.date));
-    merged.dedup_by(|left, right| left.date == right.date);
-    years.sort_unstable();
-    years.dedup();
-
-    let payload = serde_json::json!({ "days": merged });
-    let content = serde_json::to_string_pretty(&payload)
-        .map_err(|error| format!("无法编码节假日数据：{error}"))?;
-    std::fs::write(dir.join("holidays.json"), content)
-        .map_err(|error| format!("写入节假日数据失败：{error}"))?;
-
-    Ok(HolidayRefreshReport {
-        days: merged.len(),
-        years,
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -531,26 +300,6 @@ pub fn uninstall_gnome_extension(app: AppHandle, uuid: String) -> Result<(), Str
     uninstall(&app, &uuid)
 }
 
-#[tauri::command]
-pub fn get_umanager_calendar_status(app: AppHandle) -> Result<CalendarStatus, String> {
-    calendar_status(&app)
-}
-
-#[tauri::command]
-pub fn install_umanager_calendar(app: AppHandle) -> Result<CalendarStatus, String> {
-    install_calendar(&app)
-}
-
-#[tauri::command]
-pub fn uninstall_umanager_calendar(app: AppHandle) -> Result<(), String> {
-    uninstall_calendar(&app)
-}
-
-#[tauri::command]
-pub async fn refresh_holiday_data(app: AppHandle) -> Result<HolidayRefreshReport, String> {
-    refresh_holiday_data_impl(&app).await
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -561,7 +310,7 @@ mod tests {
 
     #[test]
     fn uuid_validation_accepts_gnome_uuids() {
-        assert!(validate_uuid("umanager-calendar@umanager.app").is_ok());
+        assert!(validate_uuid("holiday-calendar-cn@github.io").is_ok());
         assert!(validate_uuid("Vitals@CoreCoding.com").is_ok());
         assert!(validate_uuid("dash-to-dock@micxgx.gmail.com").is_ok());
         assert!(validate_uuid("ding@rastersoft.com").is_ok());
@@ -587,28 +336,6 @@ mod tests {
     }
 
     #[test]
-    fn holidays_json_roundtrips_with_is_off_day() {
-        let day = crate::holiday_fixed::FixedHolidayDay {
-            date: "2026-01-04".to_owned(),
-            name: "元旦".to_owned(),
-            is_off_day: false,
-        };
-        let payload = serde_json::json!({ "days": [day] });
-        let text = serde_json::to_string(&payload).unwrap();
-        assert!(text.contains("\"isOffDay\":false"));
-        let parsed: HolidayYearFile = serde_json::from_str(&text).unwrap();
-        assert_eq!(parsed.days.len(), 1);
-        assert!(!parsed.days[0].is_off_day);
-    }
-
-    #[test]
-    fn user_extension_dir_is_under_home() {
-        // 无法在没有 AppHandle 时调用 user_extensions_dir；这里验证相对路径常量合法。
-        assert!(USER_EXTENSIONS_REL.starts_with(".local/"));
-        assert!(SYSTEM_EXTENSIONS_DIR.starts_with("/usr/share/gnome-shell/"));
-    }
-
-    #[test]
     fn parse_enabled_extensions_handles_real_output() {
         let list = parse_enabled_extensions("['Vitals@CoreCoding.com', 'dash-to-dock@micxgx.gmail.com']").unwrap();
         assert_eq!(list, vec!["Vitals@CoreCoding.com", "dash-to-dock@micxgx.gmail.com"]);
@@ -626,24 +353,17 @@ mod tests {
 
     #[test]
     fn serialize_enabled_extensions_roundtrips() {
-        let input = vec!["umanager-calendar@umanager.app".to_owned(), "Vitals@CoreCoding.com".to_owned()];
+        let input = vec!["holiday-calendar-cn@github.io".to_owned(), "Vitals@CoreCoding.com".to_owned()];
         let serialized = serialize_enabled_extensions(&input);
-        assert_eq!(serialized, "['umanager-calendar@umanager.app', 'Vitals@CoreCoding.com']");
+        assert_eq!(serialized, "['holiday-calendar-cn@github.io', 'Vitals@CoreCoding.com']");
         let parsed = parse_enabled_extensions(&serialized).unwrap();
         assert_eq!(parsed, input);
         assert_eq!(serialize_enabled_extensions(&[]), "@as []");
     }
 
     #[test]
-    fn set_persistent_enabled_add_and_remove_is_idempotent() {
-        // 不执行真实 gsettings（无 AppHandle/无 dconf），只验证列表操作逻辑：
-        // 通过在纯函数层面模拟 add/remove 语义。
-        let mut list = vec!["a@b.c".to_owned()];
-        if !list.iter().any(|item| item == CALENDAR_UUID) {
-            list.push(CALENDAR_UUID.to_owned());
-        }
-        assert_eq!(list.len(), 2);
-        list.retain(|item| item != CALENDAR_UUID);
-        assert_eq!(list.len(), 1);
+    fn user_extension_dir_is_under_home() {
+        assert!(USER_EXTENSIONS_REL.starts_with(".local/"));
+        assert!(SYSTEM_EXTENSIONS_DIR.starts_with("/usr/share/gnome-shell/"));
     }
 }
