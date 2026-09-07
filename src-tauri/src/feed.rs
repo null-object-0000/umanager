@@ -866,11 +866,17 @@ async fn refresh_v3_sources(central: &Feed, now: u64) {
 }
 
 /// Feed-added applications contributed by the v3 sources' own signed catalogs.
+/// Each source catalog is signed with the source's own private key (design §4/
+/// §5), so it must be verified against the registry's public key for that
+/// source — never the central key. A source whose catalog fails verification is
+/// skipped entirely (its applications stay absent) instead of failing the whole
+/// store list.
 fn source_extra_applications(guard: &FeedState) -> Vec<Application> {
     let mut apps = Vec::new();
     for source in central_registry(guard) {
         if let Some(cache) = guard.sources.get(&source.id)
-            && let Ok(mut parsed) = parse_extra_applications(&cache.feed)
+            && let Ok(mut parsed) =
+                parse_extra_applications_with(&cache.feed, &source.public_key_hex)
         {
             apps.append(&mut parsed);
         }
@@ -924,10 +930,21 @@ pub async fn category_catalog() -> Option<CategoryCatalog> {
 }
 
 fn parse_extra_applications(feed: &Feed) -> Result<Vec<Application>, String> {
+    parse_extra_applications_with(feed, FEED_PUBLIC_KEY_HEX)
+}
+
+/// Parse the signed catalog a feed carries, verifying the catalog JSON against
+/// `public_key_hex`. The central feed's catalog is signed with the central
+/// (built-in) key; a v3 source feed's catalog is signed with the source's own
+/// key, so callers must pass the source's registry public key here.
+fn parse_extra_applications_with(
+    feed: &Feed,
+    public_key_hex: &str,
+) -> Result<Vec<Application>, String> {
     let (Some(json), Some(signature)) = (&feed.catalog_json, &feed.catalog_signature) else {
         return Ok(Vec::new());
     };
-    verify_ed25519(json.as_bytes(), signature)?;
+    verify_ed25519_with(json.as_bytes(), signature, public_key_hex)?;
     serde_json::from_str(json)
         .map_err(|error| format!("元数据源目录格式无效：{error}"))
 }
@@ -1406,5 +1423,179 @@ mod tests {
         // selfUpdate / registry carried from the thin central.
         assert!(merged.self_update.is_none());
         assert_eq!(merged.sources.len(), 2);
+    }
+
+    // A v3 source feed's catalog is signed with the source's own key
+    // (DESIGN-multi-source.md §4/§5: 「各源新增软件由各源 feed 自己的目录 + 验签链
+    // 授权」). Regression: the store previously verified every catalog with the
+    // central key, which silently dropped every feed-only application (wine,
+    // qq, feishu, tencent-docs, …) while compiled apps kept working.
+    #[test]
+    fn source_catalog_verifies_with_source_key_not_central_key() {
+        const SOURCE_KEY_HEX: &str =
+            "521de8076ad5777a3f715168e9a5a164f7f0478a132b7bf7e3829ac41e4e74a2";
+        const CATALOG_JSON: &str =
+            r#"[{"applicationId":"qq","packageName":"linuxqq","displayName":"QQ","vendor":"Tencent","architecture":"amd64","removable":true,"source":{"kind":"browserImport","homepageUrl":"https://e.com"}}]"#;
+        const CATALOG_SIGNATURE: &str =
+            "34367b877d8cdd0bab52bcf8728f1666771ec12c00991ff0c32ee7743ceef263a3265e3e16b472b94124a78172929bf11e8a5b154e22ba28d214709691e99d02";
+        let feed = Feed {
+            schema_version: 3,
+            generated_at_unix_seconds: 1750000000,
+            applications: HashMap::new(),
+            catalog_json: Some(CATALOG_JSON.to_owned()),
+            catalog_signature: Some(CATALOG_SIGNATURE.to_owned()),
+            self_update: None,
+            development_tools: HashMap::new(),
+            categories: Vec::new(),
+            category_assignments: FeedCategoryAssignments {
+                applications: HashMap::new(),
+                development_tools: HashMap::new(),
+            },
+            source: None,
+            sources: Vec::new(),
+        };
+        // Central-key verification (the old `parse_extra_applications`) must reject
+        // a source-signed catalog…
+        assert!(parse_extra_applications(&feed).is_err());
+        // …while the source's own key accepts it and yields the applications.
+        let apps = parse_extra_applications_with(&feed, SOURCE_KEY_HEX)
+            .expect("source key should verify its own catalog");
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].application_id, "qq");
+        assert_eq!(apps[0].package_name, "linuxqq");
+    }
+
+    /// `source_extra_applications` must verify each source catalog against that
+    /// source's registry key: a source with a valid source-signed catalog
+    /// contributes its applications, and a source whose catalog is signed with
+    /// the wrong key is skipped instead of poisoning the whole store list.
+    #[test]
+    fn source_extra_applications_uses_each_sources_own_key() {
+        const TEN_CENT_KEY_HEX: &str =
+            "521de8076ad5777a3f715168e9a5a164f7f0478a132b7bf7e3829ac41e4e74a2";
+        const COMMON_KEY_HEX: &str =
+            "11577caca5a1c60453e25f13f2f1e0bf2f192df5eb645c8e8342d0e4337755a0";
+        const CATALOG_TENCENT: &str =
+            r#"[{"applicationId":"qq","packageName":"linuxqq","displayName":"QQ","vendor":"Tencent","architecture":"amd64","removable":true,"source":{"kind":"browserImport","homepageUrl":"https://e.com"}}]"#;
+        // Signed with TEN_CENT_KEY_HEX, not COMMON_KEY_HEX — common must be skipped.
+        const CATALOG_COMMON: &str =
+            r#"[{"applicationId":"obsidian","packageName":"obsidian","displayName":"Obsidian","vendor":"Obsidian","architecture":"amd64","removable":true,"source":{"kind":"browserImport","homepageUrl":"https://e.com"}}]"#;
+        const SIGNATURE_TENCENT: &str =
+            "34367b877d8cdd0bab52bcf8728f1666771ec12c00991ff0c32ee7743ceef263a3265e3e16b472b94124a78172929bf11e8a5b154e22ba28d214709691e99d02";
+        // Signature over CATALOG_COMMON made with the tencent key (wrong one).
+        const SIGNATURE_COMMON_WRONG: &str =
+            "10b59881b976d67ea1e2d33506ad2a1d65479f30c60ba82f5c768aa9071e56614ee7a243bb565a387f9578ea12e7417adc0311a0bf4bc79977365c4ed139d30e";
+
+        let mut cache = HashMap::new();
+        cache.insert(
+            "https://e.com/v3/feed.json".to_owned(),
+            CachedFeed {
+                fetched_at_unix_seconds: 100,
+                feed: Feed {
+                    schema_version: 3,
+                    generated_at_unix_seconds: 100,
+                    applications: HashMap::new(),
+                    catalog_json: None,
+                    catalog_signature: None,
+                    self_update: None,
+                    development_tools: HashMap::new(),
+                    categories: Vec::new(),
+                    category_assignments: FeedCategoryAssignments {
+                        applications: HashMap::new(),
+                        development_tools: HashMap::new(),
+                    },
+                    source: None,
+                    sources: vec![
+                        FeedSourceInfo {
+                            id: "tencent".to_owned(),
+                            name: Some("腾讯源".to_owned()),
+                            role: Some("vendor".to_owned()),
+                            url: "https://e.com/v3/feed.tencent.json".to_owned(),
+                            hosts: vec!["e.com".to_owned()],
+                            public_key_hex: TEN_CENT_KEY_HEX.to_owned(),
+                            default_enabled: true,
+                            endorsement: None,
+                        },
+                        FeedSourceInfo {
+                            id: "common".to_owned(),
+                            name: Some("公共源".to_owned()),
+                            role: Some("common".to_owned()),
+                            url: "https://e.com/v3/feed.common.json".to_owned(),
+                            hosts: vec!["e.com".to_owned()],
+                            public_key_hex: COMMON_KEY_HEX.to_owned(),
+                            default_enabled: true,
+                            endorsement: None,
+                        },
+                    ],
+                },
+            },
+        );
+        let mut sources = HashMap::new();
+        sources.insert(
+            "tencent".to_owned(),
+            CachedSourceFeed {
+                feed: Feed {
+                    schema_version: 3,
+                    generated_at_unix_seconds: 100,
+                    applications: HashMap::new(),
+                    catalog_json: Some(CATALOG_TENCENT.to_owned()),
+                    catalog_signature: Some(SIGNATURE_TENCENT.to_owned()),
+                    self_update: None,
+                    development_tools: HashMap::new(),
+                    categories: Vec::new(),
+                    category_assignments: FeedCategoryAssignments {
+                        applications: HashMap::new(),
+                        development_tools: HashMap::new(),
+                    },
+                    source: None,
+                    sources: Vec::new(),
+                },
+            },
+        );
+        sources.insert(
+            "common".to_owned(),
+            CachedSourceFeed {
+                feed: Feed {
+                    schema_version: 3,
+                    generated_at_unix_seconds: 100,
+                    applications: HashMap::new(),
+                    catalog_json: Some(CATALOG_COMMON.to_owned()),
+                    catalog_signature: Some(SIGNATURE_COMMON_WRONG.to_owned()),
+                    self_update: None,
+                    development_tools: HashMap::new(),
+                    categories: Vec::new(),
+                    category_assignments: FeedCategoryAssignments {
+                        applications: HashMap::new(),
+                        development_tools: HashMap::new(),
+                    },
+                    source: None,
+                    sources: Vec::new(),
+                },
+            },
+        );
+        let guard = FeedState {
+            cache,
+            sources,
+            status: FeedStatus {
+                configured: true,
+                url: Some("https://e.com/v3/feed.json".to_owned()),
+                signature_enforced: true,
+                signature_verified: true,
+                last_success_at_unix_seconds: Some(100),
+                generated_at_unix_seconds: Some(100),
+                applications: 0,
+                development_tools: 0,
+                last_error: None,
+                serving_from_cache: false,
+            },
+            source_status: HashMap::new(),
+            catalog_json: None,
+            catalog_signature: None,
+            extra_applications: Vec::new(),
+        };
+        let apps = source_extra_applications(&guard);
+        // Only the source with a valid source-signed catalog contributes.
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].application_id, "qq");
     }
 }
