@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, GnomeExtension, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -542,17 +542,3 @@ export async function onClipboardHistoryChanged(callback: (entries: ClipboardEnt
   return listen<ClipboardEntry[]>("clipboard-history-changed", ({ payload }) => callback(payload));
 }
 
-export function listGnomeExtensions(): Promise<GnomeExtension[]> {
-  if (isMock()) return Promise.resolve([]);
-  return invoke<GnomeExtension[]>("list_gnome_extensions");
-}
-
-export function setGnomeExtensionEnabled(uuid: string, enabled: boolean): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("set_gnome_extension_enabled", { uuid, enabled });
-}
-
-export function uninstallGnomeExtension(uuid: string): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("uninstall_gnome_extension", { uuid });
-}

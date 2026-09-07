@@ -461,15 +461,3 @@ export interface SessionInfo {
   globalHotkeySupported: boolean;
 }
 
-export interface GnomeExtension {
-  uuid: string;
-  name: string;
-  description: string;
-  version: string | null;
-  shellVersions: string[];
-  url: string | null;
-  path: string;
-  origin: "user" | "system";
-  enabled: boolean;
-}
-

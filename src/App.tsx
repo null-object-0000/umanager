@@ -6,8 +6,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, listClipboardHistory, listGnomeExtensions, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setGnomeExtensionEnabled, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, uninstallGnomeExtension, updateDevTool } from "./api";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, GnomeExtension, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
 import { debCategory, devToolCategory, orderedCategories } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
@@ -32,7 +32,7 @@ import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 import umanagerLogo from "./assets/umanager-logo.png";
 
 type Filter = "all" | "installed" | "updates" | "installable";
-type Page = "installed" | "updates" | "dev" | "scripts" | "clipboard" | "gnome" | "settings";
+type Page = "installed" | "updates" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
@@ -59,7 +59,7 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" | "ext" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
@@ -73,7 +73,6 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back
     dev: <><path d="M8 6 3 12l5 6M16 6l5 6-5 6M14 4l-4 16"/></>,
     script: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></>,
     external: <><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/></>,
-    ext: <><path d="M14 7V3h7v7h-4a3 3 0 0 0-3 3v4H10v-4a3 3 0 0 0-3-3H3V3h7v4a3 3 0 0 0 4 0Z"/><path d="M14 17h7v4h-7zM3 17h7v4H3z"/></>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -1663,84 +1662,6 @@ function ClipboardImageDialog({ entry, onClose, onCopied }: { entry: ClipboardEn
   </section>;
 }
 
-function GnomeExtensionsPage() {
-  const [extensions, setExtensions] = useState<GnomeExtension[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const refresh = async () => {
-    setLoading(true); setError(null);
-    try {
-      setExtensions(await listGnomeExtensions());
-    } catch (reason) {
-      setError(String(reason));
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => { void refresh(); }, []);
-
-  const toggleExtension = async (extension: GnomeExtension) => {
-    setBusy(extension.uuid); setError(null);
-    try {
-      await setGnomeExtensionEnabled(extension.uuid, !extension.enabled);
-      await refresh();
-    } catch (reason) {
-      setError(String(reason));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const removeExtension = async (extension: GnomeExtension) => {
-    setBusy(extension.uuid); setError(null);
-    try {
-      await uninstallGnomeExtension(extension.uuid);
-      await refresh();
-    } catch (reason) {
-      setError(String(reason));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return <main className="workspace gnome-workspace">
-    <header className="workspace-header"><div><h1>GNOME 扩展</h1><p>管理顶部栏扩展（用户级 / 系统级）</p></div><div className="header-actions"><button className="primary-button" onClick={() => void refresh()} disabled={loading}><span className={loading ? "spin" : ""}>↻</span>{loading ? "读取中…" : "重新读取"}</button></div></header>
-    <section className="software-panel store-panel">
-      {error && <div className="message error"><strong>无法读取扩展</strong><span>{error}</span></div>}
-
-      <div className="panel-toolbar">
-        <div className="filter-tabs"><span className="clipboard-hint">已安装扩展：用户级（可卸载）与系统级（只读）扩展列表。</span></div>
-      </div>
-      {loading && !extensions && <div className="empty-state"><span className="loader"/><p>正在读取扩展列表…</p></div>}
-      {extensions && extensions.length === 0 && <div className="empty-state"><p>没有检测到已安装的 GNOME 扩展。</p></div>}
-      {extensions && extensions.length > 0 && (
-        <div className="gnome-ext-list">
-          {extensions.map((extension) => (
-            <div className="gnome-ext-row" key={extension.uuid}>
-              <div className="gnome-ext-main">
-                <strong>{extension.name}</strong>
-                <code>{extension.uuid}</code>
-                {extension.description && <span className="gnome-ext-desc">{extension.description}</span>}
-              </div>
-              <div className="gnome-ext-meta">
-                <span className={`gnome-origin-badge ${extension.origin}`}>{extension.origin === "user" ? "用户" : "系统"}</span>
-                {extension.version && <span className="gnome-version">v{extension.version}</span>}
-                <span className={`gnome-status-badge ${extension.enabled ? "enabled" : "disabled"}`}>{extension.enabled ? "已启用" : "已禁用"}</span>
-              </div>
-              <div className="gnome-ext-actions">
-                <button className="dev-action-button" onClick={() => void toggleExtension(extension)} disabled={busy === extension.uuid}>{busy === extension.uuid ? "处理中…" : extension.enabled ? "禁用" : "启用"}</button>
-                {extension.origin === "user" && <button className="dev-action-button danger-ghost" onClick={() => void removeExtension(extension)} disabled={busy === extension.uuid}>卸载</button>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  </main>;
-}
-
 export default function App() {
   if (clipboardPanelMode()) return <ClipboardPanel/>;
   const [page, setPage] = useState<Page>("installed");
@@ -1977,10 +1898,6 @@ export default function App() {
     setPage("clipboard");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
   };
-  const showGnomePage = () => {
-    setPage("gnome");
-    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
-  };
   const showSettingsPage = () => {
     setPage("settings");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
@@ -1998,7 +1915,6 @@ export default function App() {
         <button className={`nav-item ${page === "scripts" ? "active" : ""}`} onClick={showScriptsPage}><Icon name="script"/>维护脚本</button>
         <button className={`nav-item ${page === "dev" ? "active" : ""}`} onClick={showDevToolsPage}><Icon name="dev"/>开发环境</button>
         <button className={`nav-item ${page === "clipboard" ? "active" : ""}`} onClick={showClipboardPage}><Icon name="clipboard"/>剪贴板</button>
-        <button className={`nav-item ${page === "gnome" ? "active" : ""}`} onClick={showGnomePage}><Icon name="ext"/>GNOME 扩展</button>
       </nav>
       <div className="sidebar-spacer"/>
       <div className="safety-card"><Icon name="shield"/><div><strong>安全更新</strong><span>仅在确认授权后更改系统</span></div></div>
@@ -2057,7 +1973,7 @@ export default function App() {
           ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
           : <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
       </section>
-    </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : page === "gnome" ? <GnomeExtensionsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
+    </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} download={downloads[updatePackage.packageName]} onStartDownload={(notify) => void startDownload(applicationIdOf(updatePackage.packageName) ?? "", updatePackage.packageName, notify)} onClearDownload={() => clearDownload(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}

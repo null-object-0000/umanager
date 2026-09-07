@@ -219,11 +219,6 @@ React 只调用类型明确的 Tauri commands。Rust 端仅以固定参数调用
 
 Polkit 授权使用 `auth_admin_keep`：一次「dry-run」特权复核会在当前登录会话内缓存管理员授权，因此紧随其后的「确认并安装/卸载」不会再次弹密码——一次操作只输入一次密码；但任何特权动作仍必须经由 `pkexec` 触发 helper、仍受固定白名单与计划复核约束。
 
-## 15. GNOME 扩展管理
+## 15. GNOME 扩展
 
-「GNOME 扩展」页（`src-tauri/src/gnome_ext.rs`）管理 GNOME Shell 扩展，全程**用户级、无特权、不经 shell**：
-
-- **范围**：只管理**任意已安装**的扩展（列举/启用/禁用/卸载），**不再内置任何具体扩展**。中国大陆节假日日历等扩展由用户在 extensions.gnome.org 或对应仓库自行安装；UManager 不在 App 内打包任何扩展文件。
-- **列表**：扫描用户目录 `~/.local/share/gnome-shell/extensions` 与系统目录 `/usr/share/gnome-shell/extensions`，解析每个扩展的 `metadata.json`（uuid/name/description/version/shell-version/url），启用状态通过固定 argv 的 `gnome-extensions list --enabled` 判断。
-- **启用/禁用**：固定 argv 调用 `gnome-extensions enable|disable <uuid>`；uuid 经字符白名单校验（字母数字 + `@ . _ -`），杜绝 shell 注入与路径穿越。若 enable/disable 对"新装、尚未被运行中 Shell 识别的目录"失败，回退到持久化启用列表（`gsettings org.gnome.shell enabled-extensions`），重登后 Shell 自动启用。
-- **卸载**：只允许删除用户扩展目录内的目录；系统级扩展只读、拒绝卸载，卸载前用 canonicalize 校验目标位于用户目录内。
+自 v0.11 起 UManager **不再内置任何 GNOME 扩展及其管理能力**。GNOME Shell 扩展（如中国节假日日历、农历等）由用户通过 extensions.gnome.org 或对应仓库自行安装、启停，不经过 UManager。UManager 仅保留「软件 / 更新」「开发环境」「维护脚本」「剪贴板」「设置」等功能页。
