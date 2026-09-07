@@ -161,4 +161,40 @@ describe("mergeSourceFeeds", () => {
     expect(result.notes.some((n) => n.includes("vscode"))).toBe(true);
     expect(result.catalogApps).toEqual({});
   });
+
+  it("v3: a missing group falls back to its own previous source feed, not the thin central", () => {
+    // The v3 central feed carries no applications/catalog, so the previous
+    // central cannot supply any fallback state — the group's own previously
+    // published source feed is the only history (regression: a failed scrape
+    // used to drop the app forever as 「历史上从未入 feed」).
+    const thinCentral = { applications: {}, catalogJson: null };
+    const sourceFeeds = {
+      common: makeSourceFeed("common", {
+        applications: { obsidian: { version: "1.6" }, vscode: { version: "1.90" } },
+        catalogJson: JSON.stringify([{ applicationId: "obsidian", packageName: "obsidian" }]),
+      }),
+    };
+    const previousSourceFeeds = {
+      tencent: makeSourceFeed("tencent", {
+        applications: {
+          wechat: { version: "4.0", sha256: "prev-wechat" },
+          qq: { version: "3.1.1", sha256: "prev-qq" },
+        },
+        catalogJson: JSON.stringify([
+          { applicationId: "qq", packageName: "linuxqq", iconUrl: "https://x/icons/qq.png", iconSha256: "i-qq" },
+        ]),
+      }),
+      common: null,
+    };
+    const result = mergeSourceFeeds({ allApps, extraApps, sourceFeeds, previousFeed: thinCentral, previousSourceFeeds, builtinGroups: BUILTIN_GROUPS });
+    // tencent produced no feed this round; its apps/catalog come back from the
+    // group's own previous source feed despite the thin central.
+    expect(result.applications.qq.version).toBe("3.1.1");
+    expect(result.applications.wechat.version).toBe("4.0");
+    expect(result.catalogApps.qq.iconUrl).toBe("https://x/icons/qq.png");
+    expect(result.applications.obsidian.version).toBe("1.6");
+    expect(result.missingGroups).toEqual(["tencent"]);
+    expect(result.reused.some((e) => e === "应用 wechat")).toBe(true);
+    expect(result.reused.some((e) => e === "目录 qq")).toBe(true);
+  });
 });

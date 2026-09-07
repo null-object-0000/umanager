@@ -112,6 +112,9 @@ export function applyVersionTime(entry, previousEntry, nowUnixSeconds) {
  * @param {object[]} options.extraApps      feed-sources applications only, in order
  * @param {Object<string, object>} options.sourceFeeds discovered source feeds keyed by group id
  * @param {object|null} options.previousFeed parsed previous central feed.json, or null
+ * @param {Object<string, object|null>} [options.previousSourceFeeds] previous published
+ *        source feed per group id — the v3 fallback state for a missing group,
+ *        because the central feed is thin and carries no applications
  * @param {object} [options.builtinGroups]  { [sourceId]: string[] } built-in mapping
  * @returns {{ applications: object, catalogApps: object, reused: string[],
  *             notes: string[], missingGroups: string[] }}
@@ -121,6 +124,7 @@ export function mergeSourceFeeds({
   extraApps,
   sourceFeeds,
   previousFeed,
+  previousSourceFeeds = {},
   builtinGroups = {},
 }) {
   const previous = previousFeed ?? null;
@@ -139,7 +143,13 @@ export function mergeSourceFeeds({
   for (const app of allApps) {
     const group = sourceGroupOf(app, builtinGroups);
     const fresh = sourceFeeds[group]?.applications?.[app.applicationId] ?? null;
-    const prev = previous?.applications?.[app.applicationId] ?? null;
+    // v3: the central feed is thin, so a failed group falls back to that
+    // group's OWN previously published source feed first, then the previous
+    // central (legacy v2 world) as a last resort.
+    const prev =
+      previousSourceFeeds[group]?.applications?.[app.applicationId] ??
+      previous?.applications?.[app.applicationId] ??
+      null;
     const resolved = entryOrPrevious(fresh, prev);
     if (resolved) {
       applications[app.applicationId] = resolved;
@@ -152,7 +162,7 @@ export function mergeSourceFeeds({
   // Signed catalog: canonical order = feed-sources.json order. Each app's
   // record comes from the source feed that owns it (icon already injected,
   // CI-only fields already stripped); for a failed group, fall back to the
-  // previous central feed's signed catalog record.
+  // group's previous source feed's catalog, then the previous central feed.
   const previousCatalogMap = parseCatalogApplications(previous?.catalogJson);
   const catalogApps = {};
   for (const app of extraApps) {
@@ -161,7 +171,13 @@ export function mergeSourceFeeds({
       ? parseCatalogApplications(sourceFeeds[group].catalogJson)
       : null;
     const own = sourceCatalog?.[app.applicationId] ?? null;
-    const prevCat = previousCatalogMap?.[app.applicationId] ?? null;
+    const groupPrevCatalog = previousSourceFeeds[group]
+      ? parseCatalogApplications(previousSourceFeeds[group].catalogJson)
+      : null;
+    const prevCat =
+      groupPrevCatalog?.[app.applicationId] ??
+      previousCatalogMap?.[app.applicationId] ??
+      null;
     if (own) {
       catalogApps[app.applicationId] = own;
     } else if (prevCat) {

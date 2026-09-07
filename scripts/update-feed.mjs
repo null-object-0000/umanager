@@ -1695,7 +1695,7 @@ async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, sel
   return true;
 }
 
-async function runMerge({ OUT_PATH, partsDir, config, previousFeed }) {
+async function runMerge({ OUT_PATH, partsDir, config, previousFeed, previousSourceFeeds }) {
   const {
     catalog,
     extraApplications,
@@ -1714,6 +1714,7 @@ async function runMerge({ OUT_PATH, partsDir, config, previousFeed }) {
     extraApps: extraApplications,
     sourceFeeds,
     previousFeed,
+    previousSourceFeeds,
     builtinGroups: SOURCE_GROUPS,
   });
   const { applications, catalogApps } = merged;
@@ -1832,10 +1833,27 @@ async function main() {
   // scrape fails, and — in generation mode — the reference for skipping
   // unchanged-icon re-downloads. Never silently drop an app that was in the
   // previous feed just because a single scrape failed.
-  const previousFeed = await fetchPreviousFeed(config.catalog.metadataFeed?.url);
+  //
+  // v3 世界：中央源是瘦的（`applications` 为空），所以「上一版」对源组来说必须是
+  // 该组自己上一版发布的源 feed（…/v3/feed.<group>.json）——否则某次抓取失败
+  // （如飞书 CDN 在 CI 海外 IP 上超时）会因为没有历史可回退而把应用永久丢弃
+  // （「本次抓取失败且历史上从未入 feed」），尽管它之前一直在线。
+  const centralPrevious = await fetchPreviousFeed(config.catalog.metadataFeed?.url);
+  const baseDir = config.catalog.metadataFeed?.url
+    ? config.catalog.metadataFeed.url.replace(/\/[^/]*$/, "")
+    : null;
+  const previousSourceFeeds = {};
+  for (const group of knownGroups) {
+    previousSourceFeeds[group] = await fetchPreviousFeed(
+      baseDir ? `${baseDir}/feed.${group}.json` : null,
+    );
+  }
+  const previousFeed = args.group
+    ? (previousSourceFeeds[args.group] ?? centralPrevious)
+    : centralPrevious;
 
   if (args.merge) {
-    await runMerge({ OUT_PATH, partsDir: args.parts, config, previousFeed });
+    await runMerge({ OUT_PATH, partsDir: args.parts, config, previousFeed, previousSourceFeeds });
     return;
   }
   if (args.group) {
