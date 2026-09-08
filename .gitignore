@@ -36,6 +36,7 @@ pnpm-debug.log*
 /.vscode/
 /.agents/
 /.codex/
+/.tools/
 *.swp
 *.swo
 *~
