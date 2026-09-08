@@ -50,6 +50,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { atomChangelog } from "./changelog-atom.mjs";
 import { extractHtmlBlockToMarkdown, extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog, parseHtmlVersionList } from "./changelog-html.mjs";
 import { jsonpEntryToMarkdown, parseJsonpChangelog, selectJsonpChangelogEntry } from "./changelog-jsonp.mjs";
+import { jsonListEntryToMarkdown, parseJsonListChangelog, selectJsonListChangelogEntry } from "./changelog-json-list.mjs";
 import { parseSmartdocVersionSections, selectSmartdocSection, smartdocSectionToMarkdown, smartdocUpdateTimeToUnixSeconds } from "./changelog-smartdoc.mjs";
 import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./changelog-markdown.mjs";
 import { entryOrPrevious } from "./feed-fallback.mjs";
@@ -199,24 +200,24 @@ function gatewayFetchUrl(gatewayUrl, url) {
   return `${gatewayUrl.replace(/\/+$/, "")}/fetch?url=${encodeURIComponent(url)}`;
 }
 
-async function fetchBufferFallback(url, gatewayUrl) {
-  if (!gatewayUrl) return fetchBuffer(url);
+async function fetchBufferFallback(url, gatewayUrl, extraHeaders = {}) {
+  if (!gatewayUrl) return fetchBuffer(url, extraHeaders);
   try {
-    return await fetchBuffer(url);
+    return await fetchBuffer(url, extraHeaders);
   } catch (directError) {
     let host = url;
     try { host = new URL(url).hostname; } catch { /* keep raw */ }
     log(`  ↻ 直连失败（${directError.message}），改用网关抓取 ${host}`);
-    return fetchBuffer(gatewayFetchUrl(gatewayUrl, url));
+    return fetchBuffer(gatewayFetchUrl(gatewayUrl, url), extraHeaders);
   }
 }
 
-async function fetchTextFallback(url, gatewayUrl) {
-  return (await fetchBufferFallback(url, gatewayUrl)).toString("utf8");
+async function fetchTextFallback(url, gatewayUrl, extraHeaders = {}) {
+  return (await fetchBufferFallback(url, gatewayUrl, extraHeaders)).toString("utf8");
 }
 
-async function downloadTempFallback(label, url, gatewayUrl) {
-  const buffer = await fetchBufferFallback(url, gatewayUrl);
+async function downloadTempFallback(label, url, gatewayUrl, extraHeaders = {}) {
+  const buffer = await fetchBufferFallback(url, gatewayUrl, extraHeaders);
   const path = `/tmp/umanager-feed-${label}-${process.pid}.deb`;
   writeFileSync(path, buffer);
   downloadedDebs.set(label, path);
@@ -437,6 +438,7 @@ async function fetchReleaseNotes(app, config, entry) {
   if (typeof config.changelogListHtmlUrl === "string") return fetchChangelogListHtmlReleaseNotes(app, config, entry);
   if (typeof config.changelogBlockHtmlUrl === "string") return fetchChangelogBlockHtmlReleaseNotes(app, config);
   if (typeof config.changelogJsonpUrl === "string") return fetchChangelogJsonpReleaseNotes(app, config, entry);
+  if (typeof config.changelogJsonListUrl === "string") return fetchChangelogJsonListReleaseNotes(app, config, entry);
   if (typeof config.tencentDocsSmartdocUrl === "string") return fetchTencentDocsSmartdocReleaseNotes(app, config, entry);
   if (typeof config.releaseApiUrl !== "string") return null;
   return fetchGitHubReleaseNotes(app, config);
@@ -590,6 +592,33 @@ async function fetchChangelogJsonpReleaseNotes(app, config, entry) {
   const selected = selectJsonpChangelogEntry(parseJsonpChangelog(text), version);
   const releaseNotes = sanitizeReleaseNotes(
     stripReleaseNotesBoilerplate(jsonpEntryToMarkdown(selected), app.applicationId),
+  );
+  const notesUrl = config.releaseNotesUrl;
+  const releaseNotesUrl = typeof notesUrl === "string" && /^https:\/\//.test(notesUrl) ? notesUrl : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl };
+}
+
+// Fetch release notes from a plain JSON changelog list (Baidu Netdisk Linux):
+// `yun.baidu.com/disk/cmsdata?platform=linux&page=1&num=100` returns a
+// newest-first `list` whose entries carry `version`/`title` and a `detail`
+// array of `{title, more:[...]}` blocks. Select the entry matching the
+// resolved version, else the first (latest), and render it as Markdown.
+async function fetchChangelogJsonListReleaseNotes(app, config, entry) {
+  const version = config.versionField === "version"
+    ? entry?.version
+    : (entry?.websiteVersion ?? entry?.version);
+  if (!version) return null;
+  let text;
+  try {
+    text = await fetchText(config.changelogJsonListUrl);
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const selected = selectJsonListChangelogEntry(parseJsonListChangelog(text), version);
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(jsonListEntryToMarkdown(selected), app.applicationId),
   );
   const notesUrl = config.releaseNotesUrl;
   const releaseNotesUrl = typeof notesUrl === "string" && /^https:\/\//.test(notesUrl) ? notesUrl : null;
@@ -778,8 +807,24 @@ function pngDimensions(buffer) {
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
 }
 
+// Some vendors ship their icon only as an SVG whose raster is an embedded
+// base64 PNG (e.g. Baidu Netdisk's hicolor icon). Decode the first such image
+// so the catalog icon stays a real PNG.
+function embeddedPngFromSvg(svgBuffer) {
+  const text = svgBuffer.toString("utf8");
+  const match = text.match(/data:image\/png;base64,([A-Za-z0-9+/=]+)/);
+  if (!match) return null;
+  try {
+    return Buffer.from(match[1], "base64");
+  } catch {
+    return null;
+  }
+}
+
 // Extract the best PNG icon from a .deb (dpkg-deb -x, no install). Returns
-// { buffer, width, height } of the largest icon found, or null.
+// { buffer, width, height } of the largest icon found, or null. SVG files
+// under the icon dirs are accepted only when they embed a decodable PNG
+// (pngDimensions then applies to the decoded bytes).
 function extractIcon(debPath) {
   const extractDir = `/tmp/umanager-feed-icon-${process.pid}`;
   try {
@@ -806,7 +851,12 @@ function extractIcon(debPath) {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);
         if (entry.isDirectory()) walk(path);
-        else if (entry.name.toLowerCase().endsWith(".png")) candidates.push(path);
+        else if (
+          entry.name.toLowerCase().endsWith(".png") ||
+          entry.name.toLowerCase().endsWith(".svg")
+        ) {
+          candidates.push(path);
+        }
       }
     };
     walk(base);
@@ -825,7 +875,11 @@ function extractIcon(debPath) {
         if (entry.isDirectory()) walkLogos(path);
         else if (
           /^product_logo_\d+\.png$/i.test(entry.name) ||
-          (entry.name.toLowerCase() === "icon.png" && basename(dir) === "resources")
+          (entry.name.toLowerCase() === "icon.png" && basename(dir) === "resources") ||
+          // Electron apps commonly ship /opt/<app>/<app>.png (e.g. HexHub).
+          (dirname(dir) === optBase && entry.name.toLowerCase() === `${basename(dir).toLowerCase()}.png`) ||
+          // Multi-segment icon names like Docker's icon.original.png.
+          /^icon\.[a-z0-9]+\.png$/i.test(entry.name)
         ) {
           candidates.push(path);
         }
@@ -839,8 +893,15 @@ function extractIcon(debPath) {
 
   let best = null;
   for (const path of candidates) {
-    const buffer = readFileSync(path);
-    const dimensions = pngDimensions(buffer);
+    let buffer = readFileSync(path);
+    let dimensions = pngDimensions(buffer);
+    if (!dimensions && /\.svg$/i.test(path)) {
+      const embedded = embeddedPngFromSvg(buffer);
+      if (embedded) {
+        buffer = embedded;
+        dimensions = pngDimensions(buffer);
+      }
+    }
     if (!dimensions) continue;
     const area = dimensions.width * dimensions.height;
     if (!best || area > best.area) {
@@ -885,13 +946,42 @@ function buildVersionEndpointUrl(source) {
 }
 
 // Dot-path access with array index support: "info-list.0.url" -> obj["info-list"][0]["url"].
+// A quoted bracket segment addresses a key that itself contains dots
+// (e.g. `download.0["x64.deb"]` for Trae's manifest keys), optionally after an
+// array index (`0["x64.deb"]`); the Rust mirror lives in
+// src-tauri/src/source_engine.rs.
 function getJsonPath(obj, path) {
   if (!path) return undefined;
   let current = obj;
-  for (const key of path.split(".")) {
+  // Split on dots outside ["..."] quoted keys.
+  const segments = [];
+  let buffer = "";
+  let inBracket = false;
+  for (const ch of path) {
+    if (ch === "[") inBracket = true;
+    else if (ch === "]") inBracket = false;
+    if (ch === "." && !inBracket) {
+      segments.push(buffer);
+      buffer = "";
+    } else {
+      buffer += ch;
+    }
+  }
+  segments.push(buffer);
+  for (const raw of segments) {
     if (current == null) return undefined;
-    if (Array.isArray(current) && /^\d+$/.test(key)) current = current[Number(key)];
-    else current = current[key];
+    const bracketed = raw.match(/^(\d+)?\["([^"]*)"\]$/);
+    if (bracketed) {
+      if (bracketed[1] !== undefined) {
+        current = current[Number(bracketed[1])];
+        if (current == null) return undefined;
+      }
+      current = current[bracketed[2]];
+    } else if (Array.isArray(current) && /^\d+$/.test(raw)) {
+      current = current[Number(raw)];
+    } else {
+      current = current[raw];
+    }
   }
   return current;
 }
@@ -997,7 +1087,11 @@ async function applySign(sign, rawUrl) {
 async function versionEndpointEntry(app, source) {
   let text;
   try {
-    text = await fetchTextFallback(buildVersionEndpointUrl(source), source.gatewayUrl);
+    text = await fetchTextFallback(
+      buildVersionEndpointUrl(source),
+      source.gatewayUrl,
+      source.endpointHeaders ?? {},
+    );
   } catch (error) {
     fail(app.applicationId, `读取版本端点失败：${error.message}`);
     return null;
@@ -1005,12 +1099,13 @@ async function versionEndpointEntry(app, source) {
 
   let rawUrl;
   let websiteVersion = null;
+  let payload = null;
   try {
     if (source.payloadKind === "html") {
       rawUrl = extractHtmlDebUrl(text);
       websiteVersion = extractHtmlVersion(text, source.versionField);
     } else {
-      const payload =
+      payload =
         source.payloadKind === "jsonInScript" ? JSON.parse(extractJsonObject(text)) : JSON.parse(text);
       rawUrl = getJsonPath(payload, source.downloadUrlField);
       websiteVersion = getJsonPath(payload, source.versionField) ?? null;
@@ -1363,6 +1458,9 @@ async function scrapeAppEntry(app, releaseNotesOverrides) {
 function toCatalogApplication(app) {
   const record = structuredClone(app);
   if (record.source && "gatewayUrl" in record.source) delete record.source.gatewayUrl;
+  // `endpointHeaders` is a CI-only fetch hint (e.g. HexHub's version API needs
+  // a Referer); the desktop app must never see it.
+  if (record.source && "endpointHeaders" in record.source) delete record.source.endpointHeaders;
   if ("releaseNotes" in record) delete record.releaseNotes;
   if ("sourceGroup" in record) delete record.sourceGroup;
   return record;

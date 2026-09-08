@@ -224,6 +224,283 @@
       }
     },
     {
+      "applicationId": "baidunetdisk",
+      "packageName": "baidunetdisk",
+      "displayName": "百度网盘",
+      "vendor": "百度",
+      "architecture": "amd64",
+      "description": "百度官方网盘客户端，超大云存储空间与高速传输，支持文件同步、分享与多端互传。",
+      "homepage": "https://pan.baidu.com/download#linux",
+      "icon": "baidunetdisk",
+      "accentColor": "#2932e1",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://pan.baidu.com/disk/cmsdata?do=client&nodeKey=download_link",
+        "versionEndpointHosts": ["pan.baidu.com"],
+        "payloadKind": "json",
+        "versionField": "linux.version",
+        "releaseTimeField": "linux.publish",
+        "downloadUrlField": "linux.url_1",
+        "downloadHosts": ["pkg-ant.baidu.com", "issuepcdn.baidupcs.com", "*.antpcdn.com"]
+      },
+      "releaseNotes": {
+        "changelogJsonListUrl": "https://yun.baidu.com/disk/cmsdata?platform=linux&page=1&num=100",
+        "releaseNotesUrl": "https://yun.baidu.com/disk/version"
+      }
+    },
+    {
+      "applicationId": "dida",
+      "packageName": "dida",
+      "displayName": "滴答清单",
+      "vendor": "滴答清单（TickTick）",
+      "architecture": "amd64",
+      "description": "跨平台待办事项与任务管理应用，支持清单、日历、番茄钟与习惯打卡，多端实时同步。",
+      "homepage": "https://dida365.com/download",
+      "icon": "dida",
+      "accentColor": "#ec4b45",
+      "removable": true,
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://dida365.com/download",
+        "officialPageHosts": ["dida365.com"],
+        "downloadUrl": "https://dida365.com/static/getApp/download?type=linux_deb_x64",
+        "downloadHosts": ["dida365.com", "cdn.dida365.cn"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "dida-8.0.10-amd64.deb"
+      }
+    },
+    {
+      "applicationId": "xmind",
+      "packageName": "xmind-vana",
+      "displayName": "Xmind",
+      "vendor": "Xmind",
+      "architecture": "amd64",
+      "description": "专业的思维导图与头脑风暴工具，支持多种结构布局、演示与团队协作，跨平台同步。",
+      "homepage": "https://xmind.com/download",
+      "icon": "xmind",
+      "accentColor": "#f5a623",
+      "removable": true,
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://xmind.com/download",
+        "officialPageHosts": ["xmind.com"],
+        "downloadUrl": "https://xmind.app/zen/download/linux_deb/",
+        "downloadHosts": ["xmind.app", "dl3.xmind.app"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "Xmind-for-Linux-amd64bit-26.05.01106-202608091931.deb"
+      }
+    },
+    {
+      "applicationId": "siyuan",
+      "packageName": "siyuan",
+      "displayName": "思源笔记",
+      "vendor": "思源笔记（SiYuan）",
+      "architecture": "amd64",
+      "description": "本地优先的个人知识管理系统，支持 Markdown、双向链接、块引用与数据库视图，数据完全自持。",
+      "homepage": "https://b3log.org/siyuan/download.html",
+      "icon": "siyuan",
+      "accentColor": "#0e80c1",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/siyuan-note/siyuan/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "siyuan-{tagVersion}-linux.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "lx-music",
+      "packageName": "lx-music-desktop",
+      "displayName": "LX Music",
+      "vendor": "LX Music",
+      "architecture": "amd64",
+      "description": "开源免费的音乐播放器，支持多平台音源聚合搜索与高品质在线播放。",
+      "homepage": "https://github.com/lyswhut/lx-music-desktop/releases",
+      "icon": "lx-music",
+      "accentColor": "#22c55e",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/lyswhut/lx-music-desktop/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "lx-music-desktop_{tagVersion}_amd64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "hexhub",
+      "packageName": "cn.hexhub",
+      "displayName": "HexHub",
+      "vendor": "HexHub",
+      "architecture": "amd64",
+      "description": "开源的数据库、SSH、SFTP、Docker 与 AI 开发运维桌面客户端，一站式管理开发环境。",
+      "homepage": "https://www.hexhub.cn/#download",
+      "icon": "hexhub",
+      "accentColor": "#4f46e5",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://api.hexhub.cn/client/version/latest-non-hot-detail?env=production",
+        "versionEndpointHosts": ["api.hexhub.cn"],
+        "endpointHeaders": { "Referer": "https://www.hexhub.cn/" },
+        "payloadKind": "json",
+        "versionField": "data.linux-amd64-deb.versionName",
+        "downloadUrlField": "data.linux-amd64-deb.downloadUrl",
+        "downloadHosts": ["oss.hexhub.cn"]
+      }
+    },
+    {
+      "applicationId": "clash-verge",
+      "packageName": "clash-verge",
+      "displayName": "Clash Verge",
+      "vendor": "Clash Verge Rev",
+      "architecture": "amd64",
+      "description": "基于 Clash Meta 内核的开源图形化代理客户端，支持订阅管理、规则分流与系统代理。",
+      "homepage": "https://github.com/clash-verge-rev/clash-verge-rev/releases",
+      "icon": "clash-verge",
+      "accentColor": "#7c5ce5",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/clash-verge-rev/clash-verge-rev/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "Clash.Verge_{tagVersion}_amd64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "trae",
+      "packageName": "trae-cn",
+      "displayName": "Trae",
+      "vendor": "字节跳动",
+      "architecture": "amd64",
+      "description": "字节跳动出品的 AI 原生集成开发环境，内置 AI 编程助手与多模型支持，专为 AI 辅助编程设计。",
+      "homepage": "https://www.trae.cn/download",
+      "icon": "trae",
+      "accentColor": "#2563eb",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://api.trae.cn/icube/api/v1/native/version/trae/cn/latest",
+        "versionEndpointHosts": ["api.trae.cn"],
+        "endpointHeaders": { "Referer": "https://www.trae.cn/" },
+        "payloadKind": "json",
+        "downloadUrlField": "data.manifest.linux.download.0[\"x64.deb\"]",
+        "downloadHosts": ["lf-cdn.trae.com.cn", "lf-cdn.trae.ai"]
+      }
+    },
+    {
+      "applicationId": "v2raya",
+      "packageName": "v2raya",
+      "displayName": "v2rayA",
+      "vendor": "v2rayA",
+      "architecture": "amd64",
+      "description": "基于 V2Ray / Xray / sing-box 内核的开源图形化代理客户端，网页管理、多协议支持，简单易用。",
+      "homepage": "https://github.com/v2rayA/v2rayA/releases",
+      "icon": "v2raya",
+      "accentColor": "#0d9488",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/v2rayA/v2rayA/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "installer_debian_x64_{tagVersion}.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "discord",
+      "packageName": "discord",
+      "displayName": "Discord",
+      "vendor": "Discord",
+      "architecture": "amd64",
+      "description": "面向游戏与社群的语音、视频和文字聊天平台，支持服务器、频道与丰富的机器人生态。",
+      "homepage": "https://discord.com/",
+      "icon": "discord",
+      "accentColor": "#5865f2",
+      "removable": true,
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://discord.com/download",
+        "officialPageHosts": ["discord.com"],
+        "downloadUrl": "https://discord.com/api/download?platform=linux&format=deb",
+        "downloadHosts": ["discord.com", "stable.dl2.discordapp.net", "stable.dl.discordapp.net"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "discord-1.0.156.deb"
+      }
+    },
+    {
+      "applicationId": "claude-desktop",
+      "packageName": "claude-desktop",
+      "displayName": "Claude Desktop",
+      "vendor": "Anthropic",
+      "architecture": "amd64",
+      "description": "Anthropic 官方 Claude 桌面客户端，与 Claude 对话、处理文档与截图，由官方 apt 仓库分发。",
+      "homepage": "https://claude.com/download",
+      "icon": "claude-desktop",
+      "accentColor": "#d97757",
+      "removable": true,
+      "source": {
+        "kind": "aptRepository",
+        "repositoryUrl": "https://downloads.claude.ai/claude-desktop/apt/stable",
+        "repositoryHosts": ["downloads.claude.ai"],
+        "packagesIndexUrl": "https://downloads.claude.ai/claude-desktop/apt/stable/dists/stable/main/binary-amd64/Packages.gz"
+      }
+    },
+    {
+      "applicationId": "cursor",
+      "packageName": "cursor",
+      "displayName": "Cursor",
+      "vendor": "Anysphere",
+      "architecture": "amd64",
+      "description": "AI 优先的代码编辑器，深度集成 AI 编程助手，支持多模型选择与代码库级问答。",
+      "homepage": "https://cursor.com/",
+      "icon": "cursor",
+      "accentColor": "#000000",
+      "removable": true,
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://cursor.com/download",
+        "officialPageHosts": ["cursor.com"],
+        "downloadUrl": "https://api2.cursor.sh/updates/download/golden/linux-x64-deb/cursor/latest",
+        "downloadHosts": ["api2.cursor.sh", "downloads.cursor.com"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "cursor_3.19.13_amd64.deb"
+      }
+    },
+    {
+      "applicationId": "docker-desktop",
+      "packageName": "docker-desktop",
+      "displayName": "Docker Desktop",
+      "vendor": "Docker",
+      "architecture": "amd64",
+      "description": "Docker 官方桌面应用，在本地一键运行容器、编排 Compose 与 Kubernetes，由官方 appcast 分发。",
+      "homepage": "https://www.docker.com/products/docker-desktop/",
+      "icon": "docker-desktop",
+      "accentColor": "#2496ed",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://desktop.docker.com/linux/main/amd64/appcast.json",
+        "versionEndpointHosts": ["desktop.docker.com"],
+        "payloadKind": "json",
+        "versionField": "Items.0.AppVersion",
+        "releaseTimeField": "Items.0.Date",
+        "downloadUrlField": "Items.0.Artifacts.0.URL",
+        "downloadHosts": ["desktop.docker.com"]
+      }
+    },
+    {
       "applicationId": "codebuddy-ide",
       "packageName": "codebuddy-cn",
       "displayName": "CodeBuddy IDE",
