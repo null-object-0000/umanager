@@ -340,7 +340,10 @@ fn pe_version(bytes: &[u8]) -> Option<String> {
 }
 fn installed_version(prefix: &Path) -> Option<String> {
     let path = prefix.join(EXE);
-    if fs::metadata(&path).ok()?.len() > 128 * 1024 * 1024 {
+    // The WeCom main executable is ~257 MB, far above a naive 128 MB guard, so
+    // cap at 1 GiB. The version signature sits near the end of the file; reading
+    // it once is cheap (~0.2 s) and only happens on a status refresh.
+    if fs::metadata(&path).ok()?.len() > 1024 * 1024 * 1024 {
         return None;
     }
     pe_version(&fs::read(path).ok()?)
