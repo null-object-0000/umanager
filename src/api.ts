@@ -466,12 +466,12 @@ const mockDevTools: DevTool[] = [
 ];
 
 const mockDevToolStates: Record<string, DevToolState> = {
-  "claude-code": { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: null, accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "2.1.245", latestVersion: "2.1.245", binaryPath: "/home/user/.local/bin/claude", updateAvailable: false, canUninstall: true },
-  opencode: { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: null, accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "1.18.22", latestVersion: "1.18.22", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/opencode", updateAvailable: false, canUninstall: true },
-  pi: { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: null, accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installerKind: "curlScript", npmAvailable: true, installed: false, installKind: null, version: null, latestVersion: "0.84.3", binaryPath: null, updateAvailable: false, canUninstall: false },
-  codex: { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: null, accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.149.0", latestVersion: "0.149.1", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/codex", updateAvailable: true, canUninstall: true },
-  dsh: { toolId: "dsh", displayName: "DeepSeek Harness", vendor: "DeepSeek", homepage: "https://github.com/deepseek-ai/deepseek-harness", icon: null, accentColor: "#4D6BFE", binaryName: "dsh", npmPackage: "@deepseek-ai/dsh", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.1.1-rc.2", latestVersion: "0.1.1-rc.2", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/dsh", updateAvailable: false, canUninstall: true },
-  hermes: { toolId: "hermes", displayName: "Hermes Agent", vendor: "Nous Research", homepage: "https://hermes-agent.nousresearch.com/", icon: null, accentColor: "#8b5cf6", binaryName: "hermes", npmPackage: null, installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "0.21.0", latestVersion: "0.21.0", binaryPath: "/home/user/.local/bin/hermes", updateAvailable: false, canUninstall: true },
+  "claude-code": { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: null, accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "2.1.245", latestVersion: "2.1.245", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/claude", updateAvailable: false, canUninstall: true },
+  opencode: { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: null, accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "1.18.22", latestVersion: "1.18.22", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/opencode", updateAvailable: false, canUninstall: true },
+  pi: { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: null, accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installerKind: "curlScript", npmAvailable: true, installed: false, installKind: null, version: null, latestVersion: "0.84.3", channels: null, selectedChannel: null, binaryPath: null, updateAvailable: false, canUninstall: false },
+  codex: { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: null, accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.149.0", latestVersion: "0.149.1", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/codex", updateAvailable: true, canUninstall: true },
+  dsh: { toolId: "dsh", displayName: "DeepSeek Harness", vendor: "DeepSeek", homepage: "https://github.com/deepseek-ai/deepseek-harness", icon: null, accentColor: "#4D6BFE", binaryName: "dsh", npmPackage: "@deepseek-ai/dsh", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.1.1-rc.2", latestVersion: "0.1.1-rc.2", channels: { latest: "0.1.1-rc.2", alpha: "0.1.2-alpha.5", next: "0.1.1-rc.2" }, selectedChannel: "latest", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/dsh", updateAvailable: false, canUninstall: true },
+  hermes: { toolId: "hermes", displayName: "Hermes Agent", vendor: "Nous Research", homepage: "https://hermes-agent.nousresearch.com/", icon: null, accentColor: "#8b5cf6", binaryName: "hermes", npmPackage: null, installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "0.21.0", latestVersion: "0.21.0", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/hermes", updateAvailable: false, canUninstall: true },
 };
 
 export function getDevTools(): Promise<DevTool[]> {
@@ -482,6 +482,45 @@ export function getDevTools(): Promise<DevTool[]> {
 export function getDevToolState(toolId: string): Promise<DevToolState> {
   if (isMock()) return Promise.resolve(mockDevToolStates[toolId] ?? mockDevToolStates["claude-code"]);
   return invoke<DevToolState>("get_dev_tool_state", { toolId });
+}
+
+export function setDevToolChannel(toolId: string, channel: string): Promise<DevToolState> {
+  if (isMock()) {
+    const current = { ...(mockDevToolStates[toolId] ?? mockDevToolStates["claude-code"]) };
+    const state: DevToolState = { ...current };
+    if (state.channels && channel in state.channels) {
+      state.selectedChannel = channel;
+      state.latestVersion = state.channels[channel];
+      const installed = state.version;
+      const latest = state.latestVersion;
+      state.updateAvailable = installed !== null && latest !== null && mockCompareVersions(installed, latest) < 0;
+    }
+    mockDevToolStates[toolId] = state;
+    return Promise.resolve(state);
+  }
+  return invoke<DevToolState>("set_dev_tool_channel", { toolId, channel });
+}
+
+/** Tiny semver-ish compare for mock states only (numeric core, then prerelease). */
+function mockCompareVersions(left: string, right: string): number {
+  const split = (value: string): [string, string | null] => {
+    const dash = value.indexOf("-");
+    return dash === -1 ? [value, null] : [value.slice(0, dash), value.slice(dash + 1)];
+  };
+  const [leftCore, leftPre] = split(left);
+  const [rightCore, rightPre] = split(right);
+  const leftParts = leftCore.split(".").map((part) => Number(part) || 0);
+  const rightParts = rightCore.split(".").map((part) => Number(part) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const a = leftParts[index] ?? 0;
+    const b = rightParts[index] ?? 0;
+    if (a !== b) return a < b ? -1 : 1;
+  }
+  if (leftPre === rightPre) return 0;
+  if (leftPre === null) return 1;
+  if (rightPre === null) return -1;
+  return leftPre < rightPre ? -1 : leftPre > rightPre ? 1 : 0;
 }
 
 export function installDevTool(toolId: string, onProgress?: (event: DevToolProgress) => void): Promise<DevToolReport> {

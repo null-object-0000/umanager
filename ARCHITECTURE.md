@@ -185,6 +185,8 @@ npm run update-feed
 
 检测同时识别三种安装来源：npm 全局、官方安装器（`~/.local/bin` / `~/.opencode/bin`）与 PATH 上的可执行文件；最新版本统一从签名 feed 读取（npm 工具走 npm registry，非 npm 工具由 `feed-sources.json` 的 `toolVersionOverrides` 从厂商 GitHub Releases 解析，如 Hermes 从发布标题 `Hermes Agent v0.21.0 …` 提取版本）。`curlScript` 型安装以当前用户身份执行厂商官方域名上的 HTTPS 安装脚本，UManager 只固定 URL 与参数，不接收任意 shell，但无法证明脚本内容与发布者身份。
 
+**版本线切换**：npm 工具常常同时发布多条线（如 DeepSeek Harness 的 `latest`（现为 rc）/ `alpha` / `next` dist-tags），且 `latest` 未必是版本号最高的线。`update-feed.mjs` 的 `toolEntry` 会把该 npm 包的全部 dist-tag 一起签名进 feed（`developmentTools.<id>.channels = { tag: version, … }`，键排序保证输出确定；`version` 字段仍是 `vendors.json` 配置的 `distTag` 那条默认线）。App 侧 `DevToolState` 携带 `channels` / `selectedChannel`：用户可在详情抽屉的“版本线”下拉里切换（仅对 **npm 安装器且无厂商自更新命令** 的工具开放，如 dsh；走 `claude update` 这类自更新命令的工具由厂商控制更新线，不提供切换）。选择持久化在 `tool-channels.json`（app config 目录，0600），`set_dev_tool_channel` 校验通道必须是签名 feed 当前提供的。安装/更新按所选线的**精确版本**执行 `npm install -g <pkg>@<version>`（feed 不可用时回退 `pkg@distTag`），保证“UI 广告的版本 = 实际安装的版本”；从高版本线切到低版本线是降级语义，前端按钮显示“切换到 vX”而非“更新”。
+
 ## 12. 历史适配器记录（VS Code / 微信 / FlClash）
 
 以下各节描述历史行为；候选版本、大小与 SHA-256 现已改由中央元数据源提供，应用不再本机解析。仅保留信任边界与解析路径备忘。

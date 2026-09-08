@@ -333,7 +333,7 @@ fn sanitize(mut settings: LlmSettings) -> Result<LlmSettings, String> {
 
 /// Write a config file with owner-only permissions on Unix (the LLM API key is
 /// a secret and must not be world-readable).
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::io::Write;

@@ -8,6 +8,13 @@
 // tracks with `distTag` in vendors.json; the feed then resolves that tag, and
 // the app installs the same tag, so the advertised and installed versions
 // always agree.
+//
+// In addition to the single resolved `version`, the feed ships every dist-tag
+// channel (`npmDistTagChannels`) so the desktop app can offer the user a
+// per-tool version-line switch (e.g. dsh: `latest` vs `alpha` vs `next`).
+
+/** npm dist-tag naming rule (mirrored in feed.rs channel validation). */
+const DIST_TAG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
 /**
  * Resolve the version a tool entry should report from an npm registry package
@@ -25,7 +32,7 @@ export function resolveNpmDistTagVersion(doc, distTag) {
     throw new Error("npm 包信息不是有效对象");
   }
   const tag = typeof distTag === "string" && distTag.trim() ? distTag.trim() : "latest";
-  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(tag)) {
+  if (!DIST_TAG_PATTERN.test(tag)) {
     throw new Error(`非法 npm dist-tag ${JSON.stringify(tag)}`);
   }
   const tags = doc["dist-tags"];
@@ -37,4 +44,36 @@ export function resolveNpmDistTagVersion(doc, distTag) {
     throw new Error(`npm 包的 ${JSON.stringify(tag)} 标签未发布版本`);
   }
   return resolved;
+}
+
+/**
+ * Extract every valid npm dist-tag channel from a registry package document as
+ * a sorted `{ tag: version }` map, or `null` when the document carries no
+ * usable dist-tags. Invalid entries are skipped (never silently echoed into
+ * the signed feed); the map is key-sorted so feed output is deterministic.
+ *
+ * @param {unknown} doc - the npm registry package document.
+ * @returns {Object<string, string>|null}
+ */
+export function npmDistTagChannels(doc) {
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    return null;
+  }
+  const tags = doc["dist-tags"];
+  if (!tags || typeof tags !== "object" || Array.isArray(tags)) {
+    return null;
+  }
+  const channels = {};
+  for (const [tag, version] of Object.entries(tags)) {
+    if (!DIST_TAG_PATTERN.test(tag)) continue;
+    if (typeof version !== "string" || !version.trim()) continue;
+    channels[tag] = version;
+  }
+  const names = Object.keys(channels).sort();
+  if (names.length === 0) {
+    return null;
+  }
+  const sorted = {};
+  for (const name of names) sorted[name] = channels[name];
+  return sorted;
 }

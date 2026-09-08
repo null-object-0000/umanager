@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -132,6 +132,13 @@ pub struct FeedToolEntry {
     #[serde(default)]
     pub npm_package: Option<String>,
     pub version: String,
+    /// Every npm dist-tag channel of the package (tag -> version), e.g.
+    /// `{ "latest": "0.1.2-rc.1", "alpha": "0.1.3-alpha.2" }`, so the app can
+    /// offer a per-tool version-line switch. `version` is the channel the tool
+    /// is configured to track (`distTag` in vendors.json) — the default line.
+    /// Absent for tools distributed outside npm and for older feeds.
+    #[serde(default)]
+    pub channels: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub version_updated_at_unix_seconds: Option<u64>,
     #[serde(default)]
@@ -1140,12 +1147,37 @@ fn validate(feed: &Feed) -> Result<(), String> {
         if entry.version.is_empty() || entry.version.contains('\0') {
             return Err(format!("{id}：版本无效"));
         }
+        if let Some(channels) = &entry.channels {
+            if channels.is_empty() {
+                return Err(format!("{id}：channels 不能为空"));
+            }
+            for (tag, channel_version) in channels {
+                if !is_valid_dist_tag(tag) {
+                    return Err(format!("{id}：channels 含无效标签 {tag}"));
+                }
+                if channel_version.is_empty() || channel_version.contains('\0') {
+                    return Err(format!("{id}：channels[{tag}] 版本无效"));
+                }
+            }
+        }
         validate_version_updated_at(&entry.version_updated_at_unix_seconds, &entry.version_updated_at_source)
             .map_err(|error| format!("{id}：{error}"))?;
         validate_release_notes(&entry.release_notes, &entry.release_notes_url)
             .map_err(|error| format!("{id}：{error}"))?;
     }
     Ok(())
+}
+
+/// npm dist-tag naming rule: starts with an ASCII alphanumeric, then only
+/// ASCII alphanumerics, `-`, `_` and `.`. Mirrors `DIST_TAG_PATTERN` in
+/// `scripts/tool-version.mjs`; both must stay in sync.
+fn is_valid_dist_tag(tag: &str) -> bool {
+    let mut bytes = tag.bytes();
+    match bytes.next() {
+        Some(first) if first.is_ascii_alphanumeric() => {}
+        _ => return false,
+    }
+    bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 /// Validate a `source` self-description or a `sources[]` registry entry. The
@@ -1266,6 +1298,66 @@ mod tests {
         assert_eq!(feed.categories[0].label, "开发工具");
         assert_eq!(feed.category_assignments.applications["vscode"], "dev-tools");
         assert_eq!(feed.category_assignments.development_tools["codex"], "ai-tools");
+    }
+
+    #[test]
+    fn development_tool_channels_parse_and_validate() {
+        let json = r#"{
+            "schemaVersion": 2,
+            "generatedAtUnixSeconds": 1750000000,
+            "applications": {},
+            "developmentTools": {
+                "dsh": {
+                    "npmPackage": "@deepseek-ai/dsh",
+                    "version": "0.1.2-rc.1",
+                    "channels": {
+                        "latest": "0.1.2-rc.1",
+                        "alpha": "0.1.3-alpha.2",
+                        "next": "0.1.2-rc.1"
+                    }
+                }
+            }
+        }"#;
+        let feed: Feed = serde_json::from_str(json).unwrap();
+        let entry = feed.development_tools.get("dsh").expect("dsh entry");
+        let channels = entry.channels.as_ref().expect("channels");
+        assert_eq!(channels.get("alpha").map(String::as_str), Some("0.1.3-alpha.2"));
+        assert_eq!(channels.get("latest").map(String::as_str), Some("0.1.2-rc.1"));
+        assert_eq!(entry.version, "0.1.2-rc.1");
+        validate(&feed).expect("feed with channels should validate");
+    }
+
+    #[test]
+    fn development_tool_without_channels_defaults_to_none() {
+        let json = r#"{
+            "schemaVersion": 2,
+            "generatedAtUnixSeconds": 1750000000,
+            "applications": {},
+            "developmentTools": {
+                "hermes": { "version": "0.21.0" }
+            }
+        }"#;
+        let feed: Feed = serde_json::from_str(json).unwrap();
+        assert!(feed.development_tools["hermes"].channels.is_none());
+        validate(&feed).expect("feed without channels should validate");
+    }
+
+    #[test]
+    fn development_tool_channels_reject_invalid_tags_and_empty_maps() {
+        let invalid_tag = r#"{
+            "schemaVersion": 2, "generatedAtUnixSeconds": 1750000000, "applications": {},
+            "developmentTools": { "dsh": { "version": "0.1.2-rc.1",
+                "channels": { "bad tag!": "0.1.2-rc.1" } } }
+        }"#;
+        let feed: Feed = serde_json::from_str(invalid_tag).unwrap();
+        assert!(validate(&feed).is_err(), "invalid channel tag should be rejected");
+
+        let empty = r#"{
+            "schemaVersion": 2, "generatedAtUnixSeconds": 1750000000, "applications": {},
+            "developmentTools": { "dsh": { "version": "0.1.2-rc.1", "channels": {} } }
+        }"#;
+        let feed: Feed = serde_json::from_str(empty).unwrap();
+        assert!(validate(&feed).is_err(), "empty channels should be rejected");
     }
 
     #[test]

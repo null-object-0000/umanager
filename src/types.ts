@@ -414,6 +414,10 @@ export interface DevToolState {
   installKind: "npmGlobal" | "officialInstaller" | "onPath" | null;
   version: string | null;
   latestVersion: string | null;
+  /** Every npm dist-tag channel from the signed feed (tag -> version). */
+  channels: Record<string, string> | null;
+  /** The version line in effect (npm dist-tag name), e.g. "latest" / "alpha". */
+  selectedChannel: string | null;
   binaryPath: string | null;
   updateAvailable: boolean;
   canUninstall: boolean;

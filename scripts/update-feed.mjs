@@ -32,7 +32,9 @@
 //                                      releaseNotes?, releaseNotesUrl? } }
 //   selfUpdate:   { packageName, version, architecture, size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion?,
 //                   releaseNotes?, releaseNotesUrl? }
-//   developmentTools: { [toolId]: { npmPackage?, version } }  // npmPackage omitted for non-npm tools
+//   developmentTools: { [toolId]: { npmPackage?, version, channels? } }
+//                      // channels = every npm dist-tag (tag -> version) for npm
+//                      // tools, so the app can switch version lines per tool
 //   categories: [ { id, label } ]          // display-only grouping
 //   categoryAssignments: { applications: { [applicationId]: categoryId },
 //                          developmentTools: { [toolId]: categoryId } }
@@ -50,7 +52,7 @@ import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./chan
 import { entryOrPrevious } from "./feed-fallback.mjs";
 import { applyVersionTime, mergeSourceFeeds, parseCatalogApplications, sourceGroupOf as sourceGroupOfApp, validateSourceGroups } from "./feed-merge.mjs";
 import { sanitizeReleaseNotes, selectReleaseNotesRelease, selectToolRelease, stripReleaseNotesBoilerplate } from "./release-notes.mjs";
-import { resolveNpmDistTagVersion } from "./tool-version.mjs";
+import { npmDistTagChannels, resolveNpmDistTagVersion } from "./tool-version.mjs";
 import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -1075,6 +1077,10 @@ async function toolEntry(tool, versionOverrides) {
 
   let version;
   let publishTime = null;
+  // Every npm dist-tag channel of the package (tag -> version), shipped so the
+  // app can offer a per-tool version-line switch. npm tools only; the resolved
+  // `version` below stays the configured channel's version (the default line).
+  let channels = null;
   if (versionOverride) {
     // Non-npm tools (e.g. git/Python installers like Hermes Agent): resolve the
     // latest version from the vendor's GitHub releases, parsing it out of the
@@ -1120,11 +1126,18 @@ async function toolEntry(tool, versionOverrides) {
       return null;
     }
     publishTime = parseUnixSeconds(doc?.time?.[version]);
+    channels = npmDistTagChannels(doc);
   }
 
   const entry = {
     version: String(version),
   };
+  // Ship every dist-tag channel for npm tools so the app can offer a version
+  // line switch (e.g. dsh: latest / alpha / next). Non-npm tools (GitHub
+  // release based) have no channels and omit the field entirely.
+  if (channels) {
+    entry.channels = channels;
+  }
   // Omit `npmPackage` for tools distributed outside npm (e.g. Hermes Agent)
   // instead of emitting `null`. `FeedToolEntry.npm_package` is optional
   // (`#[serde(default)]`), so omitting the key is the canonical representation;

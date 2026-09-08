@@ -10,7 +10,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { debCategory, devToolCategory, orderedCategories, windowsCategory } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -1310,10 +1310,23 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
   const installAction = () => void run("install", (onProgress) => installDevTool(tool.toolId, onProgress));
   const updateAction = () => void run("update", (onProgress) => updateDevTool(tool.toolId, onProgress));
   const uninstallAction = () => void run("uninstall", (onProgress) => uninstallDevTool(tool.toolId, onProgress));
+  const switchChannel = async (channel: string) => {
+    setError(null);
+    try { setState(await setDevToolChannel(tool.toolId, channel)); } catch (reason) { setError(String(reason)); }
+  };
   const installed = state?.installed ?? false;
   const updateAvailable = state?.updateAvailable ?? false;
   const canUninstall = state?.canUninstall ?? false;
   const canInstall = tool.installer.kind === "curlScript" || (state?.npmAvailable ?? false);
+  // Version-line switch is only offered when we control the install command
+  // (npm installer without a vendor self-updater, e.g. dsh); tools that run
+  // their own updater always track whatever the vendor ships.
+  const canSwitchLine = tool.installer.kind === "npm" && !tool.update;
+  const channelNames = canSwitchLine ? Object.keys(state?.channels ?? {}) : [];
+  const latestVersion = state?.latestVersion ?? null;
+  // 所选版本线目标与已安装版本不同、且不是可升级（installed < latest）时，
+  // 说明是从高版本线切到低版本线（降级）——按钮语义是「切换到该线」而非「更新」。
+  const lineSwitch = canSwitchLine && installed && !!(state?.version && latestVersion && state.version !== latestVersion && !updateAvailable);
 
   let primaryLabel: string;
   let primaryDisabled: boolean;
@@ -1321,6 +1334,7 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
   if (busy) { primaryLabel = busy === "install" ? "安装中…" : busy === "update" ? "更新中…" : "卸载中…"; primaryDisabled = true; }
   else if (!installed) { primaryLabel = "获取"; primaryDisabled = !canInstall; primaryOnClick = installAction; }
   else if (updateAvailable) { primaryLabel = "更新"; primaryDisabled = false; primaryOnClick = updateAction; }
+  else if (lineSwitch) { primaryLabel = `切换到 v${latestVersion}`; primaryDisabled = false; primaryOnClick = updateAction; }
   else { primaryLabel = "已安装"; primaryDisabled = true; }
   const heroAction = <>
     <button className="hero-button" disabled={primaryDisabled} onClick={primaryOnClick}>{primaryLabel}</button>
@@ -1339,9 +1353,17 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
   >
     <div className="drawer-content">
       {state && !state.npmAvailable && <div className="message"><strong>未检测到 npm</strong><span>无法读取 npm 最新版本{tool.installer.kind === "npm" ? "，也无法安装该工具" : ""}。请先在“开发环境”安装并设置 Node.js。</span></div>}
+      {channelNames.length > 1 && <div className="channel-picker">
+        <label htmlFor={`devtool-channel-${tool.toolId}`}>版本线</label>
+        <select id={`devtool-channel-${tool.toolId}`} value={state?.selectedChannel ?? ""} disabled={busy !== null} onChange={(event) => void switchChannel(event.target.value)}>
+          {channelNames.map((name) => <option key={name} value={name}>{name} · v{state?.channels?.[name]}</option>)}
+        </select>
+        <p className="channel-hint">切换版本线即生效；若目标版本与已安装版本不同，点击主按钮应用（可能降级）。</p>
+      </div>}
       <InfoPanel homepage={tool.homepage} entries={[
         { label: "当前版本", value: state?.version ?? "未安装", mono: true },
         { label: "最新版本", value: state?.latestVersion ?? (state?.npmAvailable === false ? "无法读取" : "读取中…"), mono: true },
+        { label: "版本线", value: state?.selectedChannel ?? "—", mono: true },
         { label: "安装方式", value: state?.installKind ? devToolInstallKindText[state.installKind] : "—" },
         { label: "可执行文件", value: state?.binaryPath ?? (tool.installer.kind === "npm" ? `npm 包 ${tool.npmPackage ?? ""}` : "官方安装脚本"), mono: true },
       ]}/>

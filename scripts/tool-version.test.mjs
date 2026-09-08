@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveNpmDistTagVersion } from "./tool-version.mjs";
+import { npmDistTagChannels, resolveNpmDistTagVersion } from "./tool-version.mjs";
 
 const DOC = {
   name: "@deepseek-ai/dsh",
@@ -35,5 +35,35 @@ describe("resolveNpmDistTagVersion", () => {
   it("rejects malformed tag names", () => {
     expect(() => resolveNpmDistTagVersion(DOC, "bad tag!")).toThrow(/非法 npm dist-tag/);
     expect(() => resolveNpmDistTagVersion(DOC, "../etc")).toThrow(/非法 npm dist-tag/);
+  });
+});
+
+describe("npmDistTagChannels", () => {
+  it("returns every dist-tag as a sorted tag -> version map", () => {
+    expect(npmDistTagChannels(DOC)).toEqual({
+      alpha: "0.1.2-alpha.5",
+      latest: "0.1.1-rc.2",
+      next: "0.1.1-rc.2",
+    });
+  });
+
+  it("skips malformed tags and versions instead of echoing them", () => {
+    const doc = {
+      "dist-tags": {
+        latest: "0.1.0",
+        "bad tag!": "0.2.0",
+        "next": "",
+        "": "0.3.0",
+      },
+    };
+    expect(npmDistTagChannels(doc)).toEqual({ latest: "0.1.0" });
+  });
+
+  it("returns null when there are no usable dist-tags", () => {
+    expect(npmDistTagChannels(null)).toBeNull();
+    expect(npmDistTagChannels({})).toBeNull();
+    expect(npmDistTagChannels({ "dist-tags": {} })).toBeNull();
+    expect(npmDistTagChannels({ "dist-tags": { "bad tag!": "0.1.0" } })).toBeNull();
+    expect(npmDistTagChannels("nope")).toBeNull();
   });
 });

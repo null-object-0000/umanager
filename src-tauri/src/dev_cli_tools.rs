@@ -1,13 +1,26 @@
 use serde::Serialize;
 use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+use tauri::{AppHandle, Manager};
 use umanager_catalog::{Catalog, DevToolInstaller, DevToolUninstall, DevToolUpdate, DevelopmentTool};
 
 const SAFE_SYSTEM_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 const MAX_LOG_LINE_CHARS: usize = 2_000;
+
+/// Per-tool version-line selections persisted in the app config dir (e.g. a
+/// user who switched dsh to the `alpha` line). Keyed by tool id; values are
+/// npm dist-tag names. Absent tools fall back to their configured `distTag`.
+const CHANNEL_CONFIG_FILE_NAME: &str = "tool-channels.json";
+
+static CHANNEL_SELECTIONS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn channel_selections_lock() -> &'static Mutex<HashMap<String, String>> {
+    CHANNEL_SELECTIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// Where the current user keeps officially-installed CLI binaries. These are the
 /// locations used by the vendor installers configured in `vendors.json`.
@@ -44,6 +57,12 @@ pub struct DevToolState {
     pub install_kind: Option<String>,
     pub version: Option<String>,
     pub latest_version: Option<String>,
+    /// Every npm dist-tag channel from the signed feed (tag -> version). `None`
+    /// for non-npm tools and older feeds without channel data.
+    pub channels: Option<BTreeMap<String, String>>,
+    /// The version line in effect: the user's persisted selection when it is
+    /// still offered by the feed, otherwise the tool's configured `distTag`.
+    pub selected_channel: Option<String>,
     pub binary_path: Option<String>,
     pub update_available: bool,
     pub can_uninstall: bool,
@@ -79,16 +98,41 @@ pub fn load_tools() -> Result<Vec<DevelopmentTool>, String> {
 
 pub async fn detect_state(tool_id: String) -> Result<DevToolState, String> {
     let tool = tool_by_id(&tool_id)?;
-    let lookup_id = tool.tool_id.clone();
-    let lookup_package = tool.npm_package.clone();
-    let feed_entry = crate::feed::tool_entry(&lookup_id)
-        .await
-        .ok()
-        .flatten()
-        .filter(|entry| entry.npm_package == lookup_package);
+    let feed_entry = feed_tool_entry(&tool).await;
     tauri::async_runtime::spawn_blocking(move || detect_state_sync(&tool, feed_entry))
         .await
         .map_err(|error| format!("命令行工具检测任务异常结束：{error}"))?
+}
+
+/// The signed feed's entry for a tool, best-effort. The npm package is
+/// cross-checked so a stale feed entry for a renamed package is never trusted.
+async fn feed_tool_entry(tool: &DevelopmentTool) -> Option<crate::feed::FeedToolEntry> {
+    let lookup_package = tool.npm_package.clone();
+    crate::feed::tool_entry(&tool.tool_id)
+        .await
+        .ok()
+        .flatten()
+        .filter(|entry| entry.npm_package == lookup_package)
+}
+
+/// The exact version to install for the tool's selected version line: the
+/// selected channel's version from the signed feed when channels are offered,
+/// otherwise the feed's resolved `version` (the configured channel). `None`
+/// only when the feed is unavailable — callers then fall back to installing
+/// the configured dist-tag, the pre-feed behavior.
+fn target_version_for(
+    feed_entry: Option<&crate::feed::FeedToolEntry>,
+    persisted_selection: Option<&str>,
+) -> Option<String> {
+    let entry = feed_entry?;
+    if let Some(channels) = &entry.channels {
+        if let Some(channel) = persisted_selection
+            && let Some(version) = channels.get(channel)
+        {
+            return Some(version.clone());
+        }
+    }
+    Some(entry.version.clone())
 }
 
 pub async fn install(
@@ -96,9 +140,14 @@ pub async fn install(
     progress: DevToolProgressCallback,
 ) -> Result<DevToolReport, String> {
     let tool = tool_by_id(&tool_id)?;
+    // Install the exact version the signed feed advertises for the selected
+    // version line, so the installed version always matches what the UI shows.
+    let persisted_channel = selected_channel(&tool.tool_id);
+    let target_version =
+        target_version_for(feed_tool_entry(&tool).await.as_ref(), persisted_channel.as_deref());
     tauri::async_runtime::spawn_blocking(move || {
         let home = user_home()?;
-        let mut command = install_command(&tool, &home)?;
+        let mut command = install_command(&tool, &home, target_version.as_deref())?;
         let output = run_streaming(&mut command, &tool.tool_id, &format!("开始安装 {}（{}）", tool.display_name, installer_label(&tool)), Some(&progress))?;
         Ok(DevToolReport {
             tool_id: tool.tool_id.clone(),
@@ -116,9 +165,12 @@ pub async fn update(
     progress: DevToolProgressCallback,
 ) -> Result<DevToolReport, String> {
     let tool = tool_by_id(&tool_id)?;
+    let persisted_channel = selected_channel(&tool.tool_id);
+    let target_version =
+        target_version_for(feed_tool_entry(&tool).await.as_ref(), persisted_channel.as_deref());
     tauri::async_runtime::spawn_blocking(move || {
         let home = user_home()?;
-        let (mut command, label) = update_command(&tool, &home)?;
+        let (mut command, label) = update_command(&tool, &home, target_version.as_deref())?;
         let output = run_streaming(&mut command, &tool.tool_id, &format!("开始更新 {}（{}）", tool.display_name, label), Some(&progress))?;
         Ok(DevToolReport {
             tool_id: tool.tool_id.clone(),
@@ -167,7 +219,19 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
     let npm_available = npm_available(&home);
     // Latest versions come exclusively from the central metadata feed; npm stays
     // available for install/uninstall, not for version lookups.
-    let latest_version = feed_entry.as_ref().map(|entry| entry.version.clone());
+    let channels = feed_entry.as_ref().and_then(|entry| entry.channels.clone());
+    let selected_channel =
+        effective_channel(tool, channels.as_ref(), selected_channel(&tool.tool_id).as_deref());
+    let latest_version = feed_entry.as_ref().map(|entry| {
+        // The selected version line's version when the feed offers channels,
+        // otherwise the configured channel's resolved version.
+        match (&selected_channel, entry.channels.as_ref()) {
+            (Some(channel), Some(channels)) => {
+                channels.get(channel).cloned().unwrap_or_else(|| entry.version.clone())
+            }
+            _ => entry.version.clone(),
+        }
+    });
 
     let binary = find_tool_binary(tool, &home);
     let install_kind = binary
@@ -213,12 +277,110 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
         install_kind,
         version,
         latest_version,
+        channels,
+        selected_channel,
         binary_path: binary.map(|path| path.to_string_lossy().into_owned()),
         update_available,
         can_uninstall,
         release_notes: feed_entry.as_ref().and_then(|entry| entry.release_notes.clone()),
         release_notes_url: feed_entry.as_ref().and_then(|entry| entry.release_notes_url.clone()),
     })
+}
+
+/// The version line in effect for a tool: the user's persisted selection when
+/// the feed still offers it, otherwise the tool's configured dist-tag channel
+/// (`distTag` in vendors.json, defaulting to `latest`). When the feed offers
+/// channels but neither the selection nor the configured tag is among them
+/// (stale config), fall back to the conventional `latest` line, then any
+/// offered channel — so the UI always shows a real line.
+fn effective_channel(
+    tool: &DevelopmentTool,
+    channels: Option<&BTreeMap<String, String>>,
+    persisted_selection: Option<&str>,
+) -> Option<String> {
+    if let Some(channel) = persisted_selection
+        && let Some(channels) = channels
+        && channels.contains_key(channel)
+    {
+        return Some(channel.to_owned());
+    }
+    if let Some(channels) = channels {
+        if let Some(tag) = tool.dist_tag.as_deref()
+            && channels.contains_key(tag)
+        {
+            return Some(tag.to_owned());
+        }
+        if channels.contains_key("latest") {
+            return Some("latest".to_owned());
+        }
+        return channels.keys().next().cloned();
+    }
+    tool.dist_tag
+        .clone()
+        .or_else(|| Some("latest".to_owned()))
+}
+
+/// The user's persisted version-line selection for a tool, if any.
+fn selected_channel(tool_id: &str) -> Option<String> {
+    channel_selections_lock()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(tool_id).cloned())
+}
+
+/// Load persisted version-line selections into process-wide state. Called once
+/// during setup, alongside the other app-config initializers.
+pub fn initialize(app: &AppHandle) {
+    let loaded = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| load_channel_selections(&dir.join(CHANNEL_CONFIG_FILE_NAME)))
+        .unwrap_or_default();
+    if let Ok(mut guard) = channel_selections_lock().lock() {
+        *guard = loaded;
+    }
+}
+
+fn load_channel_selections(path: &Path) -> HashMap<String, String> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Switch a tool's version line. The channel must be one the signed feed
+/// currently offers for the tool (falling back to the tool's configured
+/// dist-tag when the feed carries no channel data), so an invalid selection is
+/// rejected instead of persisted. Saved with owner-only permissions like the
+/// other app configs.
+pub async fn set_channel(app: &AppHandle, tool_id: &str, channel: &str) -> Result<(), String> {
+    let tool = tool_by_id(tool_id)?;
+    let feed_entry = crate::feed::tool_entry(tool_id).await.ok().flatten();
+    let allowed: Vec<String> = match feed_entry.as_ref().and_then(|entry| entry.channels.as_ref()) {
+        Some(channels) => channels.keys().cloned().collect(),
+        None => vec![tool.dist_tag.clone().unwrap_or_else(|| "latest".to_owned())],
+    };
+    if !allowed.iter().any(|candidate| candidate == channel) {
+        return Err(format!("{} 不存在版本线 {channel}", tool.display_name));
+    }
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("无法确定 UManager 配置目录：{error}"))?;
+    std::fs::create_dir_all(&dir).map_err(|error| format!("无法创建 UManager 配置目录：{error}"))?;
+    let path = dir.join(CHANNEL_CONFIG_FILE_NAME);
+    {
+        let mut selections = channel_selections_lock()
+            .lock()
+            .map_err(|_| "无法读取版本线选择状态".to_owned())?;
+        selections.insert(tool_id.to_owned(), channel.to_owned());
+        let json = serde_json::to_string_pretty(&*selections)
+            .map_err(|error| format!("无法编码版本线选择：{error}"))?;
+        crate::translation::write_private(&path, json.as_bytes())
+            .map_err(|error| format!("无法保存版本线选择：{error}"))?;
+    }
+    Ok(())
 }
 
 fn find_binary(binary_name: &str, home: &Path) -> Option<PathBuf> {
@@ -341,25 +503,30 @@ fn installer_label(tool: &DevelopmentTool) -> &'static str {
     }
 }
 
-/// Install an npm-distributed tool at its configured dist-tag (`latest` by
-/// default; a tool may pin a pre-release channel such as `next`), so the
-/// installed version matches what the metadata feed advertises for that tool.
-fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, String> {
+/// Install an npm-distributed tool at an exact version when one is known (the
+/// version the signed feed advertises for the selected version line — installs
+/// and updates both land exactly on that version), falling back to the
+/// configured dist-tag (`latest` by default; a tool may pin a pre-release
+/// channel such as `next`) when the feed is unavailable.
+fn install_command(
+    tool: &DevelopmentTool,
+    home: &Path,
+    target_version: Option<&str>,
+) -> Result<Command, String> {
     match &tool.installer {
         DevToolInstaller::Npm => {
             let package = tool
                 .npm_package
                 .as_deref()
                 .ok_or_else(|| format!("{} 未配置 npm 包", tool.display_name))?;
-            let dist_tag = tool.dist_tag.as_deref().unwrap_or("latest");
-            npm_command(
-                home,
-                &[
-                    "install".to_owned(),
-                    "-g".to_owned(),
-                    format!("{package}@{dist_tag}"),
-                ],
-            )
+            let spec = match target_version {
+                Some(version) => format!("{package}@{version}"),
+                None => {
+                    let dist_tag = tool.dist_tag.as_deref().unwrap_or("latest");
+                    format!("{package}@{dist_tag}")
+                }
+            };
+            npm_command(home, &["install".to_owned(), "-g".to_owned(), spec])
         }
         DevToolInstaller::CurlScript {
             script_url, shell, ..
@@ -383,12 +550,16 @@ fn install_command(tool: &DevelopmentTool, home: &Path) -> Result<Command, Strin
     }
 }
 
-fn update_command(tool: &DevelopmentTool, home: &Path) -> Result<(Command, &'static str), String> {
+fn update_command(
+    tool: &DevelopmentTool,
+    home: &Path,
+    target_version: Option<&str>,
+) -> Result<(Command, &'static str), String> {
     match &tool.update {
         Some(DevToolUpdate::SelfCommand { args }) => {
             Ok((binary_self_command(tool, home, args)?, "官方自更新命令"))
         }
-        None => Ok((install_command(tool, home)?, installer_label(tool))),
+        None => Ok((install_command(tool, home, target_version)?, installer_label(tool))),
     }
 }
 
@@ -992,6 +1163,110 @@ mod tests {
         assert!(catalog.by_tool_id("hermes").is_some());
         assert!(catalog.by_tool_id("uv").is_some());
         assert!(catalog.by_tool_id("pnpm").is_some());
+    }
+
+    fn dsh_tool(dist_tag: Option<&str>) -> DevelopmentTool {
+        DevelopmentTool {
+            tool_id: "dsh".to_owned(),
+            display_name: "DeepSeek Harness".to_owned(),
+            vendor: "DeepSeek".to_owned(),
+            description: None,
+            homepage: "https://github.com/deepseek-ai/deepseek-harness".to_owned(),
+            icon: None,
+            accent_color: None,
+            binary_name: "dsh".to_owned(),
+            npm_package: Some("@deepseek-ai/dsh".to_owned()),
+            dist_tag: dist_tag.map(str::to_owned),
+            installer: DevToolInstaller::Npm,
+            uninstall: DevToolUninstall::Npm,
+            update: None,
+        }
+    }
+
+    fn dsh_feed_entry(channels: Option<&[(&str, &str)]>) -> crate::feed::FeedToolEntry {
+        crate::feed::FeedToolEntry {
+            npm_package: Some("@deepseek-ai/dsh".to_owned()),
+            version: "0.1.2-rc.1".to_owned(),
+            channels: channels.map(|list| {
+                list.iter()
+                    .map(|(tag, version)| (tag.to_string(), version.to_string()))
+                    .collect()
+            }),
+            version_updated_at_unix_seconds: None,
+            version_updated_at_source: None,
+            release_notes: None,
+            release_notes_url: None,
+        }
+    }
+
+    #[test]
+    fn effective_channel_prefers_persisted_selection_when_offered() {
+        let entry = dsh_feed_entry(Some(&[("latest", "0.1.2-rc.1"), ("alpha", "0.1.3-alpha.2")]));
+        let channels = entry.channels.as_ref();
+        // Persisted selection that the feed still offers wins.
+        assert_eq!(
+            effective_channel(&dsh_tool(Some("latest")), channels, Some("alpha")),
+            Some("alpha".to_owned())
+        );
+        // A stale selection the feed no longer offers falls back to distTag.
+        assert_eq!(
+            effective_channel(&dsh_tool(Some("latest")), channels, Some("beta")),
+            Some("latest".to_owned())
+        );
+        // No persisted selection -> configured distTag.
+        assert_eq!(
+            effective_channel(&dsh_tool(Some("alpha")), channels, None),
+            Some("alpha".to_owned())
+        );
+        // No distTag -> `latest`.
+        assert_eq!(
+            effective_channel(&dsh_tool(None), channels, None),
+            Some("latest".to_owned())
+        );
+        // No channels at all (older feed / non-npm tool) -> distTag.
+        assert_eq!(
+            effective_channel(&dsh_tool(Some("latest")), None, Some("alpha")),
+            Some("latest".to_owned())
+        );
+        // Configured distTag not offered by the feed -> conventional `latest`.
+        assert_eq!(
+            effective_channel(&dsh_tool(Some("beta")), channels, None),
+            Some("latest".to_owned())
+        );
+        // No distTag, no `latest` line -> the first offered channel.
+        let without_latest = dsh_feed_entry(Some(&[("alpha", "0.1.3-alpha.2"), ("next", "0.1.2-rc.1")]));
+        assert_eq!(
+            effective_channel(&dsh_tool(None), without_latest.channels.as_ref(), None),
+            Some("alpha".to_owned())
+        );
+    }
+
+    #[test]
+    fn target_version_follows_the_selected_channel() {
+        let entry = dsh_feed_entry(Some(&[("latest", "0.1.2-rc.1"), ("alpha", "0.1.3-alpha.2")]));
+        // Selected channel's exact version.
+        assert_eq!(
+            target_version_for(Some(&entry), Some("alpha")),
+            Some("0.1.3-alpha.2".to_owned())
+        );
+        // No selection -> the feed's resolved default version.
+        assert_eq!(
+            target_version_for(Some(&entry), None),
+            Some("0.1.2-rc.1".to_owned())
+        );
+        // Selection the feed does not offer -> default version.
+        assert_eq!(
+            target_version_for(Some(&entry), Some("beta")),
+            Some("0.1.2-rc.1".to_owned())
+        );
+        // Feed entry without channels -> its version.
+        let plain = dsh_feed_entry(None);
+        assert_eq!(
+            target_version_for(Some(&plain), Some("alpha")),
+            Some("0.1.2-rc.1".to_owned())
+        );
+        // No feed entry at all (feed unavailable) -> None, caller falls back to distTag.
+        assert_eq!(target_version_for(None, Some("alpha")), None);
     }
 
     #[test]

@@ -227,6 +227,19 @@ async fn get_dev_tool_state(tool_id: String) -> Result<dev_cli_tools::DevToolSta
     dev_cli_tools::detect_state(tool_id).await
 }
 
+/// Switch a CLI tool's version line (e.g. dsh: `latest` vs `alpha`). Validates
+/// the channel against the signed feed and persists the selection; returns the
+/// refreshed state so the UI can re-render immediately.
+#[tauri::command]
+async fn set_dev_tool_channel(
+    app: tauri::AppHandle,
+    tool_id: String,
+    channel: String,
+) -> Result<dev_cli_tools::DevToolState, String> {
+    dev_cli_tools::set_channel(&app, &tool_id, &channel).await?;
+    dev_cli_tools::detect_state(tool_id).await
+}
+
 #[tauri::command]
 async fn install_dev_tool(
     app: tauri::AppHandle,
@@ -690,6 +703,7 @@ pub fn run() {
             network::initialize(app.handle());
             translation::initialize(app.handle());
             feed::initialize(app.handle());
+            dev_cli_tools::initialize(app.handle());
             clipboard_history::initialize(app.handle());
             background::initialize(app.handle())?;
             if std::env::args().any(|arg| arg == panel::TOGGLE_ARG) {
@@ -733,6 +747,7 @@ pub fn run() {
             uninstall_dev_version,
             get_dev_tools,
             get_dev_tool_state,
+            set_dev_tool_channel,
             install_dev_tool,
             update_dev_tool,
             uninstall_dev_tool,
