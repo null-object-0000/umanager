@@ -91,6 +91,41 @@ describe("stripReleaseNotesBoilerplate", () => {
     expect(stripReleaseNotesBoilerplate(body, "localsend")).toBe(body);
   });
 
+  it("strips the fixed install prelude from UManager self-update notes", () => {
+    const selfBody = [
+      "UManager v0.11.0（amd64 Debian 包）。",
+      "",
+      "安装：",
+      "",
+      "```bash",
+      "sudo apt install ./UManager_0.11.0_amd64.deb",
+      "```",
+      "",
+      "已安装 `.deb` 版的用户也可以在 UManager「软件 / 更新」页内检查并安装更新。",
+      "",
+      "## 0.11.0",
+      "### 维护与构建",
+      "- release: v0.11.0",
+      "### 新功能",
+      "- dev-tools: 支持 npm 工具版本线切换（如 dsh 的 latest/alpha/next）",
+    ].join("\n");
+    const result = stripReleaseNotesBoilerplate(selfBody, "selfUpdate");
+    expect(result).not.toContain("sudo apt install");
+    expect(result).not.toContain("安装：");
+    expect(result).not.toContain("已安装 `.deb`");
+    expect(result).toContain("## 0.11.0");
+    expect(result).toContain("- dev-tools");
+  });
+
+  it("leaves UManager self bodies without the prelude untouched", () => {
+    const changelogOnly = [
+      "## 0.11.0",
+      "### 维护与构建",
+      "- release: v0.11.0",
+    ].join("\n");
+    expect(stripReleaseNotesBoilerplate(changelogOnly, "selfUpdate")).toBe(changelogOnly);
+  });
+
   it("leaves non-string input untouched", () => {
     expect(stripReleaseNotesBoilerplate(null, "flclash")).toBeNull();
     expect(stripReleaseNotesBoilerplate(undefined, "flclash")).toBeUndefined();

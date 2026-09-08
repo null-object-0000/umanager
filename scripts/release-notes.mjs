@@ -17,8 +17,15 @@ const TRUNCATION_SUFFIX = "\n\n…（内容过长，已截断，完整内容见�
 // appends a cross-OS download matrix and a "full changelog" link that are not
 // changelog content (and duplicate what the app already surfaces elsewhere), so
 // strip them at generation time.
+//
+// UManager's own release body (`selfUpdate`) opens with a fixed install prelude
+// — an intro line, an `apt install` command, and a pointer back to the app's own
+// update page — that is not "what changed" and duplicates what the app already
+// tells the user in its detail/update view. Strip that prelude too, keeping only
+// the generated changelog; the public GitHub release body keeps it intact.
 const RELEASE_NOTES_BOILERPLATE = {
   flclash: /\*{0,2}Download based on your OS:\*{0,2}[\s\S]*$/i,
+  selfUpdate: /^\s*UManager v\d+(?:\.\d+)*（amd64 Debian 包）。[\s\S]*?已安装 `\.deb` 版的用户也可以在 UManager「软件 \/ 更新」页内检查并安装更新。\s*/,
 };
 
 /**
