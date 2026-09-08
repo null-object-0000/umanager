@@ -45,7 +45,7 @@
 import { windowsEntry } from "./windows-feed.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes, sign } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { atomChangelog } from "./changelog-atom.mjs";
 import { extractHtmlBlockToMarkdown, extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog, parseHtmlVersionList } from "./changelog-html.mjs";
@@ -1515,6 +1515,23 @@ async function buildCatalogRecords({ extraApps, applications, previousFeed, icon
       record.iconUrl = previousIcon.iconUrl;
       record.iconSha256 = previousIcon.iconSha256;
       log(`  icon: ${app.applicationId} — 版本未变，沿用上一版图标`);
+      // Pages deploys are full replacements: if the icon file is not written
+      // this run it vanishes from the site (and the merge's previous-deploy
+      // fallback then 404s). Re-extract from the deb the entry scrape already
+      // downloaded so every run republishes the icon (skip only when no deb is
+      // cached, e.g. aptRepository sources that never download one).
+      const cachedDeb = downloadedDebs.get(app.applicationId);
+      if (cachedDeb) {
+        try {
+          const icon = extractIcon(cachedDeb);
+          if (icon) {
+            writeFileSync(join(iconsDir, `${app.applicationId}.png`), icon.buffer);
+            log(`  icon: ${app.applicationId} ✓ (${icon.width}x${icon.height})（沿用重提取）`);
+          }
+        } catch (error) {
+          log(`  icon: ${app.applicationId} — 沿用重提取失败：${error.message}`);
+        }
+      }
       continue;
     }
     const freshDeb = downloadedDebs.get(app.applicationId);
@@ -1792,6 +1809,16 @@ async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, sel
 
   const outDir = join(dirname(OUT_PATH), "v3");
   mkdirSync(outDir, { recursive: true });
+
+  // Catalog `iconUrl`s reference the v3 base (…/v3/icons/<app>.png, since
+  // `iconBase` is derived from metadataFeed.url). Pages deployments are full
+  // replacements, so the icons must be published inside the v3 directory —
+  // otherwise every icon 404s and feed-added apps show up without one.
+  const v2IconsDir = join(dirname(OUT_PATH), "icons");
+  if (existsSync(v2IconsDir)) {
+    cpSync(v2IconsDir, join(outDir, "icons"), { recursive: true });
+    log(`  v3: 已复制图标到 ${v3Base}/icons/`);
+  }
 
   for (const group of publishedGroups) {
     const src = sourceFeeds[group];
