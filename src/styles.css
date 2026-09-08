@@ -781,29 +781,19 @@ nav { display: grid; gap: 2px; }
 
 .drawer-content { min-width: 0; }
 
-/* Version-line (channel) picker for CLI dev tools */
+/* Version-line (channel) picker for CLI dev tools — a labeled segmented
+   control in the App Store style (reuses `.filter-tabs.segmented`). */
 .channel-picker {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 10px 14px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0 2px;
+  margin: 0 0 14px;
 }
-.channel-picker label { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
-.channel-picker select {
-  min-width: 0;
-  padding: 6px 30px 6px 10px;
-  color: var(--text);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  background: #fff;
-  font: 600 var(--fs-sm) var(--font-mono);
-}
-.channel-picker .channel-hint { grid-column: 1 / -1; margin: 0; color: var(--text-3); font-size: var(--fs-xs); line-height: 1.45; }
+.channel-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.channel-picker-label { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
+.channel-segments { flex: none; }
+.channel-picker .channel-hint { margin: 0; color: var(--text-3); font-size: var(--fs-xs); line-height: 1.45; }
 .drawer-loading {
   display: grid;
   min-height: 220px;

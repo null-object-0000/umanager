@@ -1354,16 +1354,22 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
     <div className="drawer-content">
       {state && !state.npmAvailable && <div className="message"><strong>未检测到 npm</strong><span>无法读取 npm 最新版本{tool.installer.kind === "npm" ? "，也无法安装该工具" : ""}。请先在“开发环境”安装并设置 Node.js。</span></div>}
       {channelNames.length > 1 && <div className="channel-picker">
-        <label htmlFor={`devtool-channel-${tool.toolId}`}>版本线</label>
-        <select id={`devtool-channel-${tool.toolId}`} value={state?.selectedChannel ?? ""} disabled={busy !== null} onChange={(event) => void switchChannel(event.target.value)}>
-          {channelNames.map((name) => <option key={name} value={name}>{name} · v{state?.channels?.[name]}</option>)}
-        </select>
-        <p className="channel-hint">切换版本线即生效；若目标版本与已安装版本不同，点击主按钮应用（可能降级）。</p>
+        <div className="channel-picker-head">
+          <span className="channel-picker-label">版本线</span>
+          <div className="filter-tabs segmented channel-segments" role="tablist" aria-label="版本线">
+            {channelNames.map((name) => (
+              <button key={name} className={state?.selectedChannel === name ? "active" : ""} role="tab"
+                aria-selected={state?.selectedChannel === name} disabled={busy !== null}
+                title={`${name} · v${state?.channels?.[name]}`}
+                onClick={() => void switchChannel(name)}>{name}</button>
+            ))}
+          </div>
+        </div>
+        <p className="channel-hint">切换版本线立即生效；目标版本与已安装版本不同时，点击主按钮应用（可能降级）。</p>
       </div>}
       <InfoPanel homepage={tool.homepage} entries={[
         { label: "当前版本", value: state?.version ?? "未安装", mono: true },
         { label: "最新版本", value: state?.latestVersion ?? (state?.npmAvailable === false ? "无法读取" : "读取中…"), mono: true },
-        { label: "版本线", value: state?.selectedChannel ?? "—", mono: true },
         { label: "安装方式", value: state?.installKind ? devToolInstallKindText[state.installKind] : "—" },
         { label: "可执行文件", value: state?.binaryPath ?? (tool.installer.kind === "npm" ? `npm 包 ${tool.npmPackage ?? ""}` : "官方安装脚本"), mono: true },
       ]}/>
