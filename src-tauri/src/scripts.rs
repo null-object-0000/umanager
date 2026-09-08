@@ -91,6 +91,21 @@ fn builtin_scripts() -> Vec<BuiltinScript> {
             ],
             content: include_str!("../resources/scripts/fcitx5-ime-config.sh"),
         },
+        BuiltinScript {
+            id: "wechat-dock-toggle",
+            name: "微信托盘切换",
+            description: "把微信桌面图标变成智能入口：未运行时启动微信，已运行时从托盘唤出并聚焦主窗口（优先托盘协议，其次 GNOME 扩展，最后 X11 兜底）。可安装 / 恢复桌面启动项，修复微信驻留托盘后点图标无反应的问题。",
+            user_level: true,
+            actions: vec![
+                BuiltinAction { id: "run", label: "运行", args: &[] },
+                BuiltinAction { id: "dry-run", label: "试运行", args: &["--dry-run"] },
+                BuiltinAction { id: "apply", label: "安装桌面启动项", args: &["apply"] },
+                BuiltinAction { id: "apply-dry-run", label: "安装（试运行）", args: &["apply", "--dry-run"] },
+                BuiltinAction { id: "restore", label: "恢复最近备份", args: &["restore"] },
+                BuiltinAction { id: "status", label: "查看状态", args: &["status"] },
+            ],
+            content: include_str!("../resources/scripts/wechat-dock-toggle.sh"),
+        },
     ]
 }
 
@@ -308,7 +323,7 @@ mod tests {
     #[test]
     fn builtin_scripts_are_registered_with_actions() {
         let scripts = builtin_scripts();
-        assert_eq!(scripts.len(), 2);
+        assert_eq!(scripts.len(), 3);
 
         let chatgpt = scripts.iter().find(|script| script.id == "chatgpt-logout-fix").unwrap();
         assert_eq!(chatgpt.actions.len(), 2);
@@ -319,14 +334,28 @@ mod tests {
         assert!(fcitx.content.contains("GTK_IM_MODULE=fcitx"));
         assert!(fcitx.actions.iter().any(|action| action.id == "apply"));
         assert!(fcitx.actions.iter().any(|action| action.id == "restore"));
+
+        let wechat = scripts.iter().find(|script| script.id == "wechat-dock-toggle").unwrap();
+        assert_eq!(wechat.actions.len(), 6);
+        assert!(wechat.content.contains("StatusNotifierItem"));
+        assert!(wechat.content.contains("Xlib"));
+        assert!(wechat.actions.iter().any(|action| action.id == "run"));
+        assert!(wechat.actions.iter().any(|action| action.id == "dry-run"));
+        assert!(wechat.actions.iter().any(|action| action.id == "apply"));
+        assert!(wechat.actions.iter().any(|action| action.id == "restore"));
+        assert!(wechat.actions.iter().any(|action| action.id == "status"));
     }
 
     #[test]
     fn list_returns_serializable_definitions() {
         let definitions = list();
-        assert_eq!(definitions.len(), 2);
+        assert_eq!(definitions.len(), 3);
         assert!(definitions.iter().all(|definition| definition.user_level));
         let fcitx = definitions.iter().find(|definition| definition.id == "fcitx5-ime-config").unwrap();
         assert_eq!(fcitx.actions[0].id, "apply");
+        let wechat = definitions.iter().find(|definition| definition.id == "wechat-dock-toggle").unwrap();
+        assert_eq!(wechat.actions[0].id, "run");
+        assert_eq!(wechat.actions[1].id, "dry-run");
+        assert!(wechat.actions.iter().any(|action| action.id == "apply"));
     }
 }
