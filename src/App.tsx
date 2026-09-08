@@ -64,7 +64,7 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" | "more" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
@@ -78,6 +78,7 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back
     dev: <><path d="M8 6 3 12l5 6M16 6l5 6-5 6M14 4l-4 16"/></>,
     script: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></>,
     external: <><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/></>,
+    more: <><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -1422,6 +1423,59 @@ function ScriptLogPanel({ events, running }: { events: ScriptProgressEvent[]; ru
   </section>;
 }
 
+// macOS / App Store style: one prominent primary action per card, all other
+// actions (预览 / 恢复 / 查看状态…) folded into a right-aligned "···" menu.
+function ScriptCard({ script, events, isLogTarget, runningId, onRun, onStop }: {
+  script: ScriptDefinition;
+  events: ScriptProgressEvent[];
+  isLogTarget: boolean;
+  runningId: string | null;
+  onRun: (script: ScriptDefinition, action: ScriptAction) => void;
+  onStop: (scriptId: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const isRunning = runningId === script.id;
+  const busy = runningId !== null;
+  const primary = script.actions.find((action) => action.id === "run" || action.id === "apply") ?? script.actions[0];
+  const secondary = script.actions.filter((action) => action !== primary);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
+  return <div className="script-card">
+    <div className="script-card-head">
+      <div className="app-meta"><strong>{script.name}</strong><span className="script-meta">{script.id}</span>{script.description && <p className="app-description">{script.description}</p>}</div>
+      <span className="status-badge upToDate">用户级 · 无 root</span>
+    </div>
+    <div className="script-actions">
+      {isRunning
+        ? <span className="script-running-label">运行中…</span>
+        : <button className="script-primary-action" disabled={busy} onClick={() => onRun(script, primary)}>{primary.label}</button>}
+      {!isRunning && secondary.length > 0 && <div className="script-more" ref={menuRef}>
+        <button className="script-more-button" disabled={busy} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><Icon name="more"/><span>更多</span></button>
+        {menuOpen && <div className="script-menu" role="menu">
+          {secondary.map((action) => <button key={action.id} role="menuitem" disabled={busy} onClick={() => { setMenuOpen(false); onRun(script, action); }}>{action.label}</button>)}
+        </div>}
+      </div>}
+      {isRunning && <button className="dev-action-button danger" onClick={() => onStop(script.id)}>停止</button>}
+    </div>
+    {isLogTarget && events.length > 0 && <ScriptLogPanel events={events} running={isRunning}/>}
+  </div>;
+}
+
 function ScriptsPage() {
   const [scripts, setScripts] = useState<ScriptDefinition[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1457,19 +1511,15 @@ function ScriptsPage() {
       {error && <div className="message error"><strong>无法读取脚本</strong><span>{error}</span></div>}
       {loading && !scripts && <div className="empty-state"><span className="loader"/><p>正在读取内置脚本…</p></div>}
       {scripts && scripts.length === 0 && <div className="empty-state"><p>没有可用的内置脚本。</p></div>}
-      {scripts && scripts.map((script) => <div className="script-card" key={script.id}>
-        <div className="script-card-head">
-          <div className="app-meta"><strong>{script.name}</strong><span className="script-meta">{script.id}</span>{script.description && <p className="app-description">{script.description}</p>}</div>
-          <span className="status-badge upToDate">用户级 · 无 root</span>
-        </div>
-        <div className="script-actions">
-          {runningId === script.id
-            ? <span className="script-running-label">运行中…</span>
-            : script.actions.map((action) => <button key={action.id} className="dev-action-button" disabled={runningId !== null} onClick={() => void run(script, action)}>{action.label}</button>)}
-          {runningId === script.id && <button className="dev-action-button danger" onClick={() => void stop(script.id)}>停止</button>}
-        </div>
-        {logScriptId === script.id && events.length > 0 && <ScriptLogPanel events={events} running={runningId === script.id}/>}
-      </div>)}
+      {scripts && scripts.map((script) => <ScriptCard
+        key={script.id}
+        script={script}
+        events={events}
+        isLogTarget={logScriptId === script.id}
+        runningId={runningId}
+        onRun={(target, action) => void run(target, action)}
+        onStop={(scriptId) => void stop(scriptId)}
+      />)}
     </section>
   </main>;
 }
@@ -1684,7 +1734,7 @@ function ClipboardPage() {
         <span>全局热键唤出面板</span>
         {session && <span className={`clip-session-badge ${session.kind}`}>{session.globalHotkeySupported ? "X11 可用" : session.kind === "wayland" ? "Wayland 受限" : "未识别会话"}</span>}
         <input className="clipboard-hotkey-input" value={hotkeyDraft} onChange={(event) => setHotkeyDraft(event.target.value)} disabled={hotkeySaving} spellCheck={false}/>
-        <button className="dev-action-button subtle" onClick={() => void saveHotkey()} disabled={hotkeySaving || !hotkeyDraft.trim() || hotkeyDraft.trim() === hotkey}>{hotkeySaved ? "已保存 ✓" : "保存热键"}</button>
+        <button className="secondary-button clip-hotkey-save" onClick={() => void saveHotkey()} disabled={hotkeySaving || !hotkeyDraft.trim() || hotkeyDraft.trim() === hotkey}>{hotkeySaved ? "已保存 ✓" : "保存热键"}</button>
       </div>
       {session && session.kind !== "x11" && <div className={`clipboard-session-note ${session.kind}`}>{session.kind === "wayland"
         ? <>检测到 <b>Wayland</b> 会话：应用内全局热键不生效，请到<b>系统设置 → 键盘 → 查看及自定义快捷键 → 自定义快捷键</b>绑定 <b>Super+V</b> → 命令 <code>umanager --toggle-clipboard-panel</code>（由 GNOME 调用本应用）。快捷面板已切换为 XWayland 后端，会定位在右上角托盘旁。</>
@@ -1705,9 +1755,11 @@ function ClipboardPage() {
             ? <button className="clip-image-thumb" draggable onDragStart={(event) => { event.preventDefault(); dragOut(entry); }} onClick={() => setPreviewEntry(entry)} title="拖动到聊天窗口或文件管理器即可发送/保存；点击查看大图"><img draggable={false} src={entry.imagePreview ?? ""} alt="剪贴板图片"/></button>
             : <pre className="clip-text">{entry.text}</pre>}
           <div className="clip-actions">
-            <button className="dev-action-button" disabled={pendingId === entry.id} onClick={() => void copy(entry)}>{copiedId === entry.id ? "已复制 ✓" : entry.kind === "image" ? "复制图片" : "复制"}</button>
-            <button className="dev-action-button subtle" disabled={pendingId === entry.id} onClick={() => void togglePin(entry)}>{entry.pinned ? "取消置顶" : "置顶"}</button>
-            <button className="dev-action-button danger-ghost" disabled={pendingId === entry.id} onClick={() => void remove(entry)}>删除</button>
+            <button className="clip-action-primary" disabled={pendingId === entry.id} onClick={() => void copy(entry)}>{copiedId === entry.id ? "已复制 ✓" : entry.kind === "image" ? "复制图片" : "复制"}</button>
+            <div className="clip-action-group">
+              <button className="clip-action-subtle" disabled={pendingId === entry.id} onClick={() => void togglePin(entry)}>{entry.pinned ? "取消置顶" : "置顶"}</button>
+              <button className="clip-action-subtle danger" disabled={pendingId === entry.id} onClick={() => void remove(entry)}>删除</button>
+            </div>
           </div>
         </div>)}
       </div>
@@ -2077,7 +2129,6 @@ export default function App() {
         <button className={`nav-item ${page === "clipboard" ? "active" : ""}`} onClick={showClipboardPage}><Icon name="clipboard"/>剪贴板</button>
       </nav>
       <div className="sidebar-spacer"/>
-      <div className="safety-card"><Icon name="shield"/><div><strong>安全更新</strong><span>仅在确认授权后更改系统</span></div></div>
       <button className={`nav-item settings ${page === "settings" ? "active" : ""}`} onClick={showSettingsPage}><Icon name="settings"/>设置</button>
       <div className="version-label">UManager {installationInfo?.appVersion ?? appVersion ?? ""}</div>
     </aside>
