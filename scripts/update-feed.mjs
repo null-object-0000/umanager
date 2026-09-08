@@ -32,9 +32,12 @@
 //                                      releaseNotes?, releaseNotesUrl? } }
 //   selfUpdate:   { packageName, version, architecture, size, sha256, downloadUrl, releaseTag?, assetName?, websiteVersion?,
 //                   releaseNotes?, releaseNotesUrl? }
-//   developmentTools: { [toolId]: { npmPackage?, version, channels? } }
+//   developmentTools: { [toolId]: { npmPackage?, version, channels?, channelReleaseNotes? } }
 //                      // channels = every npm dist-tag (tag -> version) for npm
 //                      // tools, so the app can switch version lines per tool
+//                      // channelReleaseNotes = per-version { releaseNotes?,
+//                      // releaseNotesUrl? } for every distinct channel version,
+//                      // so the release notes follow the selected version line
 //   categories: [ { id, label } ]          // display-only grouping
 //   categoryAssignments: { applications: { [applicationId]: categoryId },
 //                          developmentTools: { [toolId]: categoryId } }
@@ -1157,50 +1160,75 @@ async function toolEntry(tool, versionOverrides) {
 // endpoint (selecting the release whose tag matches the version). CI-only
 // config lives in `toolReleaseNotesOverrides` keyed by tool id. Best-effort: a
 // failure leaves the note absent, never drops the tool entry.
-async function fetchToolReleaseNotes(tool, config, entry) {
-  if (!config || typeof config !== "object" || !entry?.version) return null;
-  if (typeof config.changelogMarkdownUrl === "string") return fetchToolMarkdownReleaseNotes(tool, config, entry);
-  if (typeof config.releaseApiUrl === "string") return fetchToolGitHubReleaseNotes(tool, config, entry);
+// Memoized fetch of a tool's release-notes source document (a CHANGELOG.md
+// text or a GitHub Releases payload), keyed by URL. Channels of one tool share
+// the same source, so per-channel notes reuse a single fetch per URL.
+const toolNotesSourceCache = new Map();
+
+async function toolNotesSource(config) {
+  if (!config || typeof config !== "object") return null;
+  if (typeof config.changelogMarkdownUrl === "string") {
+    const url = config.changelogMarkdownUrl;
+    if (!toolNotesSourceCache.has(url)) {
+      try {
+        toolNotesSourceCache.set(url, { kind: "markdown", text: await fetchText(url) });
+      } catch (error) {
+        log(`  toolReleaseNotes: ${url} — ${error.message}`);
+        toolNotesSourceCache.set(url, null);
+      }
+    }
+    return toolNotesSourceCache.get(url);
+  }
+  if (typeof config.releaseApiUrl === "string") {
+    const url = config.releaseApiUrl;
+    if (!toolNotesSourceCache.has(url)) {
+      try {
+        toolNotesSourceCache.set(url, {
+          kind: "releases",
+          payload: JSON.parse(await fetchText(url, githubApiHeaders())),
+        });
+      } catch (error) {
+        log(`  toolReleaseNotes: ${url} — ${error.message}`);
+        toolNotesSourceCache.set(url, null);
+      }
+    }
+    return toolNotesSourceCache.get(url);
+  }
   return null;
 }
 
-async function fetchToolMarkdownReleaseNotes(tool, config, entry) {
-  let text;
-  try {
-    text = await fetchText(config.changelogMarkdownUrl);
-  } catch (error) {
-    log(`  toolReleaseNotes: ${tool.toolId} — ${error.message}`);
-    return null;
+/// Extract a version's release notes from a cached source document. Pure — the
+/// same source serves the default version and every channel version.
+function releaseNotesFromSource(source, tool, config, version) {
+  if (!source) return null;
+  if (source.kind === "markdown") {
+    const section = extractMarkdownVersionSection(source.text, version);
+    const releaseNotes = sanitizeReleaseNotes(
+      stripReleaseNotesBoilerplate(cleanReleaseNotesMarkdown(section), tool.toolId),
+    );
+    const releaseNotesUrl =
+      typeof config.releaseNotesUrl === "string" && /^https:\/\//.test(config.releaseNotesUrl)
+        ? config.releaseNotesUrl
+        : null;
+    if (!releaseNotes && !releaseNotesUrl) return null;
+    return { releaseNotes, releaseNotesUrl };
   }
-  const section = extractMarkdownVersionSection(text, entry.version);
-  const releaseNotes = sanitizeReleaseNotes(
-    stripReleaseNotesBoilerplate(cleanReleaseNotesMarkdown(section), tool.toolId),
-  );
-  const releaseNotesUrl = typeof config.releaseNotesUrl === "string" && /^https:\/\//.test(config.releaseNotesUrl)
-    ? config.releaseNotesUrl
-    : null;
-  if (!releaseNotes && !releaseNotesUrl) return null;
-  return { releaseNotes, releaseNotesUrl };
-}
-
-async function fetchToolGitHubReleaseNotes(tool, config, entry) {
-  let payload;
-  try {
-    payload = JSON.parse(await fetchText(config.releaseApiUrl, githubApiHeaders()));
-  } catch (error) {
-    log(`  toolReleaseNotes: ${tool.toolId} — ${error.message}`);
-    return null;
-  }
-  const release = selectToolRelease(payload, config.tagPrefix, entry.version);
+  const release = selectToolRelease(source.payload, config.tagPrefix, version);
   if (!release) return null;
-  const releaseNotesUrl = typeof release.html_url === "string" && /^https:\/\//.test(release.html_url)
-    ? release.html_url
-    : null;
+  const releaseNotesUrl =
+    typeof release.html_url === "string" && /^https:\/\//.test(release.html_url)
+      ? release.html_url
+      : null;
   const releaseNotes = sanitizeReleaseNotes(
     stripReleaseNotesBoilerplate(release.body, tool.toolId),
   );
   if (!releaseNotes && !releaseNotesUrl) return null;
   return { releaseNotes, releaseNotesUrl };
+}
+
+async function fetchToolReleaseNotes(tool, config, entry) {
+  if (!config || typeof config !== "object" || !entry?.version) return null;
+  return releaseNotesFromSource(await toolNotesSource(config), tool, config, entry.version);
 }
 
 // ---------------------------------------------------------------------------
@@ -1488,12 +1516,31 @@ async function scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEnt
   const tools = catalog.developmentTools || [];
   const scrapedTools = await mapLimit(tools, CONCURRENCY, async (tool) => {
     const entry = await toolEntry(tool, toolVersionOverrides);
+    if (!entry) return null;
+    const notesConfig = toolReleaseNotesOverrides[tool.toolId];
     // Attach a changelog for tools configured in `toolReleaseNotesOverrides`.
-    if (entry && entry.releaseNotes == null && entry.releaseNotesUrl == null) {
-      const notes = await fetchToolReleaseNotes(tool, toolReleaseNotesOverrides[tool.toolId], entry);
+    if (entry.releaseNotes == null && entry.releaseNotesUrl == null) {
+      const notes = await fetchToolReleaseNotes(tool, notesConfig, entry);
       if (notes) {
         entry.releaseNotes = notes.releaseNotes;
         entry.releaseNotesUrl = notes.releaseNotesUrl;
+      }
+    }
+    // Per-channel release notes: every distinct version among the npm
+    // dist-tag channels gets its own notes (keyed by version, so channels
+    // pointing at the same version share one entry). The app shows the notes
+    // of the version line the user selected. The shared source is memoized,
+    // so this costs at most one fetch per notes URL.
+    if (entry.channels) {
+      const versions = [...new Set(Object.values(entry.channels))];
+      const source = await toolNotesSource(notesConfig);
+      const channelReleaseNotes = {};
+      for (const version of versions) {
+        const notes = releaseNotesFromSource(source, tool, notesConfig, version);
+        if (notes) channelReleaseNotes[version] = notes;
+      }
+      if (Object.keys(channelReleaseNotes).length > 0) {
+        entry.channelReleaseNotes = channelReleaseNotes;
       }
     }
     return entry;

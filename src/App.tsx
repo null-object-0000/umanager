@@ -398,12 +398,12 @@ function ChangelogMarkdown({ content, pending }: { content: string; pending: boo
   </div>;
 }
 
-function ReleaseNotes({ notes, url }: { notes: string | null | undefined; url: string | null | undefined }) {
+function ReleaseNotes({ notes, url, version }: { notes: string | null | undefined; url: string | null | undefined; version?: string | null }) {
   const translation = useChangelogTranslation(notes);
   if (!notes && !url) return null;
   return <section className="detail-section release-notes-section">
     <div className="release-notes-head">
-      <h3>版本更新记录</h3>
+      <h3>版本更新记录{version ? ` · v${version}` : ""}</h3>
       <ChangelogTranslateButton translation={translation}/>
     </div>
     {translation.error && <p className="changelog-translate-error">{translation.error}</p>}
@@ -1369,7 +1369,7 @@ function DevToolDrawer({ tool, onClose, onChanged }: { tool: DevTool; onClose: (
       ]}/>
       {error && <div className="inline-error">{error}</div>}
       {!installed && !canInstall && <p className="dev-empty">需要 npm 才能安装，请先在“开发环境”安装并设置 Node.js。</p>}
-      <ReleaseNotes notes={state?.releaseNotes} url={state?.releaseNotesUrl}/>
+      <ReleaseNotes notes={state?.releaseNotes} url={state?.releaseNotesUrl} version={state?.latestVersion}/>
       <DevToolLogPanel events={events} running={busy !== null}/>
     </div>
   </DetailShell>;

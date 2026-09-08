@@ -126,6 +126,15 @@ pub struct FeedApplicationEntry {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FeedChannelReleaseNotes {
+    #[serde(default)]
+    pub release_notes: Option<String>,
+    #[serde(default)]
+    pub release_notes_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FeedToolEntry {
     /// npm package this tool entry belongs to, for cross-checking at detection
     /// time. `None` for tools distributed outside npm (e.g. git/Python).
@@ -139,6 +148,12 @@ pub struct FeedToolEntry {
     /// Absent for tools distributed outside npm and for older feeds.
     #[serde(default)]
     pub channels: Option<BTreeMap<String, String>>,
+    /// Per-version release notes for every distinct channel version, so the
+    /// app can show notes matching the selected version line. Keyed by version
+    /// (channels pointing at the same version share one entry). Optional;
+    /// absent for older feeds and when no notes source is configured.
+    #[serde(default)]
+    pub channel_release_notes: Option<BTreeMap<String, FeedChannelReleaseNotes>>,
     #[serde(default)]
     pub version_updated_at_unix_seconds: Option<u64>,
     #[serde(default)]
@@ -1160,6 +1175,15 @@ fn validate(feed: &Feed) -> Result<(), String> {
                 }
             }
         }
+        if let Some(channel_notes) = &entry.channel_release_notes {
+            for (version, notes) in channel_notes {
+                if version.is_empty() || version.contains('\0') {
+                    return Err(format!("{id}：channelReleaseNotes 含无效版本键"));
+                }
+                validate_release_notes(&notes.release_notes, &notes.release_notes_url)
+                    .map_err(|error| format!("{id}：channelReleaseNotes[{version}] {error}"))?;
+            }
+        }
         validate_version_updated_at(&entry.version_updated_at_unix_seconds, &entry.version_updated_at_source)
             .map_err(|error| format!("{id}：{error}"))?;
         validate_release_notes(&entry.release_notes, &entry.release_notes_url)
@@ -1325,6 +1349,43 @@ mod tests {
         assert_eq!(channels.get("latest").map(String::as_str), Some("0.1.2-rc.1"));
         assert_eq!(entry.version, "0.1.2-rc.1");
         validate(&feed).expect("feed with channels should validate");
+    }
+
+    #[test]
+    fn development_tool_channel_release_notes_parse_and_validate() {
+        let json = r#"{
+            "schemaVersion": 2,
+            "generatedAtUnixSeconds": 1750000000,
+            "applications": {},
+            "developmentTools": {
+                "dsh": {
+                    "npmPackage": "@deepseek-ai/dsh",
+                    "version": "0.1.2-rc.1",
+                    "channels": { "latest": "0.1.2-rc.1", "alpha": "0.1.3-alpha.2" },
+                    "channelReleaseNotes": {
+                        "0.1.3-alpha.2": {
+                            "releaseNotes": "alpha 线更新记录",
+                            "releaseNotesUrl": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.3-alpha.2"
+                        }
+                    }
+                }
+            }
+        }"#;
+        let feed: Feed = serde_json::from_str(json).unwrap();
+        let entry = feed.development_tools.get("dsh").expect("dsh entry");
+        let channel_notes = entry.channel_release_notes.as_ref().expect("channelReleaseNotes");
+        let alpha = channel_notes.get("0.1.3-alpha.2").expect("alpha notes");
+        assert_eq!(alpha.release_notes.as_deref(), Some("alpha 线更新记录"));
+        validate(&feed).expect("feed with channelReleaseNotes should validate");
+
+        // A non-HTTPS notes URL must be rejected.
+        let bad_url = r#"{
+            "schemaVersion": 2, "generatedAtUnixSeconds": 1750000000, "applications": {},
+            "developmentTools": { "dsh": { "version": "0.1.2-rc.1",
+                "channelReleaseNotes": { "0.1.3-alpha.2": { "releaseNotesUrl": "http://example.com/x" } } } }
+        }"#;
+        let feed: Feed = serde_json::from_str(bad_url).unwrap();
+        assert!(validate(&feed).is_err(), "non-HTTPS channel notes URL should be rejected");
     }
 
     #[test]

@@ -214,6 +214,26 @@ fn tool_by_id(tool_id: &str) -> Result<DevelopmentTool, String> {
         .ok_or_else(|| format!("软件源中不存在命令行工具 {tool_id}"))
 }
 
+/// Release notes to show for a tool: the notes of the selected version line
+/// (looked up by version in `channelReleaseNotes`) when the feed carries them,
+/// otherwise the entry-level notes for the default line.
+fn release_notes_for(
+    feed_entry: Option<&crate::feed::FeedToolEntry>,
+    selected_version: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    if let Some(entry) = feed_entry
+        && let Some(version) = selected_version
+        && let Some(channel_notes) = &entry.channel_release_notes
+        && let Some(notes) = channel_notes.get(version)
+    {
+        return (notes.release_notes.clone(), notes.release_notes_url.clone());
+    }
+    (
+        feed_entry.and_then(|entry| entry.release_notes.clone()),
+        feed_entry.and_then(|entry| entry.release_notes_url.clone()),
+    )
+}
+
 fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::FeedToolEntry>) -> Result<DevToolState, String> {
     let home = user_home()?;
     let npm_available = npm_available(&home);
@@ -258,6 +278,8 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
         install_kind.as_deref(),
         Some("npmGlobal") | Some("officialInstaller")
     );
+    let (release_notes, release_notes_url) =
+        release_notes_for(feed_entry.as_ref(), latest_version.as_deref());
 
     Ok(DevToolState {
         tool_id: tool.tool_id.clone(),
@@ -282,8 +304,8 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
         binary_path: binary.map(|path| path.to_string_lossy().into_owned()),
         update_available,
         can_uninstall,
-        release_notes: feed_entry.as_ref().and_then(|entry| entry.release_notes.clone()),
-        release_notes_url: feed_entry.as_ref().and_then(|entry| entry.release_notes_url.clone()),
+        release_notes,
+        release_notes_url,
     })
 }
 
@@ -1192,11 +1214,28 @@ mod tests {
                     .map(|(tag, version)| (tag.to_string(), version.to_string()))
                     .collect()
             }),
+            channel_release_notes: None,
             version_updated_at_unix_seconds: None,
             version_updated_at_source: None,
             release_notes: None,
             release_notes_url: None,
         }
+    }
+
+    fn dsh_entry_with_channel_notes() -> crate::feed::FeedToolEntry {
+        let mut entry = dsh_feed_entry(Some(&[("latest", "0.1.2-rc.1"), ("alpha", "0.1.3-alpha.2")]));
+        entry.release_notes = Some("rc 默认线更新记录".to_owned());
+        entry.release_notes_url = Some("https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.2-rc.1".to_owned());
+        let mut channel_notes = std::collections::BTreeMap::new();
+        channel_notes.insert(
+            "0.1.3-alpha.2".to_owned(),
+            crate::feed::FeedChannelReleaseNotes {
+                release_notes: Some("alpha 线更新记录".to_owned()),
+                release_notes_url: Some("https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.3-alpha.2".to_owned()),
+            },
+        );
+        entry.channel_release_notes = Some(channel_notes);
+        entry
     }
 
     #[test]
@@ -1267,6 +1306,28 @@ mod tests {
         );
         // No feed entry at all (feed unavailable) -> None, caller falls back to distTag.
         assert_eq!(target_version_for(None, Some("alpha")), None);
+    }
+
+    #[test]
+    fn release_notes_follow_the_selected_version_line() {
+        let entry = dsh_entry_with_channel_notes();
+        // Selected channel version has per-channel notes -> those win.
+        let (notes, url) = release_notes_for(Some(&entry), Some("0.1.3-alpha.2"));
+        assert_eq!(notes.as_deref(), Some("alpha 线更新记录"));
+        assert_eq!(
+            url.as_deref(),
+            Some("https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.3-alpha.2")
+        );
+        // Selected version without channel notes (or the default line) ->
+        // entry-level notes.
+        let (notes, _) = release_notes_for(Some(&entry), Some("0.1.2-rc.1"));
+        assert_eq!(notes.as_deref(), Some("rc 默认线更新记录"));
+        let (notes, _) = release_notes_for(Some(&entry), None);
+        assert_eq!(notes.as_deref(), Some("rc 默认线更新记录"));
+        // No feed entry -> no notes.
+        let (notes, url) = release_notes_for(None, Some("0.1.3-alpha.2"));
+        assert!(notes.is_none());
+        assert!(url.is_none());
     }
 
     #[test]
