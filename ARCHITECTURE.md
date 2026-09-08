@@ -222,3 +222,20 @@ Polkit 授权使用 `auth_admin_keep`：一次「dry-run」特权复核会在当
 ## 15. GNOME 扩展
 
 自 v0.11 起 UManager **不再内置任何 GNOME 扩展及其管理能力**。GNOME Shell 扩展（如中国节假日日历、农历等）由用户通过 extensions.gnome.org 或对应仓库自行安装、启停，不经过 UManager。UManager 仅保留「软件 / 更新」「开发环境」「维护脚本」「剪贴板」「设置」等功能页。
+
+## Windows 应用与 Wine（企业微信试点）
+
+Windows 应用使用独立于 Debian 特权计划的用户级流程：
+
+`feed-sources.json.windowsApplications` → CI `windows-feed.mjs` → 中央 feed 的签名 `windowsApplications` → `windows_apps.rs` → 下载校验 → 内存中的不可变、单次、15 分钟计划 → Wine 官方安装/卸载向导 → 检查磁盘实际状态。
+
+该字段是 v2/v3 feed 的可选向后兼容扩展，不改变现有 feed/特权 plan 的 schema 版本，helper 不接受 Windows 计划。v3 合并仅保留中央签名 feed 的 Windows 条目，不从子源覆盖。兼容配置可访问的下载主机白名单保存在编译期 `vendors.json.windowsCompatibilityProfiles`；客户端与 CI 均限制每次请求及重定向的 HTTPS 精确主机。
+
+- 应用适配器目前仅支持企业微信 `wecom-v1`；不执行 feed 提供的任意脚本、卸载命令或本机注册表中的命令串。
+- 自动识别本机固定企业微信 prefix，否则创建 UManager 自有 prefix。路径各级需属于用户且不能是符号链接。Wine prefix 是兼容配置隔离，不是安全沙箱。
+- 当前版本读取 `WXWork.exe` 的固定文件版本元数据，不使用遗留版本文件夹判断安装成功。更新禁止降级和重复安装。
+- 下载完成后显示复核页；计划持有固定安装包摘要、目标版本、prefix 和 Wine 配置。执行时重新校验文件、有效期、进程状态和安装/配置指纹。单次消费计划并串行化操作。
+- 官方向导可能派生子进程，因此向导退出后还通过同 prefix 对应运行器的 `wineserver -w` 等待完成。取消、超时、版本不匹配和卸载残留均报告失败，不把启动向导视为操作成功。
+- 卸载调用固定的 `Uninstall.exe`，不删除整个 prefix。用户数据的保留由官方向导控制。
+- Wine 配置只写明确列出的兼容键；默认值在 `resources/windows/wecom-defaults.json`。标题栏修复从 C 源码交叉编译后嵌入主程序，用户机器无需编译器。
+- 配置与最近操作日志保存在 `~/.local/share/umanager/windows`。安装/更新没有绕过签名的“本地 EXE 安装”入口；已有应用的启动、配置与卸载不依赖在线 feed。

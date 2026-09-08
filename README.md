@@ -103,3 +103,27 @@ cargo test --manifest-path crates/umanager-helper/Cargo.toml
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 架构、feed、数据流、安全不变量、新增应用方式 |
 | [AGENTS.md](AGENTS.md) | AI 编程 agent 与协作者的开发指引 |
+
+## Windows 应用（Wine）
+
+在「Windows 应用」页管理企业微信 Windows 版：检测已有安装、启动、安装、更新、卸载，以及修改专用 Wine 环境的配置。
+
+- 首次使用前准备 Wine 和 `fonts-noto-cjk`；Wine 可从 UManager 软件商店管理。
+- 自动沿用 `~/.local/share/wineprefixes/wecom`（若存在），否则在 `~/.local/share/umanager/windows/wecom` 创建独立环境。
+- 默认配置为 Windows 10、192 DPI、X11/XWayland、Tahoma 的 Noto Sans CJK SC 字体替换，以及标题栏修复。设置可在页面修改，不复制账号、聊天记录或整份注册表。
+- 安装/更新从签名 feed 获取官方 EXE 地址、版本、大小及 SHA-256；下载校验后复核确认，再打开官方向导。保持默认安装目录，完成后退出企业微信，UManager 检查实际安装版本。
+- 卸载运行官方卸载向导；聊天记录的保留选项由用户在向导中选择。UManager 保留 Wine 环境目录，不递归删除已有环境。
+- 安装、更新、卸载和配置均以普通用户运行，不使用 Polkit。应用运行时需先从托盘退出。
+- 新安装和更新需要 CI 发布带 `windowsApplications` 的签名 feed；旧 feed 下仍可管理本机安装，但不会降级到本地抓取或执行未校验的安装包。
+
+开发构建额外需要 `gcc-mingw-w64-x86-64`，用于从源码编译随 App 内置的 Windows 标题栏辅助程序；可通过 `UMANAGER_MINGW_CC` 指定交叉编译器。最终用户不需要编译器。
+
+Wine 生命周期集成测试使用隔离显示和一次性环境中的专用测试 EXE，覆盖安装、更新、配置、卸载，不操作真实企业微信：
+
+```bash
+xvfb-run -a env WINEDLLOVERRIDES=winemenubuilder.exe=d \
+  cargo test --manifest-path src-tauri/Cargo.toml \
+  wine_install_update_configure_uninstall_lifecycle -- --ignored --nocapture
+```
+
+这项测试验证管理流程；企业微信官方安装向导，以及聊天、音视频、文件传输兼容性仍需真实应用验收。
