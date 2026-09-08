@@ -1946,6 +1946,31 @@ async function runMerge({ OUT_PATH, partsDir, config, previousFeed, previousSour
         writeFileSync(target, buffer);
         log(`  icon: ${appId} — 从上一版页面补取`);
       } catch (error) {
+        // Repair path: the icon never made it to Pages (e.g. apps whose icon
+        // was only extracted before the v3 icon publish existed). Re-download
+        // the app's current .deb once and extract the icon from it; afterwards
+        // the previous-deploy fetch above succeeds on every run. Only apps
+        // that have an iconUrl (i.e. shipped an icon at some point) reach
+        // this branch, so icon-less debs (e.g. wine, gh) are never re-fetched.
+        const entry = applications[appId];
+        if (entry?.downloadUrl) {
+          try {
+            const debPath = await downloadTemp(appId, entry.downloadUrl);
+            try {
+              const icon = extractIcon(debPath);
+              if (icon) {
+                writeFileSync(target, icon.buffer);
+                log(`  icon: ${appId} — 从发布 deb 修复提取 (${icon.width}x${icon.height})`);
+                continue;
+              }
+              log(`  icon: ${appId} — 发布 deb 中未找到图标`);
+            } finally {
+              rmSync(debPath, { force: true });
+            }
+          } catch (repairError) {
+            log(`  icon: ${appId} — 修复提取失败：${repairError.message}`);
+          }
+        }
         fail(appId, `图标补取失败：${error.message}`);
       }
     }
