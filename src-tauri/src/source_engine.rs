@@ -511,11 +511,42 @@ async fn sign_url(sign: &umanager_catalog::VersionEndpointSign, raw_url: &str) -
 }
 
 // Dot-path access with array-index support, mirroring the generator's getJsonPath.
+// A quoted bracket segment addresses a key that itself contains dots
+// (e.g. `download.0["x64.deb"]` for Trae's manifest keys), optionally after an
+// array index (`0["x64.deb"]`).
 fn json_path<'a>(value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
     let mut current = value;
-    for segment in path.split('.') {
+    // Split on dots outside ["..."] quoted keys.
+    let mut segments = Vec::new();
+    let bytes = path.as_bytes();
+    let mut start = 0usize;
+    let mut in_bracket = false;
+    for (index, &byte) in bytes.iter().enumerate() {
+        if byte == b'[' {
+            in_bracket = true;
+        } else if byte == b']' {
+            in_bracket = false;
+        } else if byte == b'.' && !in_bracket {
+            segments.push(&path[start..index]);
+            start = index + 1;
+        }
+    }
+    segments.push(&path[start..]);
+    for segment in segments {
         if segment.is_empty() {
             return None;
+        }
+        // Optional numeric index followed by a quoted key: 0["x64.deb"].
+        if segment.ends_with("\"]") {
+            if let Some(open) = segment.find("[\"") {
+                let index_part = &segment[..open];
+                let key = &segment[open + 2..segment.len() - 2];
+                if !index_part.is_empty() {
+                    current = current.get(index_part.parse::<usize>().ok()?)?;
+                }
+                current = current.get(key)?;
+                continue;
+            }
         }
         if let Ok(index) = segment.parse::<usize>() {
             current = current.get(index)?;
@@ -1019,6 +1050,34 @@ mod tests {
             None
         );
         assert!(parse_installed_version_optional("ii \t1.2.3\tamd64\textra", "amd64").is_err());
+    }
+
+    #[test]
+    fn json_path_supports_dotted_keys_via_brackets() {
+        let payload = serde_json::json!({
+            "data": {
+                "manifest": {
+                    "linux": {
+                        "download": [
+                            { "region": "cn", "x64.deb": "https://cdn.example/trae.deb" }
+                        ]
+                    }
+                }
+            }
+        });
+        assert_eq!(
+            json_path(&payload, "data.manifest.linux.download.0[\"x64.deb\"]")
+                .and_then(serde_json::Value::as_str),
+            Some("https://cdn.example/trae.deb")
+        );
+        // Plain dot paths keep working (array index + object keys).
+        assert_eq!(
+            json_path(&payload, "data.manifest.linux.download.0.region")
+                .and_then(serde_json::Value::as_str),
+            Some("cn")
+        );
+        // A missing dotted key falls through like any other missing key.
+        assert!(json_path(&payload, "data.manifest.linux.download.0[\"arm64.deb\"]").is_none());
     }
 
     #[test]
