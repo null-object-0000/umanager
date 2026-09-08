@@ -1419,6 +1419,7 @@ nav { display: grid; gap: 2px; }
 .script-menu button {
   display: flex;
   align-items: center;
+  gap: 8px;
   width: 100%;
   height: 32px;
   padding: 0 11px;
@@ -1435,6 +1436,9 @@ nav { display: grid; gap: 2px; }
 .script-menu button:hover:not(:disabled) { background: var(--accent-soft); }
 .script-menu button:focus-visible { box-shadow: 0 0 0 2px var(--accent-soft); outline: 0; }
 .script-menu button:disabled { color: var(--text-4); }
+.script-menu button .ui-icon { width: 15px; height: 15px; flex: none; }
+.script-menu button.danger { color: var(--red-text); }
+.script-menu button.danger:hover:not(:disabled) { background: var(--red-soft); }
 .script-system-lines { display: grid; gap: 4px; padding: 11px 15px; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.6; border-top: 1px solid var(--hairline); }
 
 /* =============================================================================
@@ -1444,9 +1448,8 @@ nav { display: grid; gap: 2px; }
 .clipboard-panel { overflow: auto; }
 .clipboard-count { color: var(--text-3); font-size: var(--fs-base); }
 .clipboard-hint { color: var(--text-3); font-size: var(--fs-base); line-height: 1.5; }
-.clipboard-toolbar { justify-content: flex-end; }
-.clipboard-toolbar-actions { display: flex; align-items: center; gap: 8px; }
-.clip-toolbar-more {
+.clip-more { position: relative; display: inline-flex; }
+.clip-more-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1461,10 +1464,10 @@ nav { display: grid; gap: 2px; }
   white-space: nowrap;
   transition: background 0.12s ease, color 0.12s ease;
 }
-.clip-toolbar-more:hover { background: rgba(0, 0, 0, 0.06); color: var(--text); }
-.clip-toolbar-more .ui-icon { width: 15px; height: 15px; }
+.clip-more-button:hover { background: rgba(0, 0, 0, 0.06); color: var(--text); }
+.clip-more-button .ui-icon { width: 15px; height: 15px; }
 .clipboard-settings {
-  margin: 0 2px 14px;
+  margin: 4px 2px 14px;
   padding: 12px 14px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);

@@ -1616,6 +1616,8 @@ function ClipboardPage() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [previewEntry, setPreviewEntry] = useState<ClipboardEntry | null>(null);
   const [hotkey, setHotkey] = useState<string | null>(null);
   const [hotkeyDraft, setHotkeyDraft] = useState("");
@@ -1652,6 +1654,20 @@ function ClipboardPage() {
       .catch(() => {});
     return () => { active = false; unlistenFocus?.(); };
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
 
   const copy = async (entry: ClipboardEntry) => {
     setError(null);
@@ -1723,14 +1739,8 @@ function ClipboardPage() {
   }, [ordered, query]);
 
   return <main className="workspace clipboard-workspace">
-    <header className="workspace-header"><div><h1>剪贴板</h1><p>运行期间自动记录 · 关闭窗口收起到托盘，Alt+Shift+V 随时唤出</p></div><div className="header-actions"><span className="clipboard-count">{entries ? `${entries.length} 条` : ""}</span><button className="primary-button danger" onClick={() => void clearAll()} disabled={!entries || entries.length === 0}>{confirmClear ? "再点一次确认清空" : "清空历史"}</button></div></header>
+    <header className="workspace-header"><div><h1>剪贴板</h1><p>自动记录 · 托盘常驻，Alt+Shift+V 随时唤出</p></div><div className="header-actions"><span className="clipboard-count">{entries ? `${entries.length} 条` : ""}</span><label className="store-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索剪贴板"/></label><div className="clip-more" ref={menuRef}><button className="clip-more-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><Icon name="more"/><span>更多</span></button>{menuOpen && <div className="script-menu" role="menu"><button role="menuitem" onClick={() => { setMenuOpen(false); setSettingsOpen((open) => !open); }}><Icon name="settings"/>面板设置</button><button role="menuitem" className="danger" disabled={!entries || entries.length === 0} onClick={() => { if (confirmClear) setMenuOpen(false); void clearAll(); }}>{confirmClear ? "再点一次确认清空" : "清空历史"}</button></div>}</div></div></header>
     <section className="software-panel clipboard-panel">
-      <div className="panel-toolbar clipboard-toolbar">
-        <div className="clipboard-toolbar-actions">
-          <label className="search-box"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索剪贴板内容"/></label>
-          <button className="clip-toolbar-more" onClick={() => setSettingsOpen((open) => !open)} aria-haspopup="true" aria-expanded={settingsOpen} title="全局热键与面板设置"><Icon name="settings"/><span>面板设置</span></button>
-        </div>
-      </div>
       {settingsOpen && <div className="clipboard-settings">
         <div className="clipboard-hotkey-row">
           <span>全局热键唤出面板</span>
