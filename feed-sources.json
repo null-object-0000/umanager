@@ -362,5 +362,16 @@
       "releaseApiUrl": "https://api.github.com/repos/pnpm/pnpm/releases/latest",
       "versionTitleRegex": "^pnpm (\\d+\\.\\d+(?:\\.\\d+)?)"
     }
+  },
+  "windowsApplications": {
+    "wecom": {
+      "displayName": "企业微信",
+      "profile": "wecom-v1",
+      "downloadUrl": "https://work.weixin.qq.com/wework_admin/commdownload?platform=win",
+      "downloadHosts": [
+        "work.weixin.qq.com",
+        "dldir1.qq.com"
+      ]
+    }
   }
 }

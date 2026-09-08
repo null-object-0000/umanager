@@ -51,6 +51,9 @@ pub struct FeedSourceInfo {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Feed {
+    /// Windows installers are authorized by the central feed signature only.
+    #[serde(default)]
+    pub windows_applications: HashMap<String, crate::windows_apps::WindowsRelease>,
     pub schema_version: u32,
     pub generated_at_unix_seconds: u64,
     #[serde(default)]
@@ -773,6 +776,7 @@ fn merged_feed(central: &Feed, sources: &HashMap<String, CachedSourceFeed>) -> F
         }
     }
     Feed {
+        windows_applications: central.windows_applications.clone(),
         schema_version: central.schema_version,
         generated_at_unix_seconds: central.generated_at_unix_seconds,
         applications,
@@ -1124,6 +1128,9 @@ fn validate(feed: &Feed) -> Result<(), String> {
     if let Some(entry) = &feed.self_update {
         validate_application_entry("selfUpdate", entry)?;
     }
+    for (id, entry) in &feed.windows_applications {
+        if id == "wecom" { entry.validate()?; }
+    }
     for (id, entry) in &feed.development_tools {
         if let Some(pkg) = &entry.npm_package {
             if pkg.is_empty() || pkg.contains('\0') {
@@ -1384,12 +1391,19 @@ mod tests {
             ],
             "selfUpdate": null, "developmentTools": {}, "applications": {}
         }"#;
-        let central: Feed = serde_json::from_str(central).unwrap();
+        let mut central: Feed = serde_json::from_str(central).unwrap();
+        let windows: crate::windows_apps::WindowsRelease = serde_json::from_value(serde_json::json!({
+            "displayName": "企业微信", "profile": "wecom-v1", "version": "5.0.10.6015",
+            "downloadUrl": "https://dldir1.qq.com/wework/work_weixin/WeCom_5.0.10.6015.exe",
+            "downloadHosts": ["dldir1.qq.com"], "size": 2048, "sha256": "a".repeat(64)
+        })).unwrap();
+        central.windows_applications.insert("wecom".into(), windows.clone());
         let mut sources = HashMap::new();
         sources.insert(
             "tencent".to_owned(),
             CachedSourceFeed {
                 feed: Feed {
+                    windows_applications: HashMap::new(),
                     schema_version: 3,
                     generated_at_unix_seconds: 100,
                     applications: HashMap::from([
@@ -1404,6 +1418,7 @@ mod tests {
             "common".to_owned(),
             CachedSourceFeed {
                 feed: Feed {
+                    windows_applications: HashMap::new(),
                     schema_version: 3,
                     generated_at_unix_seconds: 100,
                     applications: HashMap::from([
@@ -1414,7 +1429,11 @@ mod tests {
                 },
             },
         );
+        let mut source_windows = windows;
+        source_windows.version = "99.0.0.0".into();
+        sources.get_mut("tencent").unwrap().feed.windows_applications.insert("wecom".into(), source_windows);
         let merged = merged_feed(&central, &sources);
+        assert_eq!(merged.windows_applications["wecom"].version, "5.0.10.6015");
         // Registry order wins: tencent supplies wechat (version 4.0), not common's 9.9.
         assert_eq!(merged.applications.len(), 3);
         assert_eq!(merged.applications["wechat"].version, "4.0");
@@ -1439,6 +1458,7 @@ mod tests {
         const CATALOG_SIGNATURE: &str =
             "34367b877d8cdd0bab52bcf8728f1666771ec12c00991ff0c32ee7743ceef263a3265e3e16b472b94124a78172929bf11e8a5b154e22ba28d214709691e99d02";
         let feed = Feed {
+            windows_applications: HashMap::new(),
             schema_version: 3,
             generated_at_unix_seconds: 1750000000,
             applications: HashMap::new(),
@@ -1492,6 +1512,7 @@ mod tests {
             CachedFeed {
                 fetched_at_unix_seconds: 100,
                 feed: Feed {
+                    windows_applications: HashMap::new(),
                     schema_version: 3,
                     generated_at_unix_seconds: 100,
                     applications: HashMap::new(),
@@ -1535,6 +1556,7 @@ mod tests {
             "tencent".to_owned(),
             CachedSourceFeed {
                 feed: Feed {
+                    windows_applications: HashMap::new(),
                     schema_version: 3,
                     generated_at_unix_seconds: 100,
                     applications: HashMap::new(),
@@ -1556,6 +1578,7 @@ mod tests {
             "common".to_owned(),
             CachedSourceFeed {
                 feed: Feed {
+                    windows_applications: HashMap::new(),
                     schema_version: 3,
                     generated_at_unix_seconds: 100,
                     applications: HashMap::new(),

@@ -1491,3 +1491,28 @@ nav { display: grid; gap: 2px; }
 .feed-source-name { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); }
 .feed-source-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; color: var(--text-3); font-size: var(--fs-sm); }
 .feed-source-meta span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Windows applications use a separate lifecycle from Debian packages. */
+.windows-workspace { overflow-y: auto; }
+.windows-card { background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 16px; padding: 24px; margin: 0 0 20px; }
+.windows-card h2 { margin: 0 0 10px; font-size: 19px; }
+.windows-app-heading { display: flex; align-items: center; gap: 14px; }
+.windows-app-heading img { width: 48px; height: 48px; }
+.windows-tag, .windows-install-state { color: #667085; font-size: 13px; }
+.windows-install-state { margin-left: auto; }
+.windows-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 24px 0; }
+.windows-facts div:last-child { grid-column: 1 / -1; }
+.windows-facts dt { color: #667085; font-size: 12px; margin-bottom: 5px; }
+.windows-facts dd { margin: 0; overflow-wrap: anywhere; font-size: 14px; }
+.windows-note { color: #667085; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.windows-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.windows-danger { color: #b42318; }
+.windows-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; border: 0; padding: 12px 0; margin: 0; }
+.windows-settings label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.windows-settings select { min-width: 0; padding: 9px; border: 1px solid #d0d5dd; border-radius: 8px; background: white; color: #344054; }
+.windows-settings .windows-check { flex-direction: row; align-items: center; grid-column: 1 / -1; }
+.windows-confirm::backdrop { background: #10182866; }
+.windows-confirm { border: 0; color: #1d2939; background: #fff; border-radius: 18px; padding: 28px; width: min(590px, 100%); max-height: 85vh; overflow-y: auto; box-shadow: 0 24px 70px #10182833; }
+.windows-confirm p { line-height: 1.6; }
+.windows-hash { display: block; font-size: 11px; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .windows-settings, .windows-facts { grid-template-columns: 1fr; } }

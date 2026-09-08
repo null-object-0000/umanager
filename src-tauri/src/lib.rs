@@ -17,6 +17,7 @@ mod session;
 mod scripts;
 mod source_engine;
 mod translation;
+mod windows_apps;
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -701,6 +702,11 @@ pub fn run() {
         })
         .on_window_event(background::handle_window_event)
         .invoke_handler(tauri::generate_handler![
+            windows_apps::get_windows_state,
+            windows_apps::prepare_windows_operation,
+            windows_apps::execute_windows_operation,
+            windows_apps::launch_windows_application,
+            windows_apps::open_windows_directory,
             get_installation_info,
             restart_app,
             get_network_settings,

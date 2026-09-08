@@ -1,0 +1,13 @@
+{
+  "wineBinary": "/usr/bin/wine",
+  "windowsVersion": "win10",
+  "dpi": 192,
+  "graphicsDriver": "x11",
+  "chineseFont": "Noto Sans CJK SC",
+  "titlebarFix": true,
+  "fontAntialiasing": "default",
+  "fontHinting": "default",
+  "fontLink": true,
+  "virtualDesktop": "off",
+  "colorDepth": 32
+}

@@ -461,3 +461,47 @@ export interface SessionInfo {
   globalHotkeySupported: boolean;
 }
 
+
+// Windows 应用（Wine）管理：状态、设置与操作计划，与 windows_apps.rs 的
+// camelCase 序列化保持一致。安装包授权仅来自签名 feed 的 windowsApplications。
+export type WindowsAction = "install" | "update" | "uninstall" | "configure";
+
+export interface WindowsSettings {
+  wineBinary: string;
+  windowsVersion: string;
+  dpi: number;
+  graphicsDriver: string;
+  chineseFont: string;
+  titlebarFix: boolean;
+  fontAntialiasing: string;
+  fontHinting: string;
+  fontLink: boolean;
+  virtualDesktop: string;
+  colorDepth: number;
+}
+
+export interface WindowsState {
+  installed: boolean;
+  installedVersion: string | null;
+  candidateVersion: string | null;
+  updateAvailable: boolean;
+  prefix: string;
+  wineVersion: string | null;
+  settings: WindowsSettings;
+  running: boolean;
+  fontAvailable: boolean;
+  feedError: string | null;
+  busy: boolean;
+}
+
+export interface WindowsPlan {
+  planId: string;
+  action: WindowsAction;
+  prefix: string;
+  installedVersion: string | null;
+  targetVersion: string | null;
+  settings: WindowsSettings;
+  expiresAt: number;
+  downloadSize: number | null;
+  sha256: string | null;
+}

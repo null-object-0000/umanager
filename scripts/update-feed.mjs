@@ -37,6 +37,7 @@
 //   categoryAssignments: { applications: { [applicationId]: categoryId },
 //                          developmentTools: { [toolId]: categoryId } }
 
+import { windowsEntry } from "./windows-feed.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes, sign } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -1226,6 +1227,7 @@ function loadConfig() {
     releaseNotesOverrides,
     toolReleaseNotesOverrides,
     toolVersionOverrides,
+    windowsApplications: extra.windowsApplications ?? {},
     categories,
     categoryAssignments,
   };
@@ -1492,7 +1494,18 @@ async function scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEnt
     }
     if (resolved) applyVersionTime(resolved, previousFeed?.developmentTools?.[tool.toolId], nowUnixSeconds);
   }
-  return { selfUpdate, developmentTools };
+  const windowsApplications = {};
+  for (const [id, source] of Object.entries(config.windowsApplications)) {
+    try { windowsApplications[id] = await windowsEntry(source); }
+    catch (error) {
+      fail(`Windows ${id}`, error.message);
+      if (previousFeed?.windowsApplications?.[id]) {
+        windowsApplications[id] = previousFeed.windowsApplications[id];
+        reusedEntries.push(`Windows ${id}`);
+      }
+    }
+  }
+  return { selfUpdate, developmentTools, windowsApplications };
 }
 
 // Generation: app entries + icons + catalog for either the central feed
@@ -1556,9 +1569,10 @@ async function runGenerate({ OUT_PATH, config, previousFeed, group = null }) {
   if (!isGroup) {
     // Central feed only: selfUpdate, development tools and categories live
     // exclusively in the central source; source feeds are apps-only.
-    const { selfUpdate, developmentTools } = await scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEntries);
+    const { selfUpdate, developmentTools, windowsApplications } = await scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEntries);
     feed.selfUpdate = selfUpdate;
     feed.developmentTools = developmentTools;
+    feed.windowsApplications = windowsApplications;
     feed.categories = categories;
     feed.categoryAssignments = categoryAssignments;
   }
@@ -1590,7 +1604,7 @@ async function runGenerate({ OUT_PATH, config, previousFeed, group = null }) {
 // The v2 world (/feed.json + root source feeds) is unaffected. Publishing is
 // skipped entirely when any required signing key is missing (central or a
 // published group's), so a half-signed v3 world is never deployed.
-async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, selfUpdate, developmentTools }) {
+async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, selfUpdate, developmentTools, windowsApplications }) {
   const { catalog, sourceRegistry } = config;
   const metadataFeed = catalog.metadataFeed;
   if (!metadataFeed?.url || !metadataFeed?.hosts?.length) {
@@ -1684,6 +1698,7 @@ async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, sel
     generatedAtUnixSeconds: nowUnixSeconds,
     selfUpdate,
     developmentTools,
+    windowsApplications,
     categories: config.categories,
     categoryAssignments: config.categoryAssignments,
   };
@@ -1754,7 +1769,7 @@ async function runMerge({ OUT_PATH, partsDir, config, previousFeed, previousSour
   // Central-only data: selfUpdate + development tools are scraped here (a few
   // fast GitHub/npm calls), with previous-feed fallback + version-time merge.
   const reusedEntries = [];
-  const { selfUpdate, developmentTools } = await scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEntries);
+  const { selfUpdate, developmentTools, windowsApplications } = await scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEntries);
 
   const catalogList = extraApplications.map((app) => catalogApps[app.applicationId]).filter(Boolean);
   const catalogJson = JSON.stringify(catalogList);
@@ -1770,6 +1785,7 @@ async function runMerge({ OUT_PATH, partsDir, config, previousFeed, previousSour
     catalogSignature,
     selfUpdate,
     developmentTools,
+    windowsApplications,
     categories,
     categoryAssignments,
   };
@@ -1796,6 +1812,7 @@ async function runMerge({ OUT_PATH, partsDir, config, previousFeed, previousSour
     nowUnixSeconds,
     selfUpdate,
     developmentTools,
+    windowsApplications,
   });
 
   writeSignedOutput(OUT_PATH, feed);

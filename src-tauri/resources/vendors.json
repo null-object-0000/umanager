@@ -447,5 +447,10 @@
       },
       "description": "快速省磁盘的 Node.js 包管理器，内容寻址存储让多项目共享依赖，原生支持 workspace 与严格依赖隔离。"
     }
-  ]
+  ],
+  "windowsCompatibilityProfiles": {
+    "wecom-v1": {
+      "downloadHosts": ["work.weixin.qq.com", "dldir1.qq.com"]
+    }
+  }
 }

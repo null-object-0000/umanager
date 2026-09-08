@@ -33,6 +33,7 @@ on:
       - "src-tauri/resources/vendors.json"
       - "feed-sources.json"
       - "scripts/update-feed.mjs"
+      - "scripts/windows-feed.mjs"
       - "scripts/feed-merge.mjs"
       - ".github/workflows/update-feed.yml"
 

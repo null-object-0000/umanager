@@ -1,14 +1,18 @@
+import { WindowsConfirmDialog, WindowsRow } from "./WindowsAppsPage";
+import type { WindowsRowAction } from "./WindowsAppsPage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import defaultWineSettings from "../src-tauri/resources/windows/wecom-defaults.json";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState } from "./types";
-import { debCategory, devToolCategory, orderedCategories } from "./categories";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import { debCategory, devToolCategory, orderedCategories, windowsCategory } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
 import chromeIcon from "./assets/app-icons/google-chrome.png";
@@ -27,6 +31,7 @@ import hermesIcon from "./assets/app-icons/hermes.png";
 import uvIcon from "./assets/app-icons/uv.svg?no-inline";
 import pnpmIcon from "./assets/app-icons/pnpm.svg?no-inline";
 import wineIcon from "./assets/app-icons/wine.svg?no-inline";
+import wecomIcon from "./assets/app-icons/wecom.png";
 import feishuIcon from "./assets/app-icons/feishu.png";
 import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 import umanagerLogo from "./assets/umanager-logo.png";
@@ -155,6 +160,65 @@ function DetailShell({ label, icon, title, subtitle, description, action, canClo
 function DependencyGapWarning({ missing }: { missing: string[] }) {
   if (missing.length === 0) return null;
   return <div className="dependency-warning"><strong>⚠ 检测到缺少依赖</strong><span>UManager 用 <code>dpkg --install</code> 安装，不会自动补装依赖；缺少以下包可能导致安装失败：</span><ul>{missing.map((item, index) => <li key={`${index}-${item}`}><code>{item}</code></li>)}</ul><p>可先在终端执行 <code>sudo apt-get install -f</code> 或手动安装上述包后再继续。</p></div>;
+}
+
+// 企业微信（Wine）详情抽屉：信息、操作与 Wine 配置入口，结构与更新抽屉一致。
+function WindowsDetailDrawer({ state, onAction, onClose }: {
+  state: WindowsState;
+  onAction: (action: WindowsRowAction, settings?: WindowsSettings) => void;
+  onClose: () => void;
+}) {
+  const [settings, setSettings] = useState<WindowsSettings>(state.settings);
+  useEffect(() => { setSettings(state.settings); }, [state.settings]);
+  const locked = state.running;
+  const heroAction = <>
+    <button className="hero-button" onClick={() => onAction(!state.installed ? "install" : state.updateAvailable ? "update" : "launch")}>{!state.installed ? "安装" : state.updateAvailable ? "更新" : "打开"}</button>
+    {state.installed && <button className="ghost-link" onClick={() => onAction("uninstall")}>卸载</button>}
+  </>;
+  return <DetailShell
+    label="企业微信 详情"
+    icon={<span className="app-mark has-icon"><img src={wecomIcon} alt=""/></span>}
+    title="企业微信"
+    subtitle="腾讯 · Windows（Wine）"
+    description="Windows 版企业微信，通过本机 Wine 运行。安装、更新与卸载均以当前用户执行，不经过系统授权。"
+    action={heroAction}
+    canClose={!state.busy}
+    onClose={onClose}
+  >
+    <div className="drawer-content">
+      {!state.wineVersion && <div className="message"><strong>需要先安装 Wine</strong><span>企业微信通过 Wine 运行。可在「软件」页搜索 wine 安装运行器后，再安装企业微信。</span></div>}
+      {state.running && <div className="message"><strong>企业微信正在运行</strong><span>安装、更新、卸载或修改配置前，请先从托盘退出企业微信。</span></div>}
+      {state.feedError && <div className="message"><strong>无法获取官方安装包信息</strong><span>{state.feedError}。已有安装仍可启动、配置和卸载。</span></div>}
+      <div className="windows-facts">
+        <div><dt>当前版本</dt><dd>{state.installedVersion ?? (state.installed ? "无法识别" : "未安装")}</dd></div>
+        <div><dt>官方候选版本</dt><dd>{state.candidateVersion ?? "尚未获取"}{state.updateAvailable ? " · 可更新" : ""}</dd></div>
+        <div><dt>Wine 运行器</dt><dd>{state.wineVersion ?? "未安装"}</dd></div>
+        <div><dt>环境目录</dt><dd>{state.prefix}</dd></div>
+      </div>
+      <section className="windows-card">
+        <h2>Wine 配置</h2>
+        <p className="windows-note">默认采用现有企业微信环境的兼容设置：Windows 10、192 DPI、X11 / XWayland、中文字体替换和标题栏修复。配置仅作用于企业微信环境。</p>
+        <fieldset disabled={locked} className="windows-settings">
+          <label>Wine 运行器<select value={settings.wineBinary} onChange={e => setSettings({ ...settings, wineBinary: e.target.value })}>{["/usr/bin/wine", "/opt/wine-devel/bin/wine", "/opt/wine-stable/bin/wine", "/opt/wine-staging/bin/wine"].map(p => <option key={p}>{p}</option>)}</select></label>
+          <label>Windows 版本<select value={settings.windowsVersion} onChange={e => setSettings({ ...settings, windowsVersion: e.target.value })}><option value="win10">Windows 10（默认）</option><option value="win11">Windows 11</option></select></label>
+          <label>显示缩放<select value={settings.dpi} onChange={e => setSettings({ ...settings, dpi: Number(e.target.value) })}>{[96, 120, 144, 168, 192, 240, 288].map(d => <option key={d} value={d}>{d} DPI · {Math.round(d / 96 * 100)}%</option>)}</select></label>
+          <label>窗口驱动<select value={settings.graphicsDriver} onChange={e => setSettings({ ...settings, graphicsDriver: e.target.value })}><option value="x11">X11 / XWayland（默认）</option><option value="wayland">原生 Wayland（实验性）</option></select></label>
+          <label>字体渲染<select value={settings.fontAntialiasing} onChange={e => setSettings({ ...settings, fontAntialiasing: e.target.value })}><option value="default">默认（跟随系统）</option><option value="gray">灰度</option><option value="rgb">次像素 RGB（清晰）</option><option value="bgr">次像素 BGR</option></select></label>
+          <label>字形微调<select value={settings.fontHinting} onChange={e => setSettings({ ...settings, fontHinting: e.target.value })}><option value="default">默认（跟随系统）</option><option value="none">关闭</option><option value="light">轻</option><option value="medium">中等</option><option value="full">全量</option></select></label>
+          <label className="windows-check"><input type="checkbox" checked={settings.fontLink} onChange={e => setSettings({ ...settings, fontLink: e.target.checked })}/>字体链接（把拉丁字体缺字链接到中文字体，避免方框）</label>
+          <label>虚拟桌面<select value={settings.virtualDesktop} onChange={e => setSettings({ ...settings, virtualDesktop: e.target.value })}><option value="off">关闭（使用真实桌面）</option><option value="1280x720">1280×720</option><option value="1920x1080">1920×1080</option><option value="2560x1440">2560×1440</option></select></label>
+          <label>颜色深度<select value={settings.colorDepth} onChange={e => setSettings({ ...settings, colorDepth: Number(e.target.value) })}><option value={16}>16 位</option><option value={24}>24 位</option><option value={32}>32 位（默认）</option></select></label>
+          <label className="windows-check"><input type="checkbox" checked={settings.titlebarFix} onChange={e => setSettings({ ...settings, titlebarFix: e.target.checked })}/>修复最小化后的标题栏残留</label>
+        </fieldset>
+        <div className="windows-actions">
+          <button className="secondary-button" onClick={() => setSettings(defaultWineSettings)}>恢复默认值</button>
+          <button className="primary-button" disabled={locked || !state.installed} onClick={() => onAction("configure", settings)}>复核并应用配置</button>
+        </div>
+        {!state.installed && <p className="windows-note">配置将随首次安装一起应用。</p>}
+      </section>
+      <p className="windows-note">安装 / 更新会打开企业微信官方向导，安装包来源、版本、大小与 SHA-256 均由签名软件源授权；卸载运行官方卸载向导，聊天记录是否保留由向导中的选项决定。</p>
+    </div>
+  </DetailShell>;
 }
 
 function AppLogo({ packageName, displayName }: { packageName: string; displayName: string }) {
@@ -896,7 +960,7 @@ type MergedSoftware = {
 
 type SoftwareItem = {
   key: string;
-  kind: "deb" | "devTool";
+  kind: "deb" | "devTool" | "windows";
   category: string;
   displayName: string;
   vendor: string;
@@ -904,6 +968,7 @@ type SoftwareItem = {
   deb?: MergedSoftware;
   tool?: DevTool;
   toolState?: DevToolState | null;
+  windows?: { state: WindowsState };
 };
 
 type DownloadState =
@@ -1691,6 +1756,11 @@ export default function App() {
   const [selectedDevTool, setSelectedDevTool] = useState<DevTool | null>(null);
   const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
   const [notice, setNotice] = useState<string | null>(null);
+  const [windowsState, setWindowsState] = useState<WindowsState | null>(null);
+  const [windowsPlan, setWindowsPlan] = useState<WindowsPlan | null>(null);
+  const [windowsBusy, setWindowsBusy] = useState(false);
+  const [windowsMessage, setWindowsMessage] = useState("");
+  const [windowsOpen, setWindowsOpen] = useState(false);
 
   useEffect(() => {
     void getSoftwareCatalog().then((entries) => {
@@ -1728,14 +1798,23 @@ export default function App() {
       setDevToolsError(String(reason));
     }
   };
+  const loadWindowsState = async () => {
+    try { setWindowsState(await getWindowsState()); } catch { /* Wine/feed 未就绪时不在列表展示 */ }
+  };
   useEffect(() => {
     void refresh();
     void refreshInstallable();
     void refreshInstallationInfo();
     void loadDevTools();
     void loadCategories();
+    void loadWindowsState();
     void getPendingLocalDeb().then(setPendingLocalDeb).catch((reason) => setPendingLocalDebError(String(reason)));
     getVersion().then(setAppVersion).catch(() => { /* 获取编译版本失败时兜底为空 */ });
+  }, []);
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    const unlisten = listen<string>("windows-progress", (event) => setWindowsMessage(event.payload)).catch(() => () => {});
+    return () => { void unlisten.then((dispose) => dispose()); };
   }, []);
 
   const softwareItems = useMemo(() => {
@@ -1801,18 +1880,30 @@ export default function App() {
         toolState: devToolStates[tool.toolId] ?? null,
       });
     }
+    // Windows（Wine）应用作为普通软件条目展示，安装包来源仍由签名 feed 授权。
+    if (windowsState) {
+      items.push({
+        key: "windows-wecom",
+        kind: "windows",
+        category: windowsCategory(categoryCatalog),
+        displayName: "企业微信",
+        vendor: "腾讯",
+        description: "Windows 版企业微信，通过本机 Wine 运行。",
+        windows: { state: windowsState },
+      });
+    }
     return items.sort((a, b) => a.displayName.localeCompare(b.displayName, "zh-CN"));
-  }, [result, installableOffers, devTools, devToolStates, categoryCatalog]);
+  }, [result, installableOffers, devTools, devToolStates, categoryCatalog, windowsState]);
   const presentCategories = useMemo(() => {
     const set = new Set<string>();
     for (const item of softwareItems) set.add(item.category);
     return set;
   }, [softwareItems]);
   const categoryChips = useMemo(() => orderedCategories(categoryCatalog, presentCategories), [categoryCatalog, presentCategories]);
-  const updatesCount = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.toolState?.updateAvailable === true).length, [softwareItems]);
-  const updatableItems = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.toolState?.updateAvailable === true), [softwareItems]);
+  const updatesCount = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.kind === "devTool" ? item.toolState?.updateAvailable === true : item.windows?.state.updateAvailable === true).length, [softwareItems]);
+  const updatableItems = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.kind === "devTool" ? item.toolState?.updateAvailable === true : item.windows?.state.updateAvailable === true), [softwareItems]);
   const visibleSoftware = useMemo(() => softwareItems.filter((item) => {
-    const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}`.toLowerCase();
+    const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}${item.kind === "windows" ? " wine windows" : ""}`.toLowerCase();
     const textMatch = searchable.includes(query.toLowerCase());
     const categoryMatch = categoryFilter === "全部" || item.category === categoryFilter;
     const stateMatch = (() => {
@@ -1822,6 +1913,12 @@ export default function App() {
         if (filter === "installed") return deb.installed;
         if (filter === "updates") return deb.updateState === "updateAvailable";
         return !deb.installed;
+      }
+      if (item.kind === "windows") {
+        const windows = item.windows!.state;
+        if (filter === "installed") return windows.installed;
+        if (filter === "updates") return windows.updateAvailable;
+        return !windows.installed;
       }
       const state = item.toolState;
       if (filter === "installed") return state?.installed === true;
@@ -1842,7 +1939,42 @@ export default function App() {
       setInstallOffer(deb.offer);
     }
   };
-  const refreshAll = () => { void refresh(); void refreshInstallable(); void loadDevTools(); void loadCategories(); };
+  const refreshAll = () => { void refresh(); void refreshInstallable(); void loadDevTools(); void loadCategories(); void loadWindowsState(); };
+  const handleWindowsAction = (action: WindowsRowAction, settingsOverride?: WindowsSettings) => {
+    if (windowsBusy || windowsPlan || windowsState?.busy) return;
+    if (!windowsState) return;
+    if (!windowsState.wineVersion && action !== "configure") {
+      setNotice("企业微信通过 Wine 运行，请先在「软件」页安装 Wine。");
+      setPage("installed"); setQuery("wine"); setFilter("all");
+      return;
+    }
+    if (action === "launch") {
+      setWindowsBusy(true);
+      launchWindowsApplication().catch((reason) => setNotice(String(reason))).finally(() => setWindowsBusy(false));
+      return;
+    }
+    setWindowsBusy(true); setWindowsMessage("正在复核环境与操作…");
+    prepareWindowsOperation(action, settingsOverride ?? windowsState.settings)
+      .then((plan) => { setWindowsPlan(plan); setWindowsMessage(""); })
+      .catch((reason) => setNotice(String(reason)))
+      .finally(() => setWindowsBusy(false));
+  };
+  const confirmWindows = async () => {
+    if (!windowsPlan || windowsBusy) return;
+    setWindowsBusy(true); setWindowsMessage("");
+    try {
+      setWindowsMessage(await executeWindowsOperation(windowsPlan.planId));
+      setWindowsPlan(null);
+      void loadWindowsState();
+      void refresh();
+    } catch (reason) {
+      setNotice(String(reason));
+      setWindowsPlan(null);
+      void loadWindowsState();
+    } finally {
+      setWindowsBusy(false);
+    }
+  };
   const applicationIdOf = (packageName: string) => catalogByPackage[packageName]?.applicationId;
   const downloadProgressOf = (packageName: string): DownloadProgress | null => {
     const state = downloads[packageName];
@@ -1953,7 +2085,9 @@ export default function App() {
         {result && visibleSoftware.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
         <div className="app-grid">{visibleSoftware.map((item) => item.kind === "deb"
           ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
-          : <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
+          : item.kind === "devTool"
+            ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
+            : item.windows ? <WindowsRow state={item.windows.state} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
     </main> : page === "updates" ? <main className="workspace store-workspace">
       <header className="workspace-header">
@@ -1971,7 +2105,9 @@ export default function App() {
         {result && updatableItems.length === 0 && <div className="empty-state"><p>所有软件均为最新版本。</p></div>}
         <div className="app-grid">{updatableItems.map((item) => item.kind === "deb"
           ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
-          : <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>)}</div>
+          : item.kind === "devTool"
+            ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
+            : item.windows ? <WindowsRow state={item.windows.state} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
     </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} download={downloads[updatePackage.packageName]} onStartDownload={(notify) => void startDownload(applicationIdOf(updatePackage.packageName) ?? "", updatePackage.packageName, notify)} onClearDownload={() => clearDownload(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
@@ -1983,6 +2119,8 @@ export default function App() {
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>
     )}
+    {windowsPlan && <WindowsConfirmDialog plan={windowsPlan} busy={windowsBusy} message={windowsMessage} onConfirm={() => void confirmWindows()} onCancel={() => { if (!windowsBusy) { setWindowsPlan(null); setWindowsMessage(""); } }}/>}
+    {windowsOpen && windowsState && <WindowsDetailDrawer state={windowsState} onAction={handleWindowsAction} onClose={() => setWindowsOpen(false)}/>}
     {notice && <div className="app-notice" role="status" onClick={() => setNotice(null)}><span>{notice}</span><button aria-label="关闭">×</button></div>}
   </div>;
 }

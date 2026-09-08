@@ -69,6 +69,11 @@ export function devToolCategory(catalog: CategoryCatalog | null, toolId: string)
   return categoryLabel(catalog, assignments[toolId]);
 }
 
+// Windows/Wine 应用（当前仅企业微信）归类为「社交通讯」。
+export function windowsCategory(catalog: CategoryCatalog | null): string {
+  return categoryLabel(catalog, "chat");
+}
+
 // 给定当前出现的分类 label 集合，按 feed/内置顺序返回分类列表；未知分类兜底到最后。
 export function orderedCategories(catalog: CategoryCatalog | null, present: ReadonlySet<string>): string[] {
   const categories = catalog?.categories ?? FALLBACK_CATEGORIES;

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -209,6 +209,50 @@ export function scanPackages(): Promise<ScanResult> {
 export function getSoftwareCatalog(): Promise<CatalogApplication[]> {
   if (isMock()) return Promise.resolve(mockCatalog);
   return invoke<CatalogApplication[]>("get_software_catalog");
+}
+
+const mockWindowsState: WindowsState = {
+  installed: true,
+  installedVersion: "5.0.10.6015",
+  candidateVersion: null,
+  updateAvailable: false,
+  prefix: "~/.local/share/wineprefixes/wecom",
+  wineVersion: "wine-11.17",
+  settings: { wineBinary: "/usr/bin/wine", windowsVersion: "win10", dpi: 192, graphicsDriver: "x11", chineseFont: "Noto Sans CJK SC", titlebarFix: true, fontAntialiasing: "default", fontHinting: "default", fontLink: true, virtualDesktop: "off", colorDepth: 32 },
+  running: false,
+  fontAvailable: true,
+  feedError: "浏览器预览：安装包信息需要连接桌面端签名软件源",
+  busy: false,
+};
+
+export function getWindowsState(): Promise<WindowsState> {
+  if (isMock()) return Promise.resolve(mockWindowsState);
+  return invoke<WindowsState>("get_windows_state");
+}
+
+export function prepareWindowsOperation(action: WindowsAction, settings: WindowsSettings): Promise<WindowsPlan> {
+  if (isMock()) {
+    return Promise.resolve({
+      planId: "preview", action, prefix: mockWindowsState.prefix, installedVersion: mockWindowsState.installedVersion,
+      targetVersion: null, settings, expiresAt: Math.floor(Date.now() / 1000) + 900, downloadSize: null, sha256: null,
+    });
+  }
+  return invoke<WindowsPlan>("prepare_windows_operation", { action, settings });
+}
+
+export function executeWindowsOperation(planId: string): Promise<string> {
+  if (isMock()) return Promise.resolve("浏览器预览：未执行实际操作");
+  return invoke<string>("execute_windows_operation", { planId });
+}
+
+export function launchWindowsApplication(): Promise<void> {
+  if (isMock()) return Promise.resolve();
+  return invoke<void>("launch_windows_application");
+}
+
+export function openWindowsDirectory(): Promise<void> {
+  if (isMock()) return Promise.resolve();
+  return invoke<void>("open_windows_directory");
 }
 
 export function getAppIcon(appId: string, iconUrl: string, iconSha256: string): Promise<string> {
