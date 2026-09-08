@@ -1622,6 +1622,7 @@ function ClipboardPage() {
   const [hotkeySaving, setHotkeySaving] = useState(false);
   const [hotkeySaved, setHotkeySaved] = useState(false);
   const [session, setSession] = useState<SessionInfo | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -1724,21 +1725,24 @@ function ClipboardPage() {
   return <main className="workspace clipboard-workspace">
     <header className="workspace-header"><div><h1>剪贴板</h1><p>运行期间自动记录 · 关闭窗口收起到托盘，Alt+Shift+V 随时唤出</p></div><div className="header-actions"><span className="clipboard-count">{entries ? `${entries.length} 条` : ""}</span><button className="primary-button danger" onClick={() => void clearAll()} disabled={!entries || entries.length === 0}>{confirmClear ? "再点一次确认清空" : "清空历史"}</button></div></header>
     <section className="software-panel clipboard-panel">
-      <div className="panel-toolbar">
-        <div className="filter-tabs">
-          <span className="clipboard-hint">本机轮询读取、内容不上传，最多 500 条；关闭窗口会收起到托盘，全局热键 Alt+Shift+V 唤出（Wayland 上热键可能不可用）。</span>
+      <div className="panel-toolbar clipboard-toolbar">
+        <div className="clipboard-toolbar-actions">
+          <label className="search-box"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索剪贴板内容"/></label>
+          <button className="clip-toolbar-more" onClick={() => setSettingsOpen((open) => !open)} aria-haspopup="true" aria-expanded={settingsOpen} title="全局热键与面板设置"><Icon name="settings"/><span>面板设置</span></button>
         </div>
-        <label className="search-box"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索剪贴板内容"/></label>
       </div>
-      <div className="clipboard-hotkey-row">
-        <span>全局热键唤出面板</span>
-        {session && <span className={`clip-session-badge ${session.kind}`}>{session.globalHotkeySupported ? "X11 可用" : session.kind === "wayland" ? "Wayland 受限" : "未识别会话"}</span>}
-        <input className="clipboard-hotkey-input" value={hotkeyDraft} onChange={(event) => setHotkeyDraft(event.target.value)} disabled={hotkeySaving} spellCheck={false}/>
-        <button className="secondary-button clip-hotkey-save" onClick={() => void saveHotkey()} disabled={hotkeySaving || !hotkeyDraft.trim() || hotkeyDraft.trim() === hotkey}>{hotkeySaved ? "已保存 ✓" : "保存热键"}</button>
-      </div>
-      {session && session.kind !== "x11" && <div className={`clipboard-session-note ${session.kind}`}>{session.kind === "wayland"
-        ? <>检测到 <b>Wayland</b> 会话：应用内全局热键不生效，请到<b>系统设置 → 键盘 → 查看及自定义快捷键 → 自定义快捷键</b>绑定 <b>Super+V</b> → 命令 <code>umanager --toggle-clipboard-panel</code>（由 GNOME 调用本应用）。快捷面板已切换为 XWayland 后端，会定位在右上角托盘旁。</>
-        : <>未识别到 X11/Wayland 会话，全局热键可能不可用；建议用系统自定义快捷键绑定 <code>umanager --toggle-clipboard-panel</code>。</>}</div>}
+      {settingsOpen && <div className="clipboard-settings">
+        <div className="clipboard-hotkey-row">
+          <span>全局热键唤出面板</span>
+          {session && <span className={`clip-session-badge ${session.kind}`}>{session.globalHotkeySupported ? "X11 可用" : session.kind === "wayland" ? "Wayland 受限" : "未识别会话"}</span>}
+          <input className="clipboard-hotkey-input" value={hotkeyDraft} onChange={(event) => setHotkeyDraft(event.target.value)} disabled={hotkeySaving} spellCheck={false}/>
+          <button className="secondary-button clip-hotkey-save" onClick={() => void saveHotkey()} disabled={hotkeySaving || !hotkeyDraft.trim() || hotkeyDraft.trim() === hotkey}>{hotkeySaved ? "已保存 ✓" : "保存热键"}</button>
+        </div>
+        <p className="clipboard-hint">本机轮询读取、内容不上传，最多 500 条；关闭窗口会收起到托盘，全局热键 Alt+Shift+V 唤出。</p>
+        {session && session.kind !== "x11" && <div className={`clipboard-session-note ${session.kind}`}>{session.kind === "wayland"
+          ? <>检测到 <b>Wayland</b> 会话：应用内全局热键不生效，请到<b>系统设置 → 键盘 → 查看及自定义快捷键 → 自定义快捷键</b>绑定 <b>Super+V</b> → 命令 <code>umanager --toggle-clipboard-panel</code>（由 GNOME 调用本应用）。快捷面板已切换为 XWayland 后端，会定位在右上角托盘旁。</>
+          : <>未识别到 X11/Wayland 会话，全局热键可能不可用；建议用系统自定义快捷键绑定 <code>umanager --toggle-clipboard-panel</code>。</>}</div>}
+      </div>}
       {error && <div className="message error"><strong>剪贴板操作失败</strong><span>{error}</span></div>}
       {loading && !entries && <div className="empty-state"><span className="loader"/><p>正在读取剪贴板历史…</p></div>}
       {entries && entries.length === 0 && <div className="empty-state"><p>还没有记录。复制文本或截图后会自动出现在这里。</p></div>}

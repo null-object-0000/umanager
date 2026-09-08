@@ -1444,6 +1444,35 @@ nav { display: grid; gap: 2px; }
 .clipboard-panel { overflow: auto; }
 .clipboard-count { color: var(--text-3); font-size: var(--fs-base); }
 .clipboard-hint { color: var(--text-3); font-size: var(--fs-base); line-height: 1.5; }
+.clipboard-toolbar { justify-content: flex-end; }
+.clipboard-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.clip-toolbar-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 13px;
+  color: var(--text-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-size: var(--fs-base);
+  font-weight: 550;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.clip-toolbar-more:hover { background: rgba(0, 0, 0, 0.06); color: var(--text); }
+.clip-toolbar-more .ui-icon { width: 15px; height: 15px; }
+.clipboard-settings {
+  margin: 0 2px 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.clipboard-settings .clipboard-hotkey-row { padding-top: 0; padding-bottom: 12px; }
+.clipboard-settings .clipboard-hint { margin: 0 0 12px; }
+.clipboard-settings .clipboard-session-note { margin: 0; }
 .clipboard-list { padding: 0 2px 16px; }
 .clip-entry {
   padding: 16px;
