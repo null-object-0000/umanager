@@ -1,5 +1,6 @@
 import { WindowsConfirmDialog, WindowsRow } from "./WindowsAppsPage";
 import type { WindowsRowAction } from "./WindowsAppsPage";
+import { CardDownloadRing, DownloadProgressCard, HeroDownloadProgress, formatBytes, formatSpeed } from "./DownloadProgress";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -164,18 +165,27 @@ function DependencyGapWarning({ missing }: { missing: string[] }) {
 }
 
 // 企业微信（Wine）详情抽屉：信息、操作与 Wine 配置入口，结构与更新抽屉一致。
-function WindowsDetailDrawer({ state, onAction, onClose }: {
+// 安装/更新在弹出确认框之前要先下载并校验官方安装包（数百 MB），所以处理期间必须有
+// 可见状态、按钮必须禁用；否则点击看起来「没反应」，重复点击也会被静默丢弃。
+function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose }: {
   state: WindowsState;
+  busy: boolean;
+  message: string;
+  progress: DownloadProgress | null;
   onAction: (action: WindowsRowAction, settings?: WindowsSettings) => void;
   onClose: () => void;
 }) {
   const [settings, setSettings] = useState<WindowsSettings>(state.settings);
   useEffect(() => { setSettings(state.settings); }, [state.settings]);
-  const locked = state.running;
-  const heroAction = <>
-    <button className="hero-button" onClick={() => onAction(!state.installed ? "install" : state.updateAvailable ? "update" : "launch")}>{!state.installed ? "安装" : state.updateAvailable ? "更新" : "打开"}</button>
-    {state.installed && <button className="ghost-link" onClick={() => onAction("uninstall")}>卸载</button>}
-  </>;
+  const working = busy || state.busy;
+  const downloading = progress !== null && (progress.phase === "downloading" || progress.phase === "verifying");
+  const locked = state.running || working;
+  const heroAction = downloading && progress
+    ? <HeroDownloadProgress progress={progress}/>
+    : <>
+      <button className="hero-button" disabled={working} onClick={() => onAction(!state.installed ? "install" : state.updateAvailable ? "update" : "launch")}>{working ? "处理中…" : !state.installed ? "安装" : state.updateAvailable ? "更新" : "打开"}</button>
+      {state.installed && <button className="ghost-link" disabled={working} onClick={() => onAction("uninstall")}>卸载</button>}
+    </>;
   return <DetailShell
     label="企业微信 详情"
     icon={<span className="app-mark has-icon"><img src={wecomIcon} alt=""/></span>}
@@ -187,6 +197,8 @@ function WindowsDetailDrawer({ state, onAction, onClose }: {
     onClose={onClose}
   >
     <div className="drawer-content">
+      {downloading && progress && <DownloadProgressCard progress={progress} displayName="企业微信"/>}
+      {working && !downloading && <div className="message" role="status" aria-live="polite"><strong>正在处理</strong><span>{message || "正在复核环境与操作，请稍候…"}</span></div>}
       {!state.wineVersion && <div className="message"><strong>需要先安装 Wine</strong><span>企业微信通过 Wine 运行。可在「软件」页搜索 wine 安装运行器后，再安装企业微信。</span></div>}
       {state.running && <div className="message"><strong>企业微信正在运行</strong><span>安装、更新、卸载或修改配置前，请先从托盘退出企业微信。</span></div>}
       {state.feedError && <div className="message"><strong>无法获取官方安装包信息</strong><span>{state.feedError}。已有安装仍可启动、配置和卸载。</span></div>}
@@ -274,16 +286,6 @@ function isLaunchable(packageName: string) {
   const entry = catalogByPackage[packageName];
   if (!entry) return false;
   return entry.category !== "cli";
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-}
-
-function formatSpeed(bytesPerSecond: number) {
-  if (bytesPerSecond >= 1024 * 1024) return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MiB/s`;
-  return `${(bytesPerSecond / 1024).toFixed(0)} KiB/s`;
 }
 
 function formatUpdatedAt(unixSeconds: number | null | undefined) {
@@ -785,34 +787,9 @@ function InfoPanel({ entries, homepage }: { entries: { label: string; value: str
   </section>;
 }
 
-function CardDownloadRing({ progress }: { progress: DownloadProgress }) {
-  const percent = progress.totalBytes > 0 ? Math.min(100, Math.round(progress.transferredBytes / progress.totalBytes * 100)) : 0;
-  const label = progress.phase === "verifying" ? "校验中" : `${percent}%`;
-  return <span className="card-download-ring" style={{ background: `conic-gradient(var(--accent) ${percent * 3.6}deg, rgba(0,0,0,0.06) 0deg)` }} role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} title={label}><span>{percent}</span></span>;
-}
-
-function HeroDownloadProgress({ progress }: { progress: DownloadProgress }) {
-  const percent = progress.totalBytes > 0 ? Math.min(100, Math.round(progress.transferredBytes / progress.totalBytes * 100)) : 0;
-  const label = progress.phase === "verifying" ? "正在校验…" : "正在下载…";
-  return <div className="hero-download" role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
-    <span className="hero-download-ring" style={{ background: `conic-gradient(var(--accent) ${percent * 3.6}deg, rgba(0,0,0,0.08) 0deg)` }}><span className="hero-download-ring-inner">{percent}%</span></span>
-    <span className="hero-download-label">{label}</span>
-    <span className="hero-download-stats">{formatBytes(progress.transferredBytes)} / {formatBytes(progress.totalBytes)}</span>
-  </div>;
-}
-
 function DownloadCard({ plan }: { plan: DownloadPlan }) {
   const isWebsite = plan.sourceKind === "officialWebsite";
   return <div className="download-plan-card"><div className="download-file"><div><strong>{plan.fileName}</strong><span>{formatBytes(plan.expectedSize)} · {plan.architecture}</span></div><span className="apt-index-badge">{isWebsite ? "发布资产" : "APT 索引"}</span></div><dl><div><dt>版本</dt><dd>{plan.version}</dd></div><div><dt>SHA-256</dt><dd title={plan.expectedSha256 ?? undefined}>{plan.expectedSha256 ?? "下载后计算"}</dd></div><div><dt>缓存位置</dt><dd title={plan.targetPath}>{plan.targetPath}</dd></div></dl></div>;
-}
-
-function DownloadProgressCard({ progress, displayName }: { progress: DownloadProgress; displayName: string }) {
-  const percent = Math.min(100, Math.round(progress.transferredBytes / progress.totalBytes * 100));
-  return <div className="download-progress-card" aria-live="polite">
-    <div className="download-progress-title"><strong>{progress.phase === "downloading" ? `正在下载 ${displayName}` : `正在校验 ${displayName} 安装包`}</strong><span>{percent}%</span></div>
-    <div className="download-progress-track"><span style={{ width: `${percent}%` }}/></div>
-    <div className="download-progress-stats"><span>{formatBytes(progress.transferredBytes)} / {formatBytes(progress.totalBytes)}</span><strong>{progress.phase === "downloading" ? formatSpeed(progress.bytesPerSecond) : "正在复核包信息与 SHA-256"}</strong></div>
-  </div>;
 }
 
 function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClose, onInstalled, onLaunch, onRemove }: { item: ManagedPackage; download: DownloadState | undefined; onStartDownload: (notify: { title: string; body: string }) => void; onClearDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void; onRemove: () => void }) {
@@ -1854,6 +1831,7 @@ export default function App() {
   const [windowsPlan, setWindowsPlan] = useState<WindowsPlan | null>(null);
   const [windowsBusy, setWindowsBusy] = useState(false);
   const [windowsMessage, setWindowsMessage] = useState("");
+  const [windowsProgress, setWindowsProgress] = useState<DownloadProgress | null>(null);
   const [windowsOpen, setWindowsOpen] = useState(false);
 
   useEffect(() => {
@@ -1908,7 +1886,9 @@ export default function App() {
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     const unlisten = listen<string>("windows-progress", (event) => setWindowsMessage(event.payload)).catch(() => () => {});
-    return () => { void unlisten.then((dispose) => dispose()); };
+    // 安装包下载进度与 Debian 软件包用同一份载荷，卡片圆环据此替换操作按钮。
+    const unlistenDownload = listen<DownloadProgress>("windows-download-progress", (event) => setWindowsProgress(event.payload)).catch(() => () => {});
+    return () => { void unlisten.then((dispose) => dispose()); void unlistenDownload.then((dispose) => dispose()); };
   }, []);
 
   const softwareItems = useMemo(() => {
@@ -2035,7 +2015,11 @@ export default function App() {
   };
   const refreshAll = () => { void refresh(); void refreshInstallable(); void loadDevTools(); void loadCategories(); void loadWindowsState(); };
   const handleWindowsAction = (action: WindowsRowAction, settingsOverride?: WindowsSettings) => {
-    if (windowsBusy || windowsPlan || windowsState?.busy) return;
+    if (windowsBusy || windowsPlan || windowsState?.busy) {
+      // 下载/校验期间会持续数分钟，再点一次不是错误，只是当前操作还没结束。
+      setWindowsMessage((current) => current || "上一个操作仍在进行，请等待其完成。");
+      return;
+    }
     if (!windowsState) return;
     if (!windowsState.wineVersion && action !== "configure") {
       setNotice("企业微信通过 Wine 运行，请先在「软件」页安装 Wine。");
@@ -2051,19 +2035,20 @@ export default function App() {
     prepareWindowsOperation(action, settingsOverride ?? windowsState.settings)
       .then((plan) => { setWindowsPlan(plan); setWindowsMessage(""); })
       .catch((reason) => setNotice(String(reason)))
-      .finally(() => setWindowsBusy(false));
+      .finally(() => { setWindowsBusy(false); setWindowsProgress(null); });
   };
   const confirmWindows = async () => {
     if (!windowsPlan || windowsBusy) return;
     setWindowsBusy(true); setWindowsMessage("");
     try {
-      setWindowsMessage(await executeWindowsOperation(windowsPlan.planId));
-      setWindowsPlan(null);
+      const result = await executeWindowsOperation(windowsPlan.planId);
+      setWindowsPlan(null); setWindowsMessage("");
+      setNotice(result);
       void loadWindowsState();
       void refresh();
     } catch (reason) {
       setNotice(String(reason));
-      setWindowsPlan(null);
+      setWindowsPlan(null); setWindowsMessage("");
       void loadWindowsState();
     } finally {
       setWindowsBusy(false);
@@ -2180,7 +2165,7 @@ export default function App() {
           ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
           : item.kind === "devTool"
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
-            : item.windows ? <WindowsRow state={item.windows.state} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
+            : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
     </main> : page === "updates" ? <main className="workspace store-workspace">
       <header className="workspace-header">
@@ -2200,7 +2185,7 @@ export default function App() {
           ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
           : item.kind === "devTool"
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
-            : item.windows ? <WindowsRow state={item.windows.state} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
+            : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
     </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} download={downloads[updatePackage.packageName]} onStartDownload={(notify) => void startDownload(applicationIdOf(updatePackage.packageName) ?? "", updatePackage.packageName, notify)} onClearDownload={() => clearDownload(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
@@ -2213,7 +2198,7 @@ export default function App() {
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>
     )}
     {windowsPlan && <WindowsConfirmDialog plan={windowsPlan} busy={windowsBusy} message={windowsMessage} onConfirm={() => void confirmWindows()} onCancel={() => { if (!windowsBusy) { setWindowsPlan(null); setWindowsMessage(""); } }}/>}
-    {windowsOpen && windowsState && <WindowsDetailDrawer state={windowsState} onAction={handleWindowsAction} onClose={() => setWindowsOpen(false)}/>}
+    {windowsOpen && windowsState && <WindowsDetailDrawer state={windowsState} busy={windowsBusy} message={windowsMessage} progress={windowsProgress} onAction={handleWindowsAction} onClose={() => setWindowsOpen(false)}/>}
     {notice && <div className="app-notice" role="status" onClick={() => setNotice(null)}><span>{notice}</span><button aria-label="关闭">×</button></div>}
   </div>;
 }

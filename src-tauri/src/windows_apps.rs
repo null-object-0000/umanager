@@ -425,6 +425,26 @@ fn fingerprint(paths: &Paths) -> Result<String, String> {
 fn progress(app: &tauri::AppHandle, message: &str) {
     let _ = app.emit("windows-progress", message);
 }
+// Structured progress, same payload as Debian package downloads so the card ring and
+// drawer progress bar behave identically to ordinary software.
+fn download_progress(
+    app: &tauri::AppHandle,
+    phase: &'static str,
+    transferred: u64,
+    total: u64,
+    bytes_per_second: u64,
+) {
+    let _ = app.emit(
+        "windows-download-progress",
+        crate::source_engine::DownloadProgress {
+            package_name: "wecom".into(),
+            phase,
+            transferred_bytes: transferred,
+            total_bytes: total,
+            bytes_per_second,
+        },
+    );
+}
 
 pub async fn prepare(
     app: tauri::AppHandle,
@@ -536,10 +556,13 @@ async fn download(
         fs::remove_file(&partial).map_err(error)?;
     }
     let result = async {
+        // 官方安装包接近 650 MB；15 分钟的总超时在普通带宽下会中途失败并丢弃已下载
+        // 数据，所以给足 60 分钟，进度按 1% 上报以便界面持续可见。
         let client = crate::source_engine::restricted_client(
             &release.download_hosts,
-            Duration::from_secs(900),
+            Duration::from_secs(3600),
         )?;
+        progress(app, "正在下载官方安装包…");
         let mut response = client
             .get(&release.download_url)
             .send()
@@ -558,6 +581,8 @@ async fn download(
             .map_err(error)?;
         let mut transferred = 0;
         let mut last_percent = 0;
+        let started = std::time::Instant::now();
+        download_progress(app, "downloading", 0, release.size, 0);
         while let Some(chunk) = response.chunk().await.map_err(error)? {
             transferred += chunk.len() as u64;
             if transferred > release.size {
@@ -565,12 +590,27 @@ async fn download(
             }
             file.write_all(&chunk).map_err(error)?;
             let percent = transferred * 100 / release.size;
-            if percent >= last_percent + 5 {
-                progress(app, &format!("下载安装包 {percent}%"));
+            if percent >= last_percent + 1 {
+                progress(
+                    app,
+                    &format!(
+                        "正在下载官方安装包 {percent}%（{} MB）",
+                        transferred / 1024 / 1024
+                    ),
+                );
+                download_progress(
+                    app,
+                    "downloading",
+                    transferred,
+                    release.size,
+                    transferred / started.elapsed().as_secs().max(1),
+                );
                 last_percent = percent;
             }
         }
         file.sync_all().map_err(error)?;
+        progress(app, "正在校验安装包大小与 SHA-256…");
+        download_progress(app, "verifying", release.size, release.size, 0);
         verify_file(&partial, release)?;
         fs::rename(&partial, &path).map_err(error)?;
         Ok(path)

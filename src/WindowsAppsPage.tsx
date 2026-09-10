@@ -2,7 +2,8 @@
 // 作为普通软件条目融入「软件 / 更新」页，详情（含 Wine 配置）在 App 层的
 // 详情抽屉中展示；安装包授权与校验全部来自签名 feed。
 import { useEffect, useRef } from "react";
-import type { WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import type { DownloadProgress, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import { CardDownloadRing } from "./DownloadProgress";
 import wecomIcon from "./assets/app-icons/wecom.png";
 
 export type WindowsRowAction = "install" | "update" | "uninstall" | "launch" | "configure";
@@ -11,8 +12,9 @@ const labels: Record<WindowsAction, string> = { install: "安装", update: "更�
 
 // 列表卡片：结构与普通软件卡片一致（图标 / 操作 / 名称 / 分类 / 描述 / 状态），
 // 不改变软件列表的布局。详情与 Wine 配置通过 onOpen 打开详情抽屉。
-export function WindowsRow({ state, category, onOpen, onLaunch, onRemove }: {
+export function WindowsRow({ state, progress, category, onOpen, onLaunch, onRemove }: {
   state: WindowsState;
+  progress: DownloadProgress | null;
   category: string;
   onOpen: () => void;
   onLaunch: () => void;
@@ -20,17 +22,20 @@ export function WindowsRow({ state, category, onOpen, onLaunch, onRemove }: {
 }) {
   const statusText = !state.installed ? "未安装" : state.updateAvailable ? "可更新" : "已安装";
   const statusClass = !state.installed || state.updateAvailable ? "updateAvailable" : "upToDate";
+  const downloading = progress !== null && (progress.phase === "downloading" || progress.phase === "verifying");
   return <article className="app-card supported" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }}>
     <div className="app-card-top">
       <span className="app-mark has-icon"><img src={wecomIcon} alt=""/></span>
       <div className="app-card-actions">
-        {!state.installed
-          ? <button className="get-button" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`获取 ${"企业微信"}`}>获取</button>
-          : <>
-            {state.updateAvailable && <button className="get-button update" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`更新 ${"企业微信"}`}>更新</button>}
-            <button className="get-button open" onClick={(event) => { event.stopPropagation(); onLaunch(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`打开 ${"企业微信"}`}>打开</button>
-            <button className="ghost-link" onClick={(event) => { event.stopPropagation(); onRemove(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`卸载 ${"企业微信"}`}>卸载</button>
-          </>}
+        {downloading && progress
+          ? <CardDownloadRing progress={progress}/>
+          : !state.installed
+            ? <button className="get-button" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`获取 ${"企业微信"}`}>获取</button>
+            : <>
+              {state.updateAvailable && <button className="get-button update" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`更新 ${"企业微信"}`}>更新</button>}
+              <button className="get-button open" onClick={(event) => { event.stopPropagation(); onLaunch(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`打开 ${"企业微信"}`}>打开</button>
+              <button className="ghost-link" onClick={(event) => { event.stopPropagation(); onRemove(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`卸载 ${"企业微信"}`}>卸载</button>
+            </>}
       </div>
     </div>
     <div className="app-card-body">
