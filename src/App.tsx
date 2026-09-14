@@ -1,6 +1,6 @@
 import { WindowsConfirmDialog, WindowsRow } from "./WindowsAppsPage";
 import type { WindowsRowAction } from "./WindowsAppsPage";
-import { CardDownloadRing, DownloadProgressCard, HeroDownloadProgress, formatBytes, formatSpeed } from "./DownloadProgress";
+import { CardDownloadRing, HeroDownloadProgress, formatBytes } from "./DownloadProgress";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -198,7 +198,6 @@ function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose
     onClose={onClose}
   >
     <div className="drawer-content">
-      {downloading && progress && <DownloadProgressCard progress={progress} displayName="企业微信"/>}
       {working && !downloading && <div className="message" role="status" aria-live="polite"><strong>正在处理</strong><span>{message || "正在复核环境与操作，请稍候…"}</span></div>}
       {!state.wineVersion && <div className="message"><strong>需要先安装 Wine</strong><span>企业微信通过 Wine 运行。可在「软件」页搜索 wine 安装运行器后，再安装企业微信。</span></div>}
       {state.running && <div className="message"><strong>企业微信正在运行</strong><span>现在仍可下载并校验更新包，下载期间可以继续使用；真正安装、卸载或应用配置前需要先退出企业微信，可点右上角「强制停止」，或从托盘退出。强制停止可能丢失未发送的输入。</span></div>}

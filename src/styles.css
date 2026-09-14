@@ -907,15 +907,6 @@ nav { display: grid; gap: 2px; }
 .download-plan-card dt { color: var(--text-3); font-size: var(--fs-sm); }
 .download-plan-card dd { overflow: hidden; margin: 0; font: var(--fs-sm) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 
-.download-progress-card { margin-top: 12px; padding: 14px; border: 1px solid var(--hairline); border-radius: var(--radius-md); background: #fff; }
-.download-progress-title, .download-progress-stats { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.download-progress-title strong { color: var(--text); font-size: var(--fs-base); font-weight: 650; }
-.download-progress-title span { color: var(--accent); font: 700 var(--fs-base) var(--font-mono); }
-.download-progress-track { height: 6px; margin: 12px 0 10px; overflow: hidden; border-radius: var(--radius-pill); background: rgba(0, 0, 0, 0.08); }
-.download-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.18s linear; }
-.download-progress-stats span, .download-progress-stats strong { color: var(--text-2); font-size: var(--fs-sm); font-weight: 400; }
-.download-progress-stats strong { overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-
 /* inline download progress rings */
 .card-download-ring {
   display: grid;
