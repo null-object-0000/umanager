@@ -1675,9 +1675,18 @@ async function scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEnt
     catch (error) {
       fail(`Windows ${id}`, error.message);
       if (previousFeed?.windowsApplications?.[id]) {
-        windowsApplications[id] = previousFeed.windowsApplications[id];
+        windowsApplications[id] = { ...previousFeed.windowsApplications[id] };
         reusedEntries.push(`Windows ${id}`);
       }
+    }
+    // Windows 安装包只有 HTTP `Last-Modified` 这一个时间信号，走与主程序条目
+    // 相同的合并规则（版本未变时不抖动；拿不到官方时间就用采集推断）。
+    if (windowsApplications[id]) {
+      applyVersionTime(
+        windowsApplications[id],
+        previousFeed?.windowsApplications?.[id],
+        nowUnixSeconds,
+      );
     }
   }
   return { selfUpdate, developmentTools, windowsApplications };

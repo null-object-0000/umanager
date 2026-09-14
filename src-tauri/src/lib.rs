@@ -76,6 +76,9 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
                     item.update_state = details.update_state;
                     item.source_kind = details.source_kind;
                     item.source_url = Some(details.source_url.clone());
+                    item.version_updated_at_unix_seconds =
+                        details.version_updated_at_unix_seconds;
+                    item.version_updated_at_source = details.version_updated_at_source;
                 }
             }
             Err(error) => result.warnings.push(format!(
@@ -114,6 +117,9 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
                             source_url: Some(details.source_url.clone()),
                             update_state: details.update_state,
                             homepage: self_app.homepage.clone(),
+                            version_updated_at_unix_seconds: details
+                                .version_updated_at_unix_seconds,
+                            version_updated_at_source: details.version_updated_at_source,
                         });
                         result
                             .packages

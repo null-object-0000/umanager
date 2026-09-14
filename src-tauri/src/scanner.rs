@@ -29,6 +29,10 @@ pub struct ManagedPackage {
     pub(crate) source_url: Option<String>,
     pub(crate) update_state: UpdateState,
     pub(crate) homepage: Option<String>,
+    /// 当前版本的发布时间（签名 feed 的 `versionUpdatedAtUnixSeconds`），
+    /// 用于商店列表的「最近更新」排序；签名源没有该信息时为 `None`。
+    pub(crate) version_updated_at_unix_seconds: Option<u64>,
+    pub(crate) version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -91,6 +95,8 @@ pub fn scan(catalog: &Catalog) -> Result<ScanResult, String> {
             source_url: None,
             update_state: UpdateState::Unknown,
             homepage: application.homepage.clone().or(package.homepage),
+            version_updated_at_unix_seconds: None,
+            version_updated_at_source: None,
         });
     }
 

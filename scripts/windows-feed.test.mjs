@@ -33,4 +33,15 @@ describe('signed Windows feed generation', () => {
   it('rejects HTML disguised as an installer', async () => {
     await expect(windowsEntry({...source,downloadUrl:target},async () => new Response('x'.repeat(2048)))).rejects.toThrow();
   });
+  it('exposes the installer Last-Modified as the version-time candidate', async () => {
+    const body = Buffer.alloc(2048); body.write('MZ');
+    const entry = await windowsEntry({...source,downloadUrl:target},async () => new Response(body,{headers:{'last-modified':'Wed, 21 Oct 2015 07:28:00 GMT'}}));
+    expect(entry._versionTimeCandidate).toEqual({time:1445412480,source:'serverModified'});
+    expect(entry.versionUpdatedAtUnixSeconds).toBeUndefined();
+  });
+  it('has no version-time candidate when the server sends no Last-Modified', async () => {
+    const body = Buffer.alloc(2048); body.write('MZ');
+    const entry = await windowsEntry({...source,downloadUrl:target},async () => new Response(body));
+    expect(entry._versionTimeCandidate).toBeNull();
+  });
 });

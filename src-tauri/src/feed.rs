@@ -1231,7 +1231,8 @@ fn validate_source_info(source: &FeedSourceInfo) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_version_updated_at(
+/// 版本发布时间与来源必须成对出现（Windows 应用的 feed 条目复用同一校验）。
+pub(crate) fn validate_version_updated_at(
     time: &Option<u64>,
     source: &Option<VersionUpdatedAtSource>,
 ) -> Result<(), String> {

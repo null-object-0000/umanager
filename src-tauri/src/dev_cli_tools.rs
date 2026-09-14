@@ -66,6 +66,11 @@ pub struct DevToolState {
     pub binary_path: Option<String>,
     pub update_available: bool,
     pub can_uninstall: bool,
+    /// 当前版本线（`latest_version`）的发布时间，来自签名 feed。feed 只为工具
+    /// 配置的默认版本线记录发布时间，所以用户切到别的版本线时为 `None`——宁可
+    /// 不显示，也不把默认线的时间当成所选版本线的时间。用于商店列表排序。
+    pub version_updated_at_unix_seconds: Option<u64>,
+    pub version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
     /// Markdown changelog for the latest version, from the signed feed.
     pub release_notes: Option<String>,
     /// HTTPS link to the canonical changelog page.
@@ -234,6 +239,24 @@ fn release_notes_for(
     )
 }
 
+/// The release time of the version line the UI actually shows. The feed records
+/// a time for its own `version` (the tool's configured line) only, so a switched
+/// version line gets `None` rather than another line's time.
+fn version_time_for(
+    feed_entry: Option<&crate::feed::FeedToolEntry>,
+    latest_version: Option<&str>,
+) -> (Option<u64>, Option<crate::feed::VersionUpdatedAtSource>) {
+    feed_entry
+        .filter(|entry| latest_version == Some(entry.version.as_str()))
+        .map(|entry| {
+            (
+                entry.version_updated_at_unix_seconds,
+                entry.version_updated_at_source,
+            )
+        })
+        .unwrap_or((None, None))
+}
+
 fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::FeedToolEntry>) -> Result<DevToolState, String> {
     let home = user_home()?;
     let npm_available = npm_available(&home);
@@ -280,6 +303,8 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
     );
     let (release_notes, release_notes_url) =
         release_notes_for(feed_entry.as_ref(), latest_version.as_deref());
+    let (version_updated_at_unix_seconds, version_updated_at_source) =
+        version_time_for(feed_entry.as_ref(), latest_version.as_deref());
 
     Ok(DevToolState {
         tool_id: tool.tool_id.clone(),
@@ -304,6 +329,8 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
         binary_path: binary.map(|path| path.to_string_lossy().into_owned()),
         update_available,
         can_uninstall,
+        version_updated_at_unix_seconds,
+        version_updated_at_source,
         release_notes,
         release_notes_url,
     })
@@ -1306,6 +1333,29 @@ mod tests {
         );
         // No feed entry at all (feed unavailable) -> None, caller falls back to distTag.
         assert_eq!(target_version_for(None, Some("alpha")), None);
+    }
+
+    #[test]
+    fn version_time_requires_the_shown_version_line() {
+        let mut entry = dsh_feed_entry(Some(&[("latest", "0.1.2-rc.1"), ("alpha", "0.1.3-alpha.2")]));
+        entry.version_updated_at_unix_seconds = Some(1_700_000_000);
+        entry.version_updated_at_source = Some(crate::feed::VersionUpdatedAtSource::Official);
+        // 默认线：透传 feed 的时间与来源。
+        assert_eq!(
+            version_time_for(Some(&entry), Some("0.1.2-rc.1")),
+            (
+                Some(1_700_000_000),
+                Some(crate::feed::VersionUpdatedAtSource::Official)
+            )
+        );
+        // 切到 alpha 线：feed 记录的是默认线的时间，不能张冠李戴。
+        assert_eq!(
+            version_time_for(Some(&entry), Some("0.1.3-alpha.2")),
+            (None, None)
+        );
+        // 没有 feed 条目 / 没有候选版本 -> 未知。
+        assert_eq!(version_time_for(None, Some("0.1.2-rc.1")), (None, None));
+        assert_eq!(version_time_for(Some(&entry), None), (None, None));
     }
 
     #[test]

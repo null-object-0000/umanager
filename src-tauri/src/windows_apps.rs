@@ -56,6 +56,12 @@ pub struct WindowsRelease {
     pub download_hosts: Vec<String>,
     pub size: u64,
     pub sha256: String,
+    /// 该版本安装包的发布时间（与主程序 feed 条目同一套语义），只用于展示与
+    /// 商店列表排序；签名源没有该信息时为 `None`。
+    #[serde(default)]
+    pub version_updated_at_unix_seconds: Option<u64>,
+    #[serde(default)]
+    pub version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
 }
 impl WindowsRelease {
     pub fn validate(&self) -> Result<(), String> {
@@ -90,6 +96,10 @@ impl WindowsRelease {
         {
             return Err("企业微信下载地址不在授权范围内".into());
         }
+        crate::feed::validate_version_updated_at(
+            &self.version_updated_at_unix_seconds,
+            &self.version_updated_at_source,
+        )?;
         Ok(())
     }
 }
@@ -258,6 +268,9 @@ pub struct WindowsState {
     font_available: bool,
     feed_error: Option<String>,
     busy: bool,
+    /// 候选安装包的发布时间（签名 feed 的 Windows 条目），用于商店列表排序。
+    version_updated_at_unix_seconds: Option<u64>,
+    version_updated_at_source: Option<crate::feed::VersionUpdatedAtSource>,
 }
 pub async fn state() -> Result<WindowsState, String> {
     let paths = Paths::new()?;
@@ -268,6 +281,10 @@ pub async fn state() -> Result<WindowsState, String> {
     };
     tauri::async_runtime::spawn_blocking(move || {
         let installed_version = installed_version(&paths.prefix);
+        let version_updated_at = release
+            .as_ref()
+            .map(|r| (r.version_updated_at_unix_seconds, r.version_updated_at_source))
+            .unwrap_or((None, None));
         Ok(WindowsState {
             installed: paths.prefix.join(EXE).is_file(),
             update_available: release
@@ -283,6 +300,8 @@ pub async fn state() -> Result<WindowsState, String> {
             settings,
             feed_error,
             busy: BUSY.load(Ordering::SeqCst),
+            version_updated_at_unix_seconds: version_updated_at.0,
+            version_updated_at_source: version_updated_at.1,
         })
     })
     .await
@@ -1086,6 +1105,8 @@ mod tests {
             download_hosts: vec!["dldir1.qq.com".into()],
             size: 2048,
             sha256: "a".repeat(64),
+            version_updated_at_unix_seconds: None,
+            version_updated_at_source: None,
         }
     }
     #[test]
@@ -1109,6 +1130,25 @@ mod tests {
         let mut r = good;
         r.version = "5.0.10.6014".into();
         assert!(r.validate().is_err());
+    }
+    #[test]
+    fn release_version_time_must_be_paired_with_its_source() {
+        let mut r = release_fixture();
+        // 只有时间、没有来源：拒绝（不能凭空捏造一个来源）。
+        r.version_updated_at_unix_seconds = Some(1_700_000_000);
+        assert!(r.validate().is_err());
+        // 成对出现：接受。
+        r.version_updated_at_source = Some(crate::feed::VersionUpdatedAtSource::ServerModified);
+        assert!(r.validate().is_ok());
+        // 时间为 0 视为无效。
+        r.version_updated_at_unix_seconds = Some(0);
+        assert!(r.validate().is_err());
+        // 只有来源、没有时间：同样拒绝。
+        r.version_updated_at_unix_seconds = None;
+        assert!(r.validate().is_err());
+        // 都缺失是合法的（旧 feed 没有这个字段）。
+        r.version_updated_at_source = None;
+        assert!(r.validate().is_ok());
     }
     #[test]
     fn numeric_versions_do_not_sort_lexicographically() {

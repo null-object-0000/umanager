@@ -1,5 +1,6 @@
 // CI-only Windows installer discovery. Never executed by the desktop app.
 import { createHash } from 'node:crypto';
+import { parseLastModified } from './version-time.mjs';
 const MAX_BYTES = 1024 * 1024 * 1024;
 
 export function validateWindowsUrl(value, hosts) {
@@ -31,6 +32,10 @@ export async function windowsEntry(source, fetcher = fetch) {
   }
   if (!response.ok) throw new Error(`Windows 安装包 HTTP ${response.status}`);
   const version = wecomVersion(url);
+  // The install wizard's own HTTP `Last-Modified` is the only release-time
+  // signal available for the Windows installer; `update-feed.mjs` merges it
+  // through `mergeVersionUpdatedAt` (serverModified / observed).
+  const lastModified = parseLastModified(response.headers.get('last-modified'));
   const hash = createHash('sha256');
   let size = 0;
   let magic = Buffer.alloc(0);
@@ -42,5 +47,6 @@ export async function windowsEntry(source, fetcher = fetch) {
   }
   if (magic.toString() !== 'MZ' || size < 1024) throw new Error('下载内容不是 Windows 安装程序');
   return { displayName: source.displayName, profile: source.profile, version, downloadUrl: url,
-    downloadHosts: source.downloadHosts, size, sha256: hash.digest('hex') };
+    downloadHosts: source.downloadHosts, size, sha256: hash.digest('hex'),
+    _versionTimeCandidate: lastModified != null ? { time: lastModified, source: 'serverModified' } : null };
 }
