@@ -16,6 +16,7 @@ mod scanner;
 mod session;
 mod scripts;
 mod source_engine;
+mod systemd_user_units;
 mod translation;
 mod windows_apps;
 

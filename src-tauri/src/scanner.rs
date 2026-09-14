@@ -105,8 +105,43 @@ pub fn scan(catalog: &Catalog) -> Result<ScanResult, String> {
     Ok(ScanResult {
         packages,
         scanned_at_unix_seconds: unix_timestamp_now(),
-        warnings: Vec::new(),
+        warnings: masked_user_unit_warnings(&catalog.applications),
     })
+}
+
+/// Reports every managed application whose own systemd user service is still
+/// masked, which makes the application impossible to start. Reusing the scan
+/// warnings means the advisory appears on the rescan that follows every install
+/// and removal, so the operator sees it at the moment it matters.
+fn masked_user_unit_warnings(applications: &[umanager_catalog::Application]) -> Vec<String> {
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+        return Vec::new();
+    };
+    let Some(masked) = crate::systemd_user_units::masked_unit_names(&home) else {
+        return Vec::new();
+    };
+    let mut warnings = Vec::new();
+    for application in applications {
+        let Some(unit_name) =
+            crate::systemd_user_units::unit_name_for_package(&application.package_name)
+        else {
+            continue;
+        };
+        let Some((_, mask_path)) = masked.iter().find(|(name, _)| *name == unit_name) else {
+            continue;
+        };
+        if !crate::systemd_user_units::package_ships_user_unit(&unit_name) {
+            continue;
+        }
+        warnings.push(
+            crate::systemd_user_units::MaskedUserUnit {
+                unit_name,
+                mask_path: mask_path.clone(),
+            }
+            .warning(&application.display_name),
+        );
+    }
+    warnings
 }
 
 fn parse_dpkg_query(input: &str) -> Vec<InstalledPackage> {
