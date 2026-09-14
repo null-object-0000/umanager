@@ -22,7 +22,8 @@ describe("software categories", () => {
     expect(debCategory(null, "google-chrome")).toBe("浏览器");
     expect(debCategory(null, "wechat")).toBe("社交通讯");
     expect(debCategory(null, "flclash")).toBe("网络工具");
-    expect(debCategory(null, "bitwarden")).toBe("安全工具");
+    expect(debCategory(null, "bitwarden")).toBe("系统工具");
+    expect(debCategory(null, "umanager")).toBe("系统工具");
     expect(debCategory(null, "qq-music")).toBe("影音娱乐");
   });
 

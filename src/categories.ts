@@ -17,7 +17,7 @@ const FALLBACK_CATEGORIES = [
   { id: "chat", label: "社交通讯" },
   { id: "office", label: "办公效率" },
   { id: "network", label: "网络工具" },
-  { id: "security", label: "安全工具" },
+  { id: "system", label: "系统工具" },
   { id: "media", label: "影音娱乐" },
 ];
 
@@ -37,7 +37,8 @@ const FALLBACK_DEB_BY_ID: Record<string, string> = {
   "tencent-docs": "office",
   flclash: "network",
   localsend: "network",
-  bitwarden: "security",
+  bitwarden: "system",
+  umanager: "system",
   "qq-music": "media",
 };
 
