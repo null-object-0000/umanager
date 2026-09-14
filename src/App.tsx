@@ -14,6 +14,9 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { debCategory, devToolCategory, orderedCategories, windowsCategory } from "./categories";
+import { readSortMode, sortModeLabels, sortSoftwareItems } from "./model";
+import type { SortMode } from "./model";
+import { VersionDate } from "./VersionDate";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
 import chromeIcon from "./assets/app-icons/google-chrome.png";
@@ -44,6 +47,17 @@ const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome"
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
+// 商店列表的排序偏好（本机 UI 偏好，不进签名 feed，也不进特权计划）。
+const SORT_MODE_STORAGE_KEY = "umanager.store-sort-mode";
+
+function readStoredSortMode(): SortMode {
+  try {
+    return readSortMode(window.localStorage.getItem(SORT_MODE_STORAGE_KEY));
+  } catch {
+    return readSortMode(null);
+  }
+}
+
 let catalogByPackage: Record<string, CatalogApplication> = {};
 
 function clipboardPanelMode(): boolean {
@@ -65,7 +79,7 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" | "more" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" | "more" | "chevrons" | "check" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
@@ -80,8 +94,80 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back
     script: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></>,
     external: <><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/></>,
     more: <><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></>,
+    // macOS pop-up button indicator (⌃⌄) and the menu state column checkmark.
+    chevrons: <><path d="m7 10 5-4 5 4"/><path d="m7 14 5 4 5-4"/></>,
+    check: <><path d="m5 12.5 4.5 4.5L19 7.5"/></>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+}
+
+// macOS 风格 pop-up button：HIG 里「从一组里选一个」用 pop-up（bezel 内显示当前值 +
+// ⌃⌄ 指示器），而不是 pull-down / 原生 <select>（后者展开的是浏览器或 GTK 列表，
+// 离开这套设计语言）。菜单本身复用项目统一的 macOS 菜单外观（`.script-menu`：
+// 圆角 + hairline + shadow-float），当前项在左侧状态列打勾；打开时聚焦当前项，
+// ↑↓ 在项之间移动，Esc 关闭并把焦点还给按钮。
+function SortPopUp({ value, onChange }: { value: SortMode; onChange: (mode: SortMode) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const current = sortModeLabels.find((entry) => entry.value === value) ?? sortModeLabels[0];
+
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current[sortModeLabels.findIndex((entry) => entry.value === value)]?.focus();
+    const onPointerDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, value]);
+
+  const choose = (mode: SortMode) => {
+    onChange(mode);
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+
+  return <div className="sort-popup" ref={rootRef}>
+    <button ref={buttonRef} className="sort-popup-button" aria-haspopup="menu" aria-expanded={open} aria-label={`排序方式：${current.label}`} onClick={() => setOpen((isOpen) => !isOpen)}>
+      <span>{current.label}</span>
+      <Icon name="chevrons"/>
+    </button>
+    {open && <div
+      className="script-menu sort-menu"
+      role="menu"
+      aria-label="排序方式"
+      onKeyDown={(event) => {
+        const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+        if (step === 0) return;
+        event.preventDefault();
+        const index = itemRefs.current.findIndex((item) => item === document.activeElement);
+        itemRefs.current[(index + step + sortModeLabels.length) % sortModeLabels.length]?.focus();
+      }}
+    >
+      {sortModeLabels.map((entry, index) => <button
+        key={entry.value}
+        ref={(node) => { itemRefs.current[index] = node; }}
+        role="menuitemradio"
+        aria-checked={entry.value === value}
+        onClick={() => choose(entry.value)}
+      >
+        <span className="sort-menu-check">{entry.value === value && <Icon name="check"/>}</span>
+        <span>{entry.label}</span>
+      </button>)}
+    </div>}
+  </div>;
 }
 
 function useModalFocus<T extends HTMLElement>(onClose: () => void, canClose: boolean) {
@@ -949,6 +1035,15 @@ type SoftwareItem = {
   windows?: { state: WindowsState };
 };
 
+// 商店列表排序用的「当前版本发布时间」：Debian 软件取签名 feed 的候选条目
+// （安装来源），缺失时回落到扫描结果；开发工具与 Windows 条目各自透传同一
+// 来源。没有数据的条目返回 null，排序时恒定排在最后。
+function softwareItemUpdatedAt(item: SoftwareItem): number | null {
+  if (item.kind === "deb") return item.deb?.offer?.versionUpdatedAtUnixSeconds ?? item.deb?.managed?.versionUpdatedAtUnixSeconds ?? null;
+  if (item.kind === "devTool") return item.toolState?.versionUpdatedAtUnixSeconds ?? null;
+  return item.windows?.state.versionUpdatedAtUnixSeconds ?? null;
+}
+
 type DownloadState =
   | { status: "downloading" | "verifying"; progress: DownloadProgress }
   | { status: "ready"; result: DownloadResult }
@@ -986,6 +1081,7 @@ function SoftwareRow({ item, category, progress, onOpen, onRemove, onLaunch }: {
     </div>
     <div className="app-card-footer">
       <span className={`status-badge ${statusClass}`}>{statusText}</span>
+      <VersionDate seconds={item.offer?.versionUpdatedAtUnixSeconds ?? item.managed?.versionUpdatedAtUnixSeconds} source={item.offer?.versionUpdatedAtSource ?? item.managed?.versionUpdatedAtSource}/>
       <span className="app-card-version">{item.installed ? `v${item.installedVersion}` : item.candidateVersion ? `v${item.candidateVersion}` : item.architecture}</span>
     </div>
   </article>;
@@ -1241,6 +1337,7 @@ function DevToolRow({ tool, state, category, onOpen }: { tool: DevTool; state: D
     </div>
     <div className="app-card-footer">
       <span className={`status-badge ${statusClass}`}>{statusText}</span>
+      <VersionDate seconds={state?.versionUpdatedAtUnixSeconds} source={state?.versionUpdatedAtSource}/>
       {state?.version && <span className="app-card-version">v{state.version}</span>}
     </div>
   </article>;
@@ -1805,6 +1902,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
+  const [sortMode, setSortMode] = useState<SortMode>(readStoredSortMode);
   const [categoryFilter, setCategoryFilter] = useState<string>("全部");
   const [query, setQuery] = useState("");
   const [updatePackage, setUpdatePackage] = useState<ManagedPackage | null>(null);
@@ -1883,6 +1981,10 @@ export default function App() {
     void getPendingLocalDeb().then(setPendingLocalDeb).catch((reason) => setPendingLocalDebError(String(reason)));
     getVersion().then(setAppVersion).catch(() => { /* 获取编译版本失败时兜底为空 */ });
   }, []);
+  // 排序偏好只影响本机展示，持久化失败（隐私模式 / 存储禁用）时静默回落到默认。
+  useEffect(() => {
+    try { window.localStorage.setItem(SORT_MODE_STORAGE_KEY, sortMode); } catch { /* 忽略持久化失败 */ }
+  }, [sortMode]);
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     const unlisten = listen<string>("windows-progress", (event) => setWindowsMessage(event.payload)).catch(() => () => {});
@@ -1976,31 +2078,34 @@ export default function App() {
   const categoryChips = useMemo(() => orderedCategories(categoryCatalog, presentCategories), [categoryCatalog, presentCategories]);
   const updatesCount = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.kind === "devTool" ? item.toolState?.updateAvailable === true : item.windows?.state.updateAvailable === true).length, [softwareItems]);
   const updatableItems = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.kind === "devTool" ? item.toolState?.updateAvailable === true : item.windows?.state.updateAvailable === true), [softwareItems]);
-  const visibleSoftware = useMemo(() => softwareItems.filter((item) => {
-    const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}${item.kind === "windows" ? " wine windows" : ""}`.toLowerCase();
-    const textMatch = searchable.includes(query.toLowerCase());
-    const categoryMatch = categoryFilter === "全部" || item.category === categoryFilter;
-    const stateMatch = (() => {
-      if (filter === "all") return true;
-      if (item.kind === "deb") {
-        const deb = item.deb!;
-        if (filter === "installed") return deb.installed;
-        if (filter === "updates") return deb.updateState === "updateAvailable";
-        return !deb.installed;
-      }
-      if (item.kind === "windows") {
-        const windows = item.windows!.state;
-        if (filter === "installed") return windows.installed;
-        if (filter === "updates") return windows.updateAvailable;
-        return !windows.installed;
-      }
-      const state = item.toolState;
-      if (filter === "installed") return state?.installed === true;
-      if (filter === "updates") return state?.updateAvailable === true;
-      return !state || state.installed !== true;
-    })();
-    return textMatch && categoryMatch && stateMatch;
-  }), [softwareItems, filter, query, categoryFilter]);
+  const visibleSoftware = useMemo(() => {
+    const filtered = softwareItems.filter((item) => {
+      const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}${item.kind === "windows" ? " wine windows" : ""}`.toLowerCase();
+      const textMatch = searchable.includes(query.toLowerCase());
+      const categoryMatch = categoryFilter === "全部" || item.category === categoryFilter;
+      const stateMatch = (() => {
+        if (filter === "all") return true;
+        if (item.kind === "deb") {
+          const deb = item.deb!;
+          if (filter === "installed") return deb.installed;
+          if (filter === "updates") return deb.updateState === "updateAvailable";
+          return !deb.installed;
+        }
+        if (item.kind === "windows") {
+          const windows = item.windows!.state;
+          if (filter === "installed") return windows.installed;
+          if (filter === "updates") return windows.updateAvailable;
+          return !windows.installed;
+        }
+        const state = item.toolState;
+        if (filter === "installed") return state?.installed === true;
+        if (filter === "updates") return state?.updateAvailable === true;
+        return !state || state.installed !== true;
+      })();
+      return textMatch && categoryMatch && stateMatch;
+    });
+    return sortSoftwareItems(filtered, sortMode, softwareItemUpdatedAt, (item) => item.displayName);
+  }, [softwareItems, filter, query, categoryFilter, sortMode]);
   const openSoftware = (item: SoftwareItem) => {
     if (item.kind === "devTool") {
       if (item.tool) setSelectedDevTool(item.tool);
@@ -2161,6 +2266,10 @@ export default function App() {
             <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>已安装</button>
             <button className={filter === "updates" ? "active" : ""} onClick={() => setFilter("updates")}>可更新 {updatesCount > 0 && <b>{updatesCount}</b>}</button>
             <button className={filter === "installable" ? "active" : ""} onClick={() => setFilter("installable")}>可安装</button>
+          </div>
+          <div className="store-sort">
+            <span>排序</span>
+            <SortPopUp value={sortMode} onChange={setSortMode}/>
           </div>
         </div>
         {error && <div className="message error"><strong>无法读取软件信息</strong><span>{error}</span></div>}

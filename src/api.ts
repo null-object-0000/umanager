@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -44,6 +44,16 @@ function mockDetails(applicationId: string): ApplicationDetails {
     trusted: true,
   };
   const installed: Record<string, string | null> = { vscode: "1.134.0-1787078834", "google-chrome": "151.0.7922.169-1", chatgpt: "26.818.21641", wechat: "4.1.1.8", flclash: "0.8.96+2026081701" };
+  // 与下面 scanPackages / getInstallableApplications 的 mock 保持同一批
+  // 版本发布时间，让详情抽屉的「新内容」日期与列表卡片一致。
+  const versionTimes: Record<string, [number, VersionUpdatedAtSource]> = {
+    vscode: [mockVersionTime(2026, 8, 20), "official"],
+    "google-chrome": [mockVersionTime(2026, 8, 22), "serverModified"],
+    chatgpt: [mockVersionTime(2026, 8, 18), "official"],
+    wechat: [mockVersionTime(2026, 8, 15), "observed"],
+    flclash: [mockVersionTime(2026, 8, 24, 16), "official"],
+  };
+  const versionTime = versionTimes[applicationId];
   if (!plan) throw new Error(`应用 ${applicationId} 没有可用的下载源`);
   const website = plan.sourceKind === "officialWebsite";
   const updateState = installed[applicationId] && installed[applicationId] !== plan.version ? "updateAvailable" : "upToDate";
@@ -58,6 +68,8 @@ function mockDetails(applicationId: string): ApplicationDetails {
     expectedSize: plan.expectedSize,
     sha256: plan.expectedSha256,
     metadataBytes: website ? 592 : null,
+    versionUpdatedAtUnixSeconds: versionTime?.[0] ?? null,
+    versionUpdatedAtSource: versionTime?.[1] ?? null,
     releaseTag: plan.releaseTag,
     assetName: plan.assetName,
     releaseNotes: applicationId === "flclash"
@@ -188,18 +200,21 @@ export function getCategories(): Promise<CategoryCatalog | null> {
   return invoke<CategoryCatalog | null>("get_categories");
 }
 
+/** 浏览器预览用的固定版本发布时间（UTC），让「最近更新」排序与卡片日期都有真实差异。 */
+const mockVersionTime = (year: number, month: number, day: number, hour = 10) => Math.floor(Date.UTC(year, month - 1, day, hour) / 1000);
+
 export function scanPackages(): Promise<ScanResult> {
   if (isMock()) {
     return Promise.resolve({
       scannedAtUnixSeconds: Math.floor(Date.now() / 1000),
       warnings: [],
       packages: [
-        { packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://packages.microsoft.com/repos/code", updateState: "upToDate", homepage: "https://code.visualstudio.com/" },
-        { packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", installedVersion: "151.0.7922.169-1", candidateVersion: "151.0.7922.173-1", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://dl.google.com/linux/chrome-stable/deb", updateState: "updateAvailable", homepage: null },
-        { packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", installedVersion: "26.818.21641", candidateVersion: "26.818.41705", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb", updateState: "updateAvailable", homepage: "https://developers.openai.com/codex/app" },
-        { packageName: "flclash", displayName: "FlClash", vendor: "FlClash", installedVersion: "0.8.96+2026081701", candidateVersion: "0.8.97+2026082401", architecture: "amd64", sourceKind: "officialWebsite", sourceUrl: "https://github.com/chen08209/FlClash/releases/download/v0.8.97/FlClash-0.8.97-linux-amd64.deb", updateState: "updateAvailable", homepage: "https://github.com/chen08209/FlClash/releases" },
-        { packageName: "wechat", displayName: "微信", vendor: "腾讯", installedVersion: "4.1.1.8", candidateVersion: "4.1.2.1", architecture: "amd64", sourceKind: "officialWebsite", sourceUrl: "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb", updateState: "updateAvailable", homepage: "https://linux.weixin.qq.com/" },
-        { packageName: "wemeet", displayName: "腾讯会议", vendor: "腾讯", installedVersion: "3.26.10.401", candidateVersion: null, architecture: "amd64", sourceKind: "localPackage", sourceUrl: null, updateState: "unknown", homepage: "https://meeting.tencent.com/download/" },
+        { packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://packages.microsoft.com/repos/code", updateState: "upToDate", homepage: "https://code.visualstudio.com/", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 20), versionUpdatedAtSource: "official" },
+        { packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", installedVersion: "151.0.7922.169-1", candidateVersion: "151.0.7922.173-1", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://dl.google.com/linux/chrome-stable/deb", updateState: "updateAvailable", homepage: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 22), versionUpdatedAtSource: "serverModified" },
+        { packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", installedVersion: "26.818.21641", candidateVersion: "26.818.41705", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb", updateState: "updateAvailable", homepage: "https://developers.openai.com/codex/app", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 18), versionUpdatedAtSource: "official" },
+        { packageName: "flclash", displayName: "FlClash", vendor: "FlClash", installedVersion: "0.8.96+2026081701", candidateVersion: "0.8.97+2026082401", architecture: "amd64", sourceKind: "officialWebsite", sourceUrl: "https://github.com/chen08209/FlClash/releases/download/v0.8.97/FlClash-0.8.97-linux-amd64.deb", updateState: "updateAvailable", homepage: "https://github.com/chen08209/FlClash/releases", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 24, 16), versionUpdatedAtSource: "official" },
+        { packageName: "wechat", displayName: "微信", vendor: "腾讯", installedVersion: "4.1.1.8", candidateVersion: "4.1.2.1", architecture: "amd64", sourceKind: "officialWebsite", sourceUrl: "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb", updateState: "updateAvailable", homepage: "https://linux.weixin.qq.com/", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 15), versionUpdatedAtSource: "observed" },
+        { packageName: "wemeet", displayName: "腾讯会议", vendor: "腾讯", installedVersion: "3.26.10.401", candidateVersion: null, architecture: "amd64", sourceKind: "localPackage", sourceUrl: null, updateState: "unknown", homepage: "https://meeting.tencent.com/download/", versionUpdatedAtUnixSeconds: null, versionUpdatedAtSource: null },
       ],
     });
   }
@@ -223,6 +238,8 @@ const mockWindowsState: WindowsState = {
   fontAvailable: true,
   feedError: "浏览器预览：安装包信息需要连接桌面端签名软件源",
   busy: false,
+  versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 5),
+  versionUpdatedAtSource: "serverModified",
 };
 
 export function getWindowsState(): Promise<WindowsState> {
@@ -320,11 +337,11 @@ export function getInstallableApplications(): Promise<InstallableApplication[]> 
   if (isMock()) {
     const aptPlan = (applicationId: string): DownloadPlan => ({ ...mockPlans[applicationId] });
     return Promise.resolve([
-      { applicationId: "vscode", packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", homepage: "https://code.visualstudio.com/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
-      { applicationId: "google-chrome", packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", homepage: "https://www.google.com/chrome/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: null, candidateVersion: mockPlans["google-chrome"].version, installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("google-chrome") },
-      { applicationId: "chatgpt", packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/app", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "26.818.21641", candidateVersion: "26.818.61809", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
-      { applicationId: "wechat", packageName: "wechat", displayName: "微信", vendor: "腾讯", homepage: "https://linux.weixin.qq.com/", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: "4.1.1.8", candidateVersion: "4.1.2.1", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null },
-      { applicationId: "flclash", packageName: "flclash", displayName: "FlClash", vendor: "FlClash", homepage: "https://github.com/chen08209/FlClash/releases", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: null, candidateVersion: "0.8.97+2026082401", installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("flclash"), releaseNotes: "## 0.8.97\n\n- 修复托盘与代理规则导入的问题\n- 优化订阅刷新与连接稳定性\n- 升级内置 Clash 内核", releaseNotesUrl: "https://github.com/chen08209/FlClash/releases/tag/v0.8.97" },
+      { applicationId: "vscode", packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", homepage: "https://code.visualstudio.com/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 20), versionUpdatedAtSource: "official" },
+      { applicationId: "google-chrome", packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", homepage: "https://www.google.com/chrome/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: null, candidateVersion: mockPlans["google-chrome"].version, installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("google-chrome"), versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 22), versionUpdatedAtSource: "serverModified" },
+      { applicationId: "chatgpt", packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/app", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "26.818.21641", candidateVersion: "26.818.61809", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 18), versionUpdatedAtSource: "official" },
+      { applicationId: "wechat", packageName: "wechat", displayName: "微信", vendor: "腾讯", homepage: "https://linux.weixin.qq.com/", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: "4.1.1.8", candidateVersion: "4.1.2.1", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 15), versionUpdatedAtSource: "observed" },
+      { applicationId: "flclash", packageName: "flclash", displayName: "FlClash", vendor: "FlClash", homepage: "https://github.com/chen08209/FlClash/releases", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: null, candidateVersion: "0.8.97+2026082401", installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("flclash"), releaseNotes: "## 0.8.97\n\n- 修复托盘与代理规则导入的问题\n- 优化订阅刷新与连接稳定性\n- 升级内置 Clash 内核", releaseNotesUrl: "https://github.com/chen08209/FlClash/releases/tag/v0.8.97", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 24, 16), versionUpdatedAtSource: "official" },
     ]);
   }
   return invoke<InstallableApplication[]>("get_installable_applications");
@@ -471,12 +488,12 @@ const mockDevTools: DevTool[] = [
 ];
 
 const mockDevToolStates: Record<string, DevToolState> = {
-  "claude-code": { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: null, accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "2.1.245", latestVersion: "2.1.245", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/claude", updateAvailable: false, canUninstall: true },
-  opencode: { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: null, accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "1.18.22", latestVersion: "1.18.22", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/opencode", updateAvailable: false, canUninstall: true },
-  pi: { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: null, accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installerKind: "curlScript", npmAvailable: true, installed: false, installKind: null, version: null, latestVersion: "0.84.3", channels: null, selectedChannel: null, binaryPath: null, updateAvailable: false, canUninstall: false },
-  codex: { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: null, accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.149.0", latestVersion: "0.149.1", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/codex", updateAvailable: true, canUninstall: true },
-  dsh: { toolId: "dsh", displayName: "DeepSeek Harness", vendor: "DeepSeek", homepage: "https://github.com/deepseek-ai/deepseek-harness", icon: null, accentColor: "#4D6BFE", binaryName: "dsh", npmPackage: "@deepseek-ai/dsh", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.1.1-rc.2", latestVersion: "0.1.1-rc.2", channels: { latest: "0.1.1-rc.2", alpha: "0.1.2-alpha.5", next: "0.1.1-rc.2" }, selectedChannel: "latest", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/dsh", updateAvailable: false, canUninstall: true },
-  hermes: { toolId: "hermes", displayName: "Hermes Agent", vendor: "Nous Research", homepage: "https://hermes-agent.nousresearch.com/", icon: null, accentColor: "#8b5cf6", binaryName: "hermes", npmPackage: null, installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "0.21.0", latestVersion: "0.21.0", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/hermes", updateAvailable: false, canUninstall: true },
+  "claude-code": { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: null, accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "2.1.245", latestVersion: "2.1.245", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/claude", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 12), versionUpdatedAtSource: "official" },
+  opencode: { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: null, accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "1.18.22", latestVersion: "1.18.22", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/opencode", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 19), versionUpdatedAtSource: "official" },
+  pi: { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: null, accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installerKind: "curlScript", npmAvailable: true, installed: false, installKind: null, version: null, latestVersion: "0.84.3", channels: null, selectedChannel: null, binaryPath: null, updateAvailable: false, canUninstall: false, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 14), versionUpdatedAtSource: "official" },
+  codex: { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: null, accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.149.0", latestVersion: "0.149.1", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/codex", updateAvailable: true, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 23), versionUpdatedAtSource: "official" },
+  dsh: { toolId: "dsh", displayName: "DeepSeek Harness", vendor: "DeepSeek", homepage: "https://github.com/deepseek-ai/deepseek-harness", icon: null, accentColor: "#4D6BFE", binaryName: "dsh", npmPackage: "@deepseek-ai/dsh", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.1.1-rc.2", latestVersion: "0.1.1-rc.2", channels: { latest: "0.1.1-rc.2", alpha: "0.1.2-alpha.5", next: "0.1.1-rc.2" }, selectedChannel: "latest", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/dsh", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 21), versionUpdatedAtSource: "official" },
+  hermes: { toolId: "hermes", displayName: "Hermes Agent", vendor: "Nous Research", homepage: "https://hermes-agent.nousresearch.com/", icon: null, accentColor: "#8b5cf6", binaryName: "hermes", npmPackage: null, installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "0.21.0", latestVersion: "0.21.0", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/hermes", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 10), versionUpdatedAtSource: "serverModified" },
 };
 
 export function getDevTools(): Promise<DevTool[]> {

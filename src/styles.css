@@ -447,6 +447,40 @@ nav { display: grid; gap: 2px; }
   font-weight: 700;
 }
 
+/* Sort control — store toolbar right side (the filter segments stay on the left).
+   macOS pop-up button: the bezel shows the current value plus the ⌃⌄ indicator,
+   and the menu reuses the app-wide macOS menu look (`.script-menu`). */
+.store-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  white-space: nowrap;
+}
+.sort-popup { position: relative; display: inline-flex; }
+.sort-popup-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 29px;
+  padding: 0 9px 0 12px;
+  color: var(--text);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-xs);
+  background: #fff;
+  box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.08);
+  font-size: var(--fs-base);
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.sort-popup-button:hover { background: var(--gray-100); }
+.sort-popup-button[aria-expanded="true"] { background: var(--gray-200); border-color: var(--hairline-strong); }
+.sort-popup-button:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
+.sort-popup-button .ui-icon { width: 11px; height: 11px; stroke-width: 2.6; color: var(--text-3); }
+
 /* category pill chips */
 .category-bar {
   display: flex;
@@ -550,6 +584,15 @@ nav { display: grid; gap: 2px; }
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 45%;
+}
+
+/* 「当前版本发布时间」— the date the newest version was published, i.e. the
+   sort key of 「最近更新」; hidden entirely when the feed has no time. */
+.app-card-updated {
+  flex: none;
+  color: var(--text-3);
+  font: 500 var(--fs-xs) var(--font-mono);
+  white-space: nowrap;
 }
 
 /* =============================================================================
@@ -1430,6 +1473,13 @@ nav { display: grid; gap: 2px; }
 .script-menu button .ui-icon { width: 15px; height: 15px; flex: none; }
 .script-menu button.danger { color: var(--red-text); }
 .script-menu button.danger:hover:not(:disabled) { background: var(--red-soft); }
+/* Sort pop-up menu: same macOS menu look, plus the state column on the left where
+   macOS marks the current choice. Rules live here (after `.script-menu`) so the
+   overrides win by source order as well as by specificity. */
+.script-menu.sort-menu { min-width: 150px; }
+.script-menu.sort-menu button { gap: 6px; padding: 0 11px 0 8px; }
+.script-menu.sort-menu .sort-menu-check { display: inline-grid; place-items: center; width: 14px; height: 14px; flex: none; color: var(--text); }
+.script-menu.sort-menu .sort-menu-check .ui-icon { width: 13px; height: 13px; stroke-width: 2.4; }
 .script-system-lines { display: grid; gap: 4px; padding: 11px 15px; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.6; border-top: 1px solid var(--hairline); }
 
 /* =============================================================================

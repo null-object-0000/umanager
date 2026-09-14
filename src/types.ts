@@ -13,6 +13,9 @@ export interface ManagedPackage {
   sourceUrl: string | null;
   updateState: UpdateState;
   homepage: string | null;
+  /// 当前版本的发布时间（签名 feed 的 `versionUpdatedAtUnixSeconds`）。
+  versionUpdatedAtUnixSeconds?: number | null;
+  versionUpdatedAtSource?: VersionUpdatedAtSource | null;
 }
 
 export interface ScanResult {
@@ -421,6 +424,10 @@ export interface DevToolState {
   binaryPath: string | null;
   updateAvailable: boolean;
   canUninstall: boolean;
+  /// 当前版本线（`latestVersion`）的发布时间；签名 feed 只有默认版本线的时间，
+  /// 因此切换到其他版本线时为 `null`。用于商店列表排序。
+  versionUpdatedAtUnixSeconds?: number | null;
+  versionUpdatedAtSource?: VersionUpdatedAtSource | null;
   releaseNotes?: string | null;
   releaseNotesUrl?: string | null;
 }
@@ -496,6 +503,9 @@ export interface WindowsState {
   fontAvailable: boolean;
   feedError: string | null;
   busy: boolean;
+  /// 候选安装包版本的发布时间（签名 feed 的 Windows 条目）。
+  versionUpdatedAtUnixSeconds?: number | null;
+  versionUpdatedAtSource?: VersionUpdatedAtSource | null;
 }
 
 export interface WindowsPlan {

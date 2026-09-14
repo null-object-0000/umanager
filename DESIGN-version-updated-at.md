@@ -1,7 +1,9 @@
 # DESIGN：版本更新时间（`versionUpdatedAtUnixSeconds` + 来源标记）
 
-> 状态：**最终方案，待实现。本文档不包含代码改动，只做实现依据。**
+> 状态：**已实现（含 Windows 条目与商店列表排序）。**
 > 目标：让每个受管软件（含 UManager 自更新、开发工具）在签名 feed 里带上「当前版本的更新时间」。优先官方数据；拿不到官方数据时用「采集推断」：首次采集到某版本 → 无更新时间；之后某次采集发现版本升级 → 以该次采集时间作为版本更新时间。
+>
+> 后续补记（商店列表排序）：§6.9 的「可选，后置」项已落地 —— 卡片页脚展示版本发布时间（`src/VersionDate.tsx`），软件页工具栏右侧新增 macOS pop-up button「排序」（`最近更新`（默认）/ `最早更新` / `名称`，偏好存本机 `localStorage`）。按 HIG「多选一用 pop-up button」，它是自绘 bezel + ⌃⌄ 指示器，展开的菜单复用项目统一的 macOS 菜单外观（`.script-menu`：圆角 + hairline + shadow-float），当前项在左侧状态列打勾，打开时聚焦当前项、↑↓ 移动、Esc 关闭并把焦点还给按钮。排序逻辑是纯函数 `sortSoftwareItems`（`src/model.ts`，带单测）；没有发布时间的条目恒定排在最后。为让三类卡片都有时间可排，`ManagedPackage`、`DevToolState`、`WindowsState` 各自透传同一字段（开发工具只在其展示的版本线等于 feed 的 `version` 时透传；Windows 条目的时间来自安装包 `Last-Modified`，同为 `serverModified` / 采集推断）。
 
 ## 0. 三个已确认的范围决定
 
@@ -220,5 +222,5 @@ export type VersionUpdatedAtSource = "official" | "serverModified" | "observed";
 ## 10. 开放问题 / 待定细节
 
 - [ ] `observed` / `serverModified` / `official` 的最终 UI 文案（§1 已给建议，实现时可微调）。
-- [ ] 商店/开发工具**列表行**是否展示更新时间（建议后置，先落详情抽屉）。
+- [x] 商店/开发工具**列表行**展示更新时间：卡片页脚显示日期（`YYYY/MM/DD`，`title` 里给出精确时间与来源），并以此作为「排序 → 最近更新」的排序键。Windows（Wine）条目也走同一套（feed 的时间来自安装包 `Last-Modified`）。
 - [ ] `Last-Modified` 是否值得在个别厂商（HEAD 被墙/403）配置关闭项（当前方案：统一 best-effort，不加开关）。
