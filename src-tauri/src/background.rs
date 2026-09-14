@@ -8,8 +8,9 @@
 //! - 全局热键在 X11 可用；Wayland 上合成器一般不允许，注册失败仅记日志。
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -21,8 +22,17 @@ use crate::panel;
 
 const DEFAULT_SHORTCUT: &str = "Super+V";
 
+/// 面板失焦后延迟这么久才真正收起。
+///
+/// 开始拖拽图片的瞬间可能先丢一次焦点（GTK 拖拽会抓取指针、合成器也会做交接），
+/// 立即收起就会表现为「刚点住图片面板就没了」。留一点宽限期，期间只要进入拖拽态
+/// 或面板重新获得焦点，这次收起就作废。
+const PANEL_HIDE_GRACE: Duration = Duration::from_millis(300);
+
 static QUITTING: AtomicBool = AtomicBool::new(false);
 static DRAGGING: AtomicBool = AtomicBool::new(false);
+/// 拖拽状态每变化一次就 +1，用于识别「这段宽限期里发生过拖拽」。
+static DRAG_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 /// 托盘图标必须持有到进程结束，否则会被立即回收。
 struct BackgroundState {
@@ -134,12 +144,18 @@ pub fn is_quitting() -> bool {
 }
 
 /// 标记「正在从剪贴板历史拖拽文件出去」，供面板失焦收起逻辑避开拖拽期间。
+/// 每次起手/结束都会推进 [`DRAG_EPOCH`]，让延迟收起能判断这段时间里是否发生过拖拽。
 pub fn mark_dragging(dragging: bool) {
     DRAGGING.store(dragging, Ordering::SeqCst);
+    DRAG_EPOCH.fetch_add(1, Ordering::SeqCst);
 }
 
 fn is_dragging() -> bool {
     DRAGGING.load(Ordering::SeqCst)
+}
+
+fn drag_epoch() -> u64 {
+    DRAG_EPOCH.load(Ordering::SeqCst)
 }
 
 /// 关闭窗口时收起而非退出；快捷面板失焦后自动收起（拖拽期间除外）。
@@ -152,9 +168,49 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             }
         }
         WindowEvent::Focused(false) => {
-            if window.label() == panel::PANEL_LABEL && !is_dragging() {
-                panel::hide(window.app_handle());
+            if window.label() != panel::PANEL_LABEL {
+                return;
             }
+            // 正在拖拽时不收起（收不收由拖拽回调决定）；其余情况不立即收起，而是留一个
+            // 很短的宽限期：拖拽起手/结束、或面板重新获得焦点都会让这次收起作废。
+            // 否则拖拽瞬间的焦点抖动会表现为「刚点住图片面板就没了」。
+            if is_dragging() {
+                #[cfg(debug_assertions)]
+                eprintln!("[panel] 失焦，但正在拖拽 → 保持打开");
+                return;
+            }
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[panel] 失焦：{}ms 后确认是否收起",
+                PANEL_HIDE_GRACE.as_millis()
+            );
+            let app = window.app_handle().clone();
+            let epoch = drag_epoch();
+            std::thread::spawn(move || {
+                std::thread::sleep(PANEL_HIDE_GRACE);
+                if is_dragging() || drag_epoch() != epoch {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[panel] 宽限期内发生过拖拽 → 保持打开");
+                    return;
+                }
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if is_dragging() || drag_epoch() != epoch {
+                        return;
+                    }
+                    let Some(panel) = handle.get_webview_window(panel::PANEL_LABEL) else {
+                        return;
+                    };
+                    if panel.is_focused().unwrap_or(false) {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[panel] 已重新获得焦点 → 保持打开");
+                        return;
+                    }
+                    #[cfg(debug_assertions)]
+                    eprintln!("[panel] 失焦收起");
+                    panel::hide(&handle);
+                });
+            });
         }
         _ => {}
     }

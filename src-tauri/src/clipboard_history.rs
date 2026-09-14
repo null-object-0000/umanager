@@ -132,8 +132,24 @@ fn thumbnail_data_url(rgba: &[u8], width: u32, height: u32) -> Option<String> {
     ))
 }
 
-/// 生成拖拽时跟随鼠标的小预览图（最长边 160px），避免原图整张悬在光标下。
-fn drag_preview_png(path: &Path) -> Vec<u8> {
+/// 生成拖拽时跟随鼠标的小预览图。
+///
+/// 优先直接用历史里已经存好的缩略图（`image_preview` 就是一张 ≤240px 的 PNG data URL，
+/// base64 解码即可），只有老条目没有缩略图时才回退到读文件、解码原图。
+///
+/// 这一步跑在主线程上（GTK 拖拽必须在主线程发起），原图可能是一张 4K 截图，
+/// 解码要几百毫秒；在 dragstart 里同步解码会把「原生拖拽起步」推后，等用户松手后
+/// 才起步的拖拽会被 GTK 直接取消，看起来就是「拖不动、面板还消失了」。
+fn drag_preview_png(path: &Path, entry: &ClipboardEntry) -> Vec<u8> {
+    if let Some(bytes) = entry
+        .image_preview
+        .as_deref()
+        .and_then(|preview| preview.strip_prefix("data:image/png;base64,"))
+        .and_then(|payload| base64::engine::general_purpose::STANDARD.decode(payload).ok())
+    {
+        return bytes;
+    }
+
     const PREVIEW_MAX: u32 = 160;
     std::fs::read(path)
         .ok()
@@ -671,17 +687,31 @@ pub fn drag_clipboard_image(
 
     #[cfg(target_os = "linux")]
     {
-        use drag::{DragItem, DragMode, Image, Options};
+        use drag::{DragItem, DragMode, DragResult, Image, Options};
         let panel_window = window.clone();
-        let preview = drag_preview_png(&canonical);
+        // 先进入「拖拽中」状态再准备预览：预览准备期间的失焦不应该收起面板。
         crate::background::mark_dragging(true);
+        let preview = drag_preview_png(&canonical, &entry);
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[panel] 拖拽起手 id={id} 预览 {}B，面板={}",
+            preview.len(),
+            panel_window.label()
+        );
         let result = drag::start_drag(
             &window.gtk_window().map_err(|error| format!("无法访问 GTK 窗口：{error}"))?,
             DragItem::Files(vec![canonical.clone()]),
             Image::Raw(preview),
-            move |_result, _position| {
+            move |result, _position| {
                 crate::background::mark_dragging(false);
-                if panel_window.label() == crate::panel::PANEL_LABEL {
+                #[cfg(debug_assertions)]
+                eprintln!("[panel] 拖拽结束 result={result:?}");
+                // 只有真正投递成功（落到文件管理器/聊天窗口等目标上）才收起面板。
+                // 取消同样会走到这里：只点了一下图片、在面板内松手、拖拽被合成器打断等，
+                // 若此时也收起，用户看到的就是「一点图片面板就没了」，连重试的机会都没有。
+                if matches!(result, DragResult::Dropped)
+                    && panel_window.label() == crate::panel::PANEL_LABEL
+                {
                     let _ = panel_window.hide();
                 }
             },
@@ -692,6 +722,8 @@ pub fn drag_clipboard_image(
         );
         if let Err(error) = result {
             crate::background::mark_dragging(false);
+            #[cfg(debug_assertions)]
+            eprintln!("[panel] 拖拽启动失败：{error}");
             return Err(format!("拖拽启动失败：{error}"));
         }
     }
@@ -809,6 +841,35 @@ mod tests {
 
         let data_url = thumbnail_data_url(&rgba, 2, 2).expect("thumbnail");
         assert!(data_url.starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn drag_preview_reuses_stored_thumbnail() {
+        let directory = std::env::temp_dir().join(format!("umanager-clip-drag-test-{}", now_ms()));
+        let mut store = Store {
+            next_id: 1,
+            entries: Vec::new(),
+            data_path: None,
+            image_dir: Some(directory.clone()),
+            revision: 0,
+        };
+        let rgba = [
+            255u8, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+        ];
+        let entry = store.capture_image(&rgba, 2, 2).expect("capture image");
+
+        // 有条目自带的缩略图时，直接解码它，不读原图文件。
+        let preview = drag_preview_png(Path::new("/definitely-missing.png"), &entry);
+        assert!(image::load_from_memory(&preview).is_ok());
+
+        // 老条目没有缩略图时回退读原图；文件不存在则退化为内置图标（空字节）。
+        let legacy = ClipboardEntry {
+            image_preview: None,
+            ..entry
+        };
+        assert!(drag_preview_png(Path::new("/definitely-missing.png"), &legacy).is_empty());
+
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]
