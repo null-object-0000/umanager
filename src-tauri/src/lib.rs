@@ -720,6 +720,7 @@ pub fn run() {
             windows_apps::prepare_windows_operation,
             windows_apps::execute_windows_operation,
             windows_apps::launch_windows_application,
+            windows_apps::stop_windows_application,
             windows_apps::open_windows_directory,
             get_installation_info,
             restart_app,

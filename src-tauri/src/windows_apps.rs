@@ -457,8 +457,11 @@ pub async fn prepare(
     if wine_version(&settings).is_none() {
         return Err("请先在软件商店安装 Wine，或选择已安装的 Wine 运行器".into());
     }
-    if running(&paths.prefix) {
-        return Err("请先从托盘退出企业微信，再进行安装、更新、卸载或配置".into());
+    // 安装/更新在本阶段只下载并校验安装包（可能数分钟），用户完全可以继续使用企业
+    // 微信，运行状态留到 execute 的执行前再把关；卸载与应用配置不下载，仍在复核前就
+    // 拦下来，避免弹出一个注定失败的确认框。
+    if matches!(action, Action::Uninstall | Action::Configure) && running(&paths.prefix) {
+        return Err("请先从托盘退出企业微信，再进行卸载或应用配置".into());
     }
     let installed = paths.prefix.join(EXE).is_file();
     match action {
@@ -731,12 +734,14 @@ fn wine_command(paths: &Paths, settings: &WineSettings) -> Command {
         .env("LANG", "zh_CN.UTF-8");
     cmd
 }
-fn wait_for_wine(paths: &Paths, settings: &WineSettings, log: &Path) -> Result<(), String> {
+fn wineserver_path(settings: &WineSettings) -> Result<PathBuf, String> {
     let runner = Path::new(&settings.wine_binary)
         .canonicalize()
         .map_err(error)?;
-    let server = runner.parent().ok_or("Wine 路径无效")?.join("wineserver");
-    let mut cmd = Command::new(server);
+    Ok(runner.parent().ok_or("Wine 路径无效")?.join("wineserver"))
+}
+fn wait_for_wine(paths: &Paths, settings: &WineSettings, log: &Path) -> Result<(), String> {
+    let mut cmd = Command::new(wineserver_path(settings)?);
     cmd.env("WINEPREFIX", &paths.prefix).arg("-w");
     run(cmd, log, Duration::from_secs(1800))
 }
@@ -977,6 +982,40 @@ pub async fn launch() -> Result<(), String> {
     .map_err(error)?
 }
 
+/// 强制停止企业微信：按 prefix 终结整场 Wine 会话，而不是按进程名杀进程，因此不会
+/// 影响用户在其它 Wine 环境里运行的程序。先 `wineserver -k`（SIGINT），仍在运行则
+/// `-k9`；每次都用 /proc 复核，确认 WXWork.exe 真的消失才算成功。
+pub async fn stop() -> Result<String, String> {
+    let busy = Busy::acquire()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _busy = busy;
+        let paths = Paths::new()?;
+        if !running(&paths.prefix) {
+            return Ok("企业微信未在运行".into());
+        }
+        let settings = paths.settings()?;
+        let log = paths.root.join("operation.log");
+        fs::create_dir_all(&paths.root).map_err(error)?;
+        check_local_path(&paths.home, &log)?;
+        let server = wineserver_path(&settings)?;
+        for (signal, polls) in [("-k", 40), ("-k9", 20)] {
+            let mut cmd = Command::new(&server);
+            cmd.env("WINEPREFIX", &paths.prefix).arg(signal);
+            // 服务端已经退出时 wineserver 会以非 0 状态返回，这不是失败，继续等进程消失。
+            let _ = run(cmd, &log, Duration::from_secs(60));
+            for _ in 0..polls {
+                if !running(&paths.prefix) {
+                    return Ok("企业微信已强制停止；未保存的输入可能丢失".into());
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        }
+        Err("未能停止企业微信，请在系统监视器中结束 WXWork.exe 后重试".into())
+    })
+    .await
+    .map_err(error)?
+}
+
 #[tauri::command]
 pub async fn get_windows_state() -> Result<WindowsState, String> {
     state().await
@@ -999,6 +1038,10 @@ pub async fn execute_windows_operation(
 #[tauri::command]
 pub async fn launch_windows_application() -> Result<(), String> {
     launch().await
+}
+#[tauri::command]
+pub async fn stop_windows_application() -> Result<String, String> {
+    stop().await
 }
 #[tauri::command]
 pub async fn open_windows_directory(app: tauri::AppHandle) -> Result<(), String> {

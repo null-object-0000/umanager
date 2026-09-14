@@ -11,7 +11,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { debCategory, devToolCategory, orderedCategories, windowsCategory } from "./categories";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
@@ -184,6 +184,7 @@ function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose
     ? <HeroDownloadProgress progress={progress}/>
     : <>
       <button className="hero-button" disabled={working} onClick={() => onAction(!state.installed ? "install" : state.updateAvailable ? "update" : "launch")}>{working ? "处理中…" : !state.installed ? "安装" : state.updateAvailable ? "更新" : "打开"}</button>
+      {state.running && <button className="ghost-link windows-danger" disabled={working} onClick={() => onAction("stop")} title="结束企业微信在当前 Wine 环境中的所有进程">强制停止</button>}
       {state.installed && <button className="ghost-link" disabled={working} onClick={() => onAction("uninstall")}>卸载</button>}
     </>;
   return <DetailShell
@@ -200,7 +201,7 @@ function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose
       {downloading && progress && <DownloadProgressCard progress={progress} displayName="企业微信"/>}
       {working && !downloading && <div className="message" role="status" aria-live="polite"><strong>正在处理</strong><span>{message || "正在复核环境与操作，请稍候…"}</span></div>}
       {!state.wineVersion && <div className="message"><strong>需要先安装 Wine</strong><span>企业微信通过 Wine 运行。可在「软件」页搜索 wine 安装运行器后，再安装企业微信。</span></div>}
-      {state.running && <div className="message"><strong>企业微信正在运行</strong><span>安装、更新、卸载或修改配置前，请先从托盘退出企业微信。</span></div>}
+      {state.running && <div className="message"><strong>企业微信正在运行</strong><span>现在仍可下载并校验更新包，下载期间可以继续使用；真正安装、卸载或应用配置前需要先退出企业微信，可点右上角「强制停止」，或从托盘退出。强制停止可能丢失未发送的输入。</span></div>}
       {state.feedError && <div className="message"><strong>无法获取官方安装包信息</strong><span>{state.feedError}。已有安装仍可启动、配置和卸载。</span></div>}
       <div className="windows-facts">
         <div><dt>当前版本</dt><dd>{state.installedVersion ?? (state.installed ? "无法识别" : "未安装")}</dd></div>
@@ -2021,6 +2022,14 @@ export default function App() {
       return;
     }
     if (!windowsState) return;
+    if (action === "stop") {
+      setWindowsBusy(true);
+      stopWindowsApplication()
+        .then((result) => setNotice(result))
+        .catch((reason) => setNotice(String(reason)))
+        .finally(() => { setWindowsBusy(false); void loadWindowsState(); });
+      return;
+    }
     if (!windowsState.wineVersion && action !== "configure") {
       setNotice("企业微信通过 Wine 运行，请先在「软件」页安装 Wine。");
       setPage("installed"); setQuery("wine"); setFilter("all");
@@ -2197,7 +2206,7 @@ export default function App() {
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>
     )}
-    {windowsPlan && <WindowsConfirmDialog plan={windowsPlan} busy={windowsBusy} message={windowsMessage} onConfirm={() => void confirmWindows()} onCancel={() => { if (!windowsBusy) { setWindowsPlan(null); setWindowsMessage(""); } }}/>}
+    {windowsPlan && <WindowsConfirmDialog plan={windowsPlan} busy={windowsBusy} message={windowsMessage} running={windowsState?.running === true} onConfirm={() => void confirmWindows()} onCancel={() => { if (!windowsBusy) { setWindowsPlan(null); setWindowsMessage(""); } }}/>}
     {windowsOpen && windowsState && <WindowsDetailDrawer state={windowsState} busy={windowsBusy} message={windowsMessage} progress={windowsProgress} onAction={handleWindowsAction} onClose={() => setWindowsOpen(false)}/>}
     {notice && <div className="app-notice" role="status" onClick={() => setNotice(null)}><span>{notice}</span><button aria-label="关闭">×</button></div>}
   </div>;

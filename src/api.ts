@@ -250,6 +250,11 @@ export function launchWindowsApplication(): Promise<void> {
   return invoke<void>("launch_windows_application");
 }
 
+export function stopWindowsApplication(): Promise<string> {
+  if (isMock()) return Promise.resolve("浏览器预览：未执行实际操作");
+  return invoke<string>("stop_windows_application");
+}
+
 export function openWindowsDirectory(): Promise<void> {
   if (isMock()) return Promise.resolve();
   return invoke<void>("open_windows_directory");
