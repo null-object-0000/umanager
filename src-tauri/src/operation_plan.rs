@@ -24,9 +24,10 @@ pub struct PlanArtifact {
     pub(crate) plan: OperationPlan,
     pub(crate) plan_path: String,
     /// Advisory only: dependency groups from the `.deb` that are not satisfied
-    /// by the installed system. `dpkg --install` does not resolve them, so the
-    /// UI warns the user before they confirm. Never gates the plan itself.
-    pub(crate) missing_dependencies: Vec<String>,
+    /// by the installed system, split by whether the configured apt sources can
+    /// complete them. `dpkg --install` does not resolve them, so the UI warns
+    /// the user before they confirm. Never gates the plan itself.
+    pub(crate) missing_dependencies: crate::dependency_check::DependencyGap,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -64,7 +65,7 @@ pub async fn create_install_plan(
 ) -> Result<PlanArtifact, String> {
     let verified = source_engine::verify_cached(app, &cache_dir).await?;
     let missing_dependencies =
-        crate::dependency_check::missing_dependencies(Path::new(&verified.plan.target_path));
+        crate::dependency_check::dependency_gap(Path::new(&verified.plan.target_path));
     let package_name = app.package_name.clone();
     let catalog_for_scan = catalog.clone();
     let installed_version = tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
@@ -258,7 +259,7 @@ pub async fn create_self_update_plan(cache_dir: &Path) -> Result<PlanArtifact, S
         .ok_or_else(|| "无法确定已安装的 UManager 包版本".to_owned())?;
     let verified = source_engine::verify_cached(&application, cache_dir).await?;
     let missing_dependencies =
-        crate::dependency_check::missing_dependencies(Path::new(&verified.plan.target_path));
+        crate::dependency_check::dependency_gap(Path::new(&verified.plan.target_path));
     if !version_is_newer(&installed_version, &verified.plan.version) {
         return Err("UManager 已是最新版本，拒绝生成重装或降级计划".to_owned());
     }

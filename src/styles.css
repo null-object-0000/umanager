@@ -1229,6 +1229,9 @@ nav { display: grid; gap: 2px; }
 .dependency-warning ul { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0; padding-left: 18px; }
 .dependency-warning li code { color: var(--yellow-text); font-family: var(--font-mono); font-size: var(--fs-sm); }
 .dependency-warning p { margin: 2px 0 0; color: var(--yellow-text); font-size: var(--fs-sm); line-height: 1.5; }
+/* 这些依赖不在任何已配置的 apt 源里，apt 无法补装；用红色与「可补装」区分开。 */
+.dependency-warning li.dependency-warning-unavailable code { color: var(--red-text); }
+.dependency-warning p strong { color: var(--red-text); }
 
 /* =============================================================================
    Settings

@@ -126,7 +126,7 @@ pub fn create_plan(cache_dir: &Path, sha256: &str) -> Result<PlanArtifact, Strin
     })?;
     let path = persist_immutable_plan(&cache_dir.join("plans"), &plan)?;
     Ok(PlanArtifact {
-        missing_dependencies: crate::dependency_check::missing_dependencies(&cached_path),
+        missing_dependencies: crate::dependency_check::dependency_gap(&cached_path),
         plan,
         plan_path: path.to_string_lossy().into_owned(),
     })

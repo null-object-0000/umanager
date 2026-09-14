@@ -1300,21 +1300,122 @@ fn execute_streaming(mut command: Command, label: &str) -> Result<(), String> {
 /// not satisfied on this system, dpkg leaves the package unconfigured and prints
 /// a compact error. UManager deliberately does not resolve dependencies itself,
 /// so instead of echoing the raw dpkg tail back, surface a clear, actionable
-/// message that names the missing packages and the standard `apt-get -f` remedy.
+/// message that names the missing packages.
+///
+/// The remedy depends on whether the configured apt sources can actually supply
+/// them, so the missing names are split before any advice is given:
+///
+/// * A name with an apt candidate is fixable with `sudo apt-get install -f`.
+/// * A name that exists in *no* configured source (e.g. `docker-ce-cli`, which
+///   only Docker's own repository ships) is **not**. Recommending `install -f`
+///   there is actively harmful: apt has nothing to install, so its only way to
+///   satisfy the dependency is to *remove* the package the user just tried to
+///   install. That is the loop this split exists to break.
+///
 /// Returns `None` for any other failure so callers keep the original error text.
 fn dependency_failure_hint(rendered: &str) -> Option<String> {
     if !rendered.to_ascii_lowercase().contains("dependency problems") {
         return None;
     }
     let missing = extract_missing_packages(rendered);
-    let mut message = "安装包存在未满足的系统依赖，dpkg 未能完成配置；请先在终端执行 \
-sudo apt-get install -f 补装依赖后重试"
-        .to_owned();
-    if !missing.is_empty() {
-        message.push_str("。缺少的依赖：");
-        message.push_str(&missing.join("、"));
+    if missing.is_empty() {
+        return Some(
+            "安装包存在未满足的系统依赖，dpkg 未能完成配置；请先在终端补装依赖后重试".to_owned(),
+        );
     }
-    Some(message)
+    Some(render_dependency_hint(
+        &missing,
+        &package_has_apt_candidate,
+    ))
+}
+
+/// Builds the user-facing hint from the already-extracted package names, asking
+/// `is_installable` which of them the configured apt sources can supply. Split
+/// from [`dependency_failure_hint`] so the wording is unit-testable without
+/// depending on the apt state of the machine running the tests.
+fn render_dependency_hint(
+    missing: &[String],
+    is_installable: &dyn Fn(&str) -> bool,
+) -> String {
+    let mut installable = Vec::new();
+    let mut unavailable = Vec::new();
+    for package in missing {
+        if is_installable(package) {
+            installable.push(package.clone());
+        } else {
+            unavailable.push(package.clone());
+        }
+    }
+
+    let mut message = String::new();
+    if !installable.is_empty() {
+        message.push_str(&format!(
+            "安装包缺少以下依赖，且当前系统尚未安装：{}。这些依赖在当前 apt 源中可以获取，\
+请先在终端执行 sudo apt-get install -f 补装后重试。",
+            installable.join("、")
+        ));
+    }
+    if !unavailable.is_empty() {
+        if !message.is_empty() {
+            message.push(' ');
+        }
+        message.push_str(&format!(
+            "另缺少：{}，它们不在当前配置的 apt 源中，apt 无法补装。请不要执行 \
+sudo apt-get install -f，它会反过来卸载刚安装的软件；请先按厂商官方文档添加对应的 apt 软件源\
+（例如 Docker 需要先添加 Docker 官方 apt 源）后再重试。",
+            unavailable.join("、")
+        ));
+    }
+    message
+}
+
+/// `apt-cache policy` prefixes the candidate line with this. Two spellings: this
+/// helper pins `LC_ALL=C`, but the fallback keeps the parse honest if the
+/// environment ever leaks a localized catalogue through.
+const CANDIDATE_LABELS: [&str; 2] = ["Candidate:", "候选："];
+
+/// `apt-cache policy` renders an absent version like this. Both spellings for the
+/// same reason as [`CANDIDATE_LABELS`]; these stay ASCII even in the Chinese
+/// catalogue, which is Unicode-fullwidth.
+const NO_CANDIDATE_MARKERS: [&str; 2] = ["(none)", "(无)"];
+
+/// Whether the configured apt sources offer any candidate version of `package`.
+/// Best-effort and advisory: any failure to observe apt (missing binary, unreadable
+/// lists, unrecognized output) answers `true`, so a broken apt state can never
+/// produce the "you must add a software source" advice.
+fn package_has_apt_candidate(package: &str) -> bool {
+    let output = match clean_command(APT_CACHE_BIN)
+        .args(["policy", package])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => return true,
+    };
+    package_has_apt_candidate_in(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// `apt-cache policy <pkg>` on a package absent from every source still succeeds
+/// and prints an empty version list with a `(none)` candidate:
+///
+/// ```text
+/// docker-ce-cli:
+///   已安装：(无)
+///   候选： (无)
+///   版本列表：
+/// ```
+///
+/// Any other outcome (a real candidate, or output we cannot recognize) counts as
+/// installable.
+fn package_has_apt_candidate_in(output: &str) -> bool {
+    let Some(rest) = output.lines().find_map(|line| {
+        let line = line.trim();
+        CANDIDATE_LABELS
+            .iter()
+            .find_map(|label| line.strip_prefix(label))
+    }) else {
+        return true;
+    };
+    !NO_CANDIDATE_MARKERS.contains(&rest.trim())
 }
 
 /// Extracts the concrete package names dpkg reports as missing from a dependency
@@ -1891,9 +1992,75 @@ mod tests {
                      dependency problems - leaving unconfigured\n\
                     Errors were encountered while processing:\n\
                      bytedance-feishu-stable";
-        let hint = dependency_failure_hint(tail).unwrap();
+        // `dependency_failure_hint` probes the real apt state, so assert the
+        // extraction + wording through the pure renderer to keep this test
+        // independent of the machine it runs on.
+        let missing = extract_missing_packages(tail);
+        assert_eq!(missing, vec!["pulseaudio-utils".to_owned()]);
+        let hint = render_dependency_hint(&missing, &|_| true);
         assert!(hint.contains("sudo apt-get install -f"));
         assert!(hint.contains("pulseaudio-utils"));
+    }
+
+    #[test]
+    fn hint_advises_install_f_only_for_dependencies_apt_can_supply() {
+        let missing = vec!["pass".to_owned(), "pulseaudio-utils".to_owned()];
+        let hint = render_dependency_hint(&missing, &|_| true);
+        assert!(hint.contains("sudo apt-get install -f"));
+        assert!(hint.contains("pass"));
+        assert!(hint.contains("pulseaudio-utils"));
+        assert!(!hint.contains("请不要执行"));
+    }
+
+    #[test]
+    fn hint_refuses_install_f_when_no_source_can_supply_the_dependency() {
+        // The docker-desktop case: `docker-ce-cli` lives only in Docker's own
+        // repository, so `apt-get install -f` would *remove* docker-desktop.
+        let missing = vec!["docker-ce-cli".to_owned()];
+        let hint = render_dependency_hint(&missing, &|_| false);
+        assert!(!hint.contains("执行 sudo apt-get install -f 补装"));
+        assert!(hint.contains("docker-ce-cli"));
+        assert!(hint.contains("请不要执行"));
+        assert!(hint.contains("apt 软件源"));
+    }
+
+    #[test]
+    fn hint_splits_mixed_dependencies_into_two_remedies() {
+        let missing = vec![
+            "qemu-system-x86".to_owned(),
+            "docker-ce-cli".to_owned(),
+            "uidmap".to_owned(),
+        ];
+        let hint = render_dependency_hint(&missing, &|package| package != "docker-ce-cli");
+        assert!(hint.contains("sudo apt-get install -f 补装后重试"));
+        assert!(hint.contains("qemu-system-x86、uidmap"));
+        assert!(hint.contains("另缺少：docker-ce-cli"));
+        assert!(hint.contains("请不要执行"));
+    }
+
+    #[test]
+    fn dependency_hint_without_parsed_package_names_stays_generic() {
+        let tail = "dpkg: dependency problems prevent configuration of x:\n\
+                     dependency problems - leaving unconfigured\n";
+        let hint = dependency_failure_hint(tail).unwrap();
+        assert!(hint.contains("补装依赖后重试"));
+        assert!(!hint.contains("sudo apt-get install -f"));
+    }
+
+    #[test]
+    fn apt_candidate_probe_reads_both_catalogue_spellings() {
+        assert!(!package_has_apt_candidate_in(
+            "docker-ce-cli:\n  Installed: (none)\n  Candidate: (none)\n  Version table:\n"
+        ));
+        assert!(!package_has_apt_candidate_in(
+            "docker-ce-cli:\n  已安装：(无)\n  候选： (无)\n  版本列表：\n"
+        ));
+        assert!(package_has_apt_candidate_in(
+            "qemu-system-x86:\n  已安装：(无)\n  候选： 1:10.2.1+ds-1ubuntu3.2\n  版本列表：\n"
+        ));
+        // Unrecognized output must never claim a dependency cannot be installed.
+        assert!(package_has_apt_candidate_in(""));
+        assert!(package_has_apt_candidate_in("E: cannot parse package lists"));
     }
 
     #[test]
