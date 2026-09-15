@@ -8,10 +8,14 @@ use umanager_catalog::{Application, Catalog, MetadataFeed};
 
 /// Upper bound for the feed response; the feed is a tiny curated JSON document.
 const MAX_FEED_BYTES: u64 = 1024 * 1024;
-/// How long a successfully fetched feed is reused before it is refreshed.
-const FEED_TTL: Duration = Duration::from_secs(15 * 60);
+/// How long a successfully fetched feed is reused before it is refreshed. The CI
+/// generator publishes every 30 minutes; keeping the client TTL shorter than
+/// that means a client polling on the same rhythm never skips a fresh publish.
+const FEED_TTL: Duration = Duration::from_secs(10 * 60);
 /// How often the background refresher wakes up to check for a newer feed.
-const FEED_REFRESH_INTERVAL: Duration = Duration::from_secs(30 * 60);
+/// Roughly twice per CI publish, so a new vendor version reaches a running
+/// client within ~15 minutes instead of ~30.
+const FEED_REFRESH_INTERVAL: Duration = Duration::from_secs(15 * 60);
 const FEED_SCHEMA_VERSION: u32 = 2;
 /// Path (relative to the app cache dir) of the persisted, signature-verified feed.
 const FEED_CACHE_FILE: &str = "feed/feed-cache.json";
