@@ -35,8 +35,7 @@ on:
     # hundred KB of probes instead of ~4.5 GB of vendor CDN traffic — see
     # scripts/feed-download-reuse.mjs. Two offsets per hour, off the :00/:30
     # boundary to stay out of GitHub's scheduler rush.
-    # 临时探针（本提交后立即回滚）：验证 GitHub 调度器是否会按新 cron 触发。
-    - cron: "*/5 * * * *"
+    - cron: "17,47 * * * *"
   workflow_dispatch:
   push:
     branches:
