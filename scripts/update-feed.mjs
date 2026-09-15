@@ -265,8 +265,8 @@ async function lastModifiedOf(url) {
 //
 // Determining an app's authoritative version/size/SHA-256 used to cost a full
 // .deb download on every run (~4.5 GB per run across the catalog), which is
-// tolerable every 6 hours and untenable at the 30-minute cadence the feed now
-// targets. The decision rules live in scripts/feed-download-reuse.mjs (pure,
+// tolerable every 6 hours and untenable at a sub-hourly cadence. The decision
+// rules live in scripts/feed-download-reuse.mjs (pure,
 // unit-tested); this section only supplies the cheap network probe they need.
 // Anything the probe cannot establish falls back to the previous full download.
 // ---------------------------------------------------------------------------

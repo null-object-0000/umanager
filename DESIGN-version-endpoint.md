@@ -344,7 +344,7 @@ plan schema 维持 **v2**。这类软件走现有的 `InstallVerifiedWebsiteDeb`
 
 > ⚠️ **下载主机前缀漂移风险（未解决）**：`.deb` 的 CDN 主机前缀**会变**——上一会话观察到 `lf9-ug-sign.feishucdn.com`，本次实测为 `lf6-ug-sign.feishucdn.com`。在「下载域名精确白名单、禁止通配/前缀匹配」的不变式下，这个漂移会导致 App 下载被拒（host 不在白名单）。当前实测稳定在 `lf6-ug-sign.feishucdn.com`，但长期来看前缀可能继续变。**这是飞书接入与不变式的直接冲突点**，接入前需定夺（见下一条）。
 
-**架构影响**：签名 URL 有效 ~1h，而 feed 现在每 30 分钟刷新一次（历史频次为 6h），所以 **feed 里的 downloadUrl 会过期**。App 必须在下载时**重新调 `package_info?platform=10`** 拿新鲜链接（类似 QQ 的签名子步骤，但这里是「整条 URL 都从接口拿」）。这需要一个「下载时重新解析下载地址」的机制——已实现为 `versionEndpoint.resolveAtDownload`（App 侧在 `source_engine::resolve_download_url` 里重新拉端点）。
+**架构影响**：签名 URL 有效 ~1h，而 feed 现在名义每 30 分钟刷新一次（实测 GitHub 调度器只交付约 4–5 次/天，见 DESIGN-feed-update-cadence.md §5），所以 **feed 里的 downloadUrl 会过期**。App 必须在下载时**重新调 `package_info?platform=10`** 拿新鲜链接（类似 QQ 的签名子步骤，但这里是「整条 URL 都从接口拿」）。这需要一个「下载时重新解析下载地址」的机制——已实现为 `versionEndpoint.resolveAtDownload`（App 侧在 `source_engine::resolve_download_url` 里重新拉端点）。
 
 > 该动态 URL 同时影响 CI 的「未变更就不重复下载」判定：URL 每次都变，无法用 URL 相同作为证据，因此飞书走 `versionField: data.version_number`（厂商自报版本）+ `Content-Length` 一致这条路径，见 `scripts/feed-download-reuse.mjs` 的 `dynamicDownloadUrl` 规则。
 

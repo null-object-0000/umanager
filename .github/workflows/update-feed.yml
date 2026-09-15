@@ -18,8 +18,8 @@ name: update-feed
 # Before downloading a vendor .deb (the only way to read its control `Version`
 # or compute its SHA-256), a generate job asks whether the previous published
 # entry is still current and reuses it when the vendor's own evidence says so —
-# see scripts/feed-download-reuse.mjs. That is what makes a 30-minute cadence
-# affordable.
+# see scripts/feed-download-reuse.mjs. That is what keeps a frequent cadence
+# affordable (and cheap enough to survive GitHub dropping runs).
 #
 # This workflow uses the modern GitHub Pages deployment (no branch to select). The
 # only manual step is to make sure Settings → Pages → Build and deployment →
@@ -29,12 +29,16 @@ name: update-feed
 
 on:
   schedule:
-    # Every 30 minutes: the only thing this cadence buys is faster third-party
-    # version detection (a UManager release triggers update-feed directly), and
-    # the generator no longer re-downloads unchanged .debs, so a run costs a few
-    # hundred KB of probes instead of ~4.5 GB of vendor CDN traffic — see
-    # scripts/feed-download-reuse.mjs. Two offsets per hour, off the :00/:30
-    # boundary to stay out of GitHub's scheduler rush.
+    # Every 30 minutes in name only: measured 2026-09-15, GitHub's scheduler
+    # delivers ~4-5 runs/day for this repo — it fires some slots near-punctually
+    # (12:47 slot at +6 min) and silently drops the rest (9 consecutive slots
+    # missed, 4.77 h between fires), and a cron edit costs hours of
+    # re-registration. The cadence that actually matters here is "does not
+    # re-download unchanged .debs", which makes a run cost a few hundred KB
+    # instead of ~4.5 GB (scripts/feed-download-reuse.mjs). For true 30-minute
+    # freshness an external punctual trigger (Cloudflare Worker cron →
+    # workflow_dispatch) is required — see DESIGN-feed-update-cadence.md §5.
+    # Two offsets per hour, off the :00/:30 boundary.
     - cron: "17,47 * * * *"
   workflow_dispatch:
   push:

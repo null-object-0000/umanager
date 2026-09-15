@@ -160,7 +160,7 @@ npm run update-feed
 
 ## 10. 中央元数据源运行细节
 
-- **触发**：`.github/workflows/update-feed.yml` 定时（每 30 分钟，`17,47 * * * *`）、手动触发，以及 `vendors.json` / `feed-sources.json` / `scripts/update-feed.mjs` / workflow 变更时；
+- **触发**：`.github/workflows/update-feed.yml` 定时（名义每 30 分钟，`17,47 * * * *`；实测 GitHub 调度器只交付约 4–5 次/天且会漏槽位，见 DESIGN-feed-update-cadence.md §5）、手动触发，以及 `vendors.json` / `feed-sources.json` / `scripts/update-feed.mjs` / workflow 变更时；
 - **未变更则不重复下载**：`versionEndpoint` / `stableDownloadEndpoint` / 带 `.deb` 的 `releaseApi` 必须整包下载才能读到控制区 `Version` 与 SHA-256，因此每个 job 先向上一版已发布 feed 求证：`releaseApi` 用 Releases API 自带的摘要（相同即字节相同，属证明）；其余用「下载 URL 不变 + 厂商版本字段不变 / 源声明 `immutableDownloadUrl` / CDN `Last-Modified` 与上一版记录一致 / 轮换签名 URL 但版本不变」之一，并要求 `Content-Length` 与上一版 `size` 相等，才复用上一版条目。任一信号缺失一律照旧下载（判定规则见 `scripts/feed-download-reuse.mjs`，纯函数 + 单测）。这套复用把每次运行的厂商 CDN 流量从 ~4.5 GB 降到 ~0.3 GB（仅剩「固定 `latest` 地址 + 页面版本由 JS 渲染」因而拿不到任何版本信号的腾讯文档），是 30 分钟频次的前提（完整论证见 DESIGN-feed-update-cadence.md）；
 - **分组抓取**：按 `feed-sources.json` 的 `sources` 注册表 + 每个应用的 `sourceGroup`（内置应用的归属在脚本内置表里，wechat/wemeet → tencent）把来源拆成并行 job（当前 `tencent` / `common` 两组）。每个 job 用 `--group <id>` 只抓本组应用，**就地完成**上一版兜底与 version-time 合并，产出本组**最终签名源 feed**（`feed.<group>.json`，含本组 `catalogJson`/`catalogSignature`）；组内抓取有界并发（默认 5），`.deb` 只下载一次、图标不变时跳过下载；
 - **合并发布**：`merge` job 用 `--merge` 发现所有源 feed，按 `feed-sources.json` 顺序聚合 `applications` / `catalogJson`；某组 job 挂掉时该组应用回落到上一版中央 feed 条目；`selfUpdate` 与开发工具是**中央独有数据**，由 merge 就地抓取合并；最后把各源 feed（+.sig）复制进发布目录、签名中央 feed。新增源只需注册表加一行 + 个别应用标 `sourceGroup` + matrix 数组加一个 id；默认不带参数的 `npm run update-feed` 仍是单 pass 全量模式（本地/兜底）；

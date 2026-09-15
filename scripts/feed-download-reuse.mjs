@@ -7,7 +7,8 @@
 // re-downloaded roughly 4.5 GB from vendor CDNs (Trae 436 MB, Docker Desktop
 // 440 MB, WPS 545 MB, Feishu 338 MB, …) even when nothing had shipped since the
 // previous run. That is tolerable at a 6-hour cadence and unacceptable at the
-// 30-minute cadence the feed now targets.
+// sub-hourly cadence the feed targets (GitHub's scheduler delivers ~4-5 runs/day
+// for this repo — see DESIGN-feed-update-cadence.md §5).
 //
 // Safety: the desktop app verifies every downloaded .deb against the SHA-256 in
 // the signed feed (AGENTS invariant 5), so reusing a stale entry while a vendor

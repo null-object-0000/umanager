@@ -44,7 +44,7 @@ feed 的更新频次决定「厂商发新版 → 用户在 UManager 里看到」
 ## 3. 决策
 
 1. **先做「未变更就不重复下载」**（`scripts/feed-download-reuse.mjs`，纯函数 + 单测）；
-2. **CI 频次提到 30 分钟**：`cron: "17,47 * * * *"`；
+2. **CI 频次名义提到 30 分钟**：`cron: "17,47 * * * *"`（实测 GitHub 只交付 4–5 次/天，见 §5）；
 3. **客户端对齐**：`FEED_TTL` 15 → **10 分钟**，`FEED_REFRESH_INTERVAL` 30 → **15 分钟**，
    否则服务端提频会被客户端 30 分钟的轮询吃掉。
 
@@ -87,35 +87,119 @@ feed 的更新频次决定「厂商发新版 → 用户在 UManager 里看到」
 `immutableDownloadUrl` / `dynamicDownloadUrl` / `forceDownload` 连同 `gatewayUrl` /
 `endpointHeaders` 一起剥掉，App 与 helper 看到的目录结构与之前完全一致（schema 仍是 v2）。
 
-## 5. 效果
+## 5. 实测：GitHub `schedule` 交付不了 30 分钟
+
+**结论：`cron: "17,47 * * * *"` 被正确注册，但 GitHub 的调度器会把它合并成每天 4–5 次，达不到
+30 分钟。要真正的 30 分钟必须用外部准点触发（见 §5.3）。**
+
+### 5.1 历史（旧 6h cron，共 75 次 schedule 运行 / 21 天）
+
+| 指标 | 实测 |
+|---|---|
+| 频次 | 75 次 / 21 天 ≈ **3.6 次/天**（名义 4 次/天） |
+| 相对前一个名义槽位（00/06/12/18:17）的延迟 | 中位 **4.34 h**，最小 0.45 h，最大 5.71 h |
+| 相邻间隔 | 最小 4.20 h、中位 6.64 h、最大 13.79 h |
+| 延迟是否恶化 | 否（前 1/2 均值 3.64 h vs 后 1/2 均值 3.84 h） |
+
+即：21 天里**每一次定时运行都迟到，最准的一次也晚了 27 分钟**。事件触发路径不受影响——tag
+在 06:16:26 推送，`release` 运行同一秒创建。
+
+### 5.2 新 cron（30 分钟）的实测
+
+- **改 cron 后有数小时的注册过渡期**：06:16 推 `17,47`、07:16 推 `*/5` 探针、07:42 回滚，
+  期间（含 disable/enable 重新注册）**5.5 小时零触发**；`*/5` 探针的 5 个槽位也全部没有触发。
+- **注册稳定后能准点**：12:47 槽位在 **12:53:50 触发（+6 分钟）**。
+- **但槽位会被合并/丢弃**：12:53:50 之后到 17:39:50 之间的 **9 个槽位（13:17 … 17:17）全部没跑**，
+  两次实际触发间隔 **4.77 小时**。也就是说稳态频率仍 ≈ 4–5 次/天，与 6 小时 cron 无本质差别。
+
+> 所以「每 30 分钟」目前只是**名义值**；`update-feed` 实际是「每天几次、时间点不保证」。
+> 本轮改动真正的收益是**每次运行的厂商下载量从 ~4.5 GB 降到 ~0.3 GB**（见 §6），而不是频次。
+
+### 5.3 要真正的 30 分钟：外部准点触发（待实施）
+
+给已有的 Cloudflare Worker（`umanager.nichangen.workers.dev`，源码不在本仓库）加一个 Cron
+Trigger，定时调 GitHub 的 dispatch API；Cloudflare cron 准点在分钟级，走的就是已经验证过的
+`workflow_dispatch` 路径。GitHub 自带的 `schedule` 建议保留作兜底。
+
+```js
+export default {
+  async scheduled(_event, env, ctx) { ctx.waitUntil(dispatchUpdateFeed(env)); },
+  // …保留现有 fetch（/fetch 网关）路由…
+};
+
+async function dispatchUpdateFeed(env) {
+  const res = await fetch(
+    `https://api.github.com/repos/${env.REPO}/actions/workflows/${env.WORKFLOW}/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "umanager-feed-cron",
+      },
+      body: JSON.stringify({ ref: env.REF ?? "main" }),
+    },
+  );
+  const ok = res.status === 204;
+  console.log(ok ? "update-feed dispatched" : `dispatch failed: ${res.status} ${await res.text()}`);
+  return ok;
+}
+```
+
+```toml
+# wrangler.toml
+[triggers]
+crons = ["17,47 * * * *"]
+
+[vars]
+REPO = "null-object-0000/umanager"
+WORKFLOW = "update-feed.yml"
+REF = "main"
+```
+
+需要两个 secrets：`GITHUB_TOKEN`（细粒度 PAT，仅本仓库、`Actions: write`）与 `DISPATCH_TOKEN`
+（手动触发用）。注意：这**不是**把 feed 生成搬到 Worker 上——签名私钥仍只在 GitHub Actions
+secret 里（安全不变量 8 不变），Worker 只负责准点按门铃。
+
+### 5.4 顺带验证到的容错行为
+
+17:39 那次运行里 `baidunetdisk` / `hexhub` / `dida` 三个源因 runner 侧 `fetch failed`（CN 端点
+抖动）失败：探测拿不到大小 → 回退整包下载 → 下载也失败 → 复用上一版条目。线上源 feed 里这三个
+应用仍在（`8.7.0` / `5.1.9` / `8.0.10`，共 25 个应用），即「绝不静默丢应用」的兜底链路工作正常。
+同一次运行里腾讯文档是 `size-changed`（**真的**有新版本），说明复用规则没有盲目复用。
+
+## 6. 效果
 
 | 项 | 优化前 | 优化后 |
 |---|---|---|
 | 每次运行厂商下载量 | ≈ 4.5 GB | ≈ 0.3 GB |
-| 每天厂商下载量（30 分钟频次） | ≈ 216 GB | ≈ 15 GB |
-| 每天厂商下载量（原 6 小时频次） | ≈ 18 GB | ≈ 1.2 GB |
-| 最坏检测延迟 | ≈ 9 h + 客户端 30 min | ≈ 30 min（+ 调度漂移）+ 客户端 15 min |
+| 每天厂商下载量（维持 4–5 次/天） | ≈ 18~22 GB | ≈ 1.2~1.5 GB |
+| 每天厂商下载量（若 30 分钟真能落地） | ≈ 216 GB | ≈ 15 GB |
+| 检测延迟 | 4–9 h（实测）+ 客户端 30 min | 4–5 h（GitHub 实际频次，见 §5）+ 客户端 15 min；若上外部触发则 ≈ 30 min + 15 min |
+
+实测单次运行：`generate (common)` 24–306 s、`generate (tencent)` 75–89 s、`merge` 98–332 s，
+端到端 **3–4.5 分钟**（复用之前是 5.5–8.6 分钟）。
 
 剩余项：**腾讯文档**是唯一仍每次整包下载的应用（~300 MB）：它的下载地址是固定
 `…?version_id=latest`、官网版本由 JS 渲染、又因为 changelog 发布时间被当作权威版本时间
 而失去可比较的 `Last-Modified`。补一个可用的 `versionField` / `pageVersionMarker`（或让
 生成器把「changelog 时间未变」当作版本信号）即可消除这最后十几 GB/天。
 
-## 6. 风险与已知取舍
+## 7. 风险与已知取舍
 
-- **`schedule` 不准时**：实测名义 6 小时对应的实际间隔是 median 6.28 h / max 8.91 h，说明
-  GitHub 调度器会整体漂移。30 分钟的名义频次同样会漂移（可能被推迟或偶尔合并），所以
-  收益是「每天次数变多、平均延迟下降」，不是「精确每 30 分钟」；
-- **长尾运行 + `cancel-in-progress`**：`concurrency` 组内新运行会取消进行中的运行。去掉
-  整包下载后单次运行应降到 1–3 分钟，30 分钟间隔留有充足余量；若某天某源又开始整包
-  下载（探测失败 → 回退下载），最长运行时间会回来，需观察一次 CI 日志里的
-  「重新下载整包」与「跳过 N 个」统计；
+- **`schedule` 会迟到、会漏槽位**（§5 有完整实测）：名义 30 分钟的实际交付是每天 4–5 次。
+  所以文档、UI 文案都不要承诺「30 分钟更新一次」；要承诺就得先上 §5.3 的外部触发；
+- **改 cron 有注册过渡期**：改动 workflow 文件后（哪怕只是回滚 cron）本次观测到 5.5 小时
+  无触发，排查「定时没跑」时要先把过渡期算进去，别急着判定调度器坏了；
+- **长尾运行 + `cancel-in-progress`**：`concurrency` 组内新运行会取消进行中的运行。复用之后
+  单次运行 3–4.5 分钟，30 分钟间隔余量充足；但若某源探测失败回退整包下载，运行时间会回到
+  分钟级偏上，需看 CI 日志里的「重新下载整包」与「跳过 N 个」统计；
 - **探测失败即回退**：CDN 不答 HEAD、网关不支持 HEAD、`Content-Length` 缺失等情况都会
   退回完整下载 —— 保守但会吃掉收益，这也是 `logReuseRefusal()` 存在的意义；
 - **首次滚动**：`feed-sources.json` 新增的 `versionField`（飞书）要等第一次新 feed 发布后
   才成为可比证据，所以配置上线后的第一次运行仍会整包下载飞书。
 
-## 7. 安全不变量影响
+## 8. 安全不变量影响
 
 - **不改** `vendors.json`（编译进 App/helper 的事实源），本次改动不触发发版；
 - feed schema 仍为 **v2**，没有新增/删除字段，只是「哪些条目需要重新抓」变了；
@@ -123,7 +207,7 @@ feed 的更新频次决定「厂商发新版 → 用户在 UManager 里看到」
   全部不变；
 - 复用只发生在「厂商证据表明未变更」时；证据不足即回到原来的完整下载路径（保守降级）。
 
-## 8. 回滚
+## 9. 回滚
 
 - 只想退回频次：把 `cron` 改回 `17 */6 * * *`（客户端 TTL 可保留，只是更频繁地命中
   同一版 feed）；
