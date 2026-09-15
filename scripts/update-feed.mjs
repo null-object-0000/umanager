@@ -55,6 +55,12 @@ import { parseSmartdocVersionSections, selectSmartdocSection, smartdocSectionToM
 import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./changelog-markdown.mjs";
 import { entryOrPrevious } from "./feed-fallback.mjs";
 import { applyVersionTime, mergeSourceFeeds, parseCatalogApplications, sourceGroupOf as sourceGroupOfApp, validateSourceGroups } from "./feed-merge.mjs";
+import {
+  decideDownloadSkip,
+  digestProvesUnchanged,
+  parseContentRangeTotal,
+  summarizeSkipped,
+} from "./feed-download-reuse.mjs";
 import { sanitizeReleaseNotes, selectReleaseNotesRelease, selectToolRelease, stripReleaseNotesBoilerplate } from "./release-notes.mjs";
 import { npmDistTagChannels, resolveNpmDistTagVersion } from "./tool-version.mjs";
 import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
@@ -253,6 +259,109 @@ async function lastModifiedOf(url) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// "Unchanged artifact" reuse: skip re-downloading a vendor .deb when the
+// previous published feed entry still describes the current artifact.
+//
+// Determining an app's authoritative version/size/SHA-256 used to cost a full
+// .deb download on every run (~4.5 GB per run across the catalog), which is
+// tolerable every 6 hours and untenable at the 30-minute cadence the feed now
+// targets. The decision rules live in scripts/feed-download-reuse.mjs (pure,
+// unit-tested); this section only supplies the cheap network probe they need.
+// Anything the probe cannot establish falls back to the previous full download.
+// ---------------------------------------------------------------------------
+
+const skippedDownloads = [];
+
+function noteSkippedDownload(app, previousEntry, reason) {
+  skippedDownloads.push({ applicationId: app.applicationId, size: previousEntry.size || 0, reason });
+}
+
+// One HEAD request per artifact, with a 1-byte ranged GET fallback for CDNs
+// that do not answer HEAD (e.g. Tencent Docs). Probes through the same
+// direct-then-gateway path as the real download. Returns null whenever the
+// artifact's size cannot be established.
+async function probeArtifact(url, gatewayUrl) {
+  const targets = [url];
+  if (gatewayUrl) targets.push(gatewayFetchUrl(gatewayUrl, url));
+  for (const target of targets) {
+    try {
+      const probe = await probeArtifactTarget(target);
+      if (probe) return probe;
+    } catch {
+      // try the next target (the gateway), else give up and download
+    }
+  }
+  return null;
+}
+
+async function probeArtifactTarget(target) {
+  const headers = { "User-Agent": "UManager-feed/1.0" };
+  try {
+    const head = await fetch(target, {
+      method: "HEAD",
+      redirect: "follow",
+      headers,
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (head.ok) {
+      const contentLength = Number(head.headers.get("content-length"));
+      if (Number.isFinite(contentLength) && contentLength > 0) {
+        return {
+          contentLength,
+          lastModified: parseLastModified(head.headers.get("last-modified")),
+        };
+      }
+    }
+  } catch {
+    // fall through to the ranged probe
+  }
+  const ranged = await fetch(target, {
+    method: "GET",
+    redirect: "follow",
+    headers: { ...headers, Range: "bytes=0-0" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const lastModified = parseLastModified(ranged.headers.get("last-modified"));
+  const total = parseContentRangeTotal(ranged.headers.get("content-range"));
+  const contentLength = Number(ranged.headers.get("content-length"));
+  // Drop the body immediately: a server that ignores Range would otherwise
+  // stream the whole artifact — exactly what this probe exists to avoid.
+  await ranged.body?.cancel().catch(() => {});
+  if (total != null) return { contentLength: total, lastModified };
+  if (ranged.ok && Number.isFinite(contentLength) && contentLength > 0) {
+    return { contentLength, lastModified };
+  }
+  return null;
+}
+
+// The previous entry, refreshed with this run's identity fields. Returned
+// without `_versionTimeCandidate` so applyVersionTime carries the previous
+// version-update time forward instead of inventing a new one.
+function reusedEntry(app, previousEntry, downloadUrl) {
+  const entry = {
+    ...previousEntry,
+    packageName: app.packageName,
+    architecture: app.architecture,
+    downloadUrl,
+  };
+  delete entry._versionTimeCandidate;
+  return entry;
+}
+
+function logSkippedDownloads() {
+  log(`  ↓ ${summarizeSkipped(skippedDownloads)}`);
+}
+
+// A probe that established a size but still could not prove reuse is how a
+// source reveals it needs an opt-in flag (`immutableDownloadUrl` /
+// `dynamicDownloadUrl`) or a `versionField` in its config — keep it visible.
+function logReuseRefusal(app, decision, probe) {
+  if (probe && !decision.skip) {
+    log(`  ↑ ${app.applicationId} 重新下载整包（${decision.reason}）`);
+  }
+}
+
 function debControlField(filePath, field) {
   const result = spawnSync("dpkg-deb", ["--field", filePath, field], {
     encoding: "utf8",
@@ -364,7 +473,7 @@ async function aptEntry(app) {
   return entry;
 }
 
-async function releaseApiEntry(app, source) {
+async function releaseApiEntry(app, source, previousEntry) {
   let json;
   try {
     json = JSON.parse(await fetchText(source.releaseApiUrl, githubApiHeaders()));
@@ -394,14 +503,23 @@ async function releaseApiEntry(app, source) {
   const releaseNotesUrl = typeof json.html_url === "string" && /^https:\/\//.test(json.html_url)
     ? json.html_url
     : null;
-  let windowFile;
+  // The Releases API publishes the asset's own SHA-256, so an unchanged digest
+  // means the bytes (and therefore the .deb control `Version` field) are
+  // bit-identical to the previous feed entry: reuse it without the download.
+  const digestMatchesPrevious = digestProvesUnchanged(digest, previousEntry);
   let controlVersion;
-  try {
-    windowFile = await downloadTemp(app.applicationId, asset.browser_download_url);
-    controlVersion = debControlField(windowFile, "Version");
-  } catch (error) {
-    fail(app.applicationId, `读取发布资产控制信息失败：${error.message}`);
-    return null;
+  if (digestMatchesPrevious && previousEntry.version) {
+    noteSkippedDownload(app, previousEntry, "unchanged-release-digest");
+    controlVersion = previousEntry.version;
+  } else {
+    let windowFile;
+    try {
+      windowFile = await downloadTemp(app.applicationId, asset.browser_download_url);
+      controlVersion = debControlField(windowFile, "Version");
+    } catch (error) {
+      fail(app.applicationId, `读取发布资产控制信息失败：${error.message}`);
+      return null;
+    }
   }
   const entry = {
     packageName: app.packageName,
@@ -713,7 +831,7 @@ async function fetchAtomReleaseNotes(app, config) {
   return { releaseNotes, releaseNotesUrl };
 }
 
-async function stableDownloadEntry(app, source) {
+async function stableDownloadEntry(app, source, previousEntry) {
   // The version marker is optional: when absent, skip scraping the page and use
   // the .deb control field's Version as the authoritative version (e.g. Bitwarden's
   // version-pinned "latest" URL, which has no server-rendered version text).
@@ -751,6 +869,21 @@ async function stableDownloadEntry(app, source) {
     fail(app.applicationId, "官网下载地址无效");
     return null;
   }
+  const probe = await probeArtifact(downloadUrl, source.gatewayUrl);
+  const decision = decideDownloadSkip({
+    previousEntry,
+    rawUrl: downloadUrl,
+    websiteVersion: displayVersion,
+    probe,
+    immutableDownloadUrl: source.immutableDownloadUrl === true,
+    dynamicDownloadUrl: source.dynamicDownloadUrl === true,
+    forceDownload: source.forceDownload === true,
+  });
+  if (decision.skip) {
+    noteSkippedDownload(app, previousEntry, decision.reason);
+    return reusedEntry(app, previousEntry, downloadUrl);
+  }
+  logReuseRefusal(app, decision, probe);
   let windowFile;
   let controlVersion;
   try {
@@ -760,7 +893,8 @@ async function stableDownloadEntry(app, source) {
     fail(app.applicationId, `读取安装包控制信息失败：${error.message}`);
     return null;
   }
-  const serverModified = await lastModifiedOf(downloadUrl);
+  // The probe already read Last-Modified; only HEAD again when it could not.
+  const serverModified = probe?.lastModified ?? (await lastModifiedOf(downloadUrl));
   const entry = {
     packageName: app.packageName,
     version: controlVersion,
@@ -1084,7 +1218,7 @@ async function applySign(sign, rawUrl) {
   return signed;
 }
 
-async function versionEndpointEntry(app, source) {
+async function versionEndpointEntry(app, source, previousEntry) {
   let text;
   try {
     text = await fetchTextFallback(
@@ -1133,6 +1267,27 @@ async function versionEndpointEntry(app, source) {
       return null;
     }
   }
+
+  // Probe the *fetchable* URL (a signed one — some CDNs 403 the bare URL), but
+  // compare/record the raw URL: that is what the feed stores and what the app
+  // re-signs or re-resolves at download time.
+  const probe = await probeArtifact(download, source.gatewayUrl);
+  const decision = decideDownloadSkip({
+    previousEntry,
+    rawUrl,
+    websiteVersion,
+    probe,
+    immutableDownloadUrl: source.immutableDownloadUrl === true,
+    // `resolveAtDownload` sources hand out a short-lived signed URL that rotates
+    // on every scrape, so URL identity can never hold for them.
+    dynamicDownloadUrl: source.dynamicDownloadUrl === true || source.resolveAtDownload === true,
+    forceDownload: source.forceDownload === true,
+  });
+  if (decision.skip) {
+    noteSkippedDownload(app, previousEntry, decision.reason);
+    return reusedEntry(app, previousEntry, rawUrl);
+  }
+  logReuseRefusal(app, decision, probe);
 
   let debPath;
   let controlVersion;
@@ -1414,17 +1569,18 @@ function discoverSourceFeeds(partsDir) {
 // Entry scraping (shared by full + partial modes)
 // ---------------------------------------------------------------------------
 
-async function scrapeAppEntry(app, releaseNotesOverrides) {
+async function scrapeAppEntry(app, releaseNotesOverrides, previousFeed = null) {
   const kind = app.source?.kind;
+  const previousEntry = previousFeed?.applications?.[app.applicationId] ?? null;
   let entry = null;
   if (kind === "aptRepository") {
     entry = await aptEntry(app);
   } else if (kind === "releaseApi") {
-    entry = await releaseApiEntry(app, app.source);
+    entry = await releaseApiEntry(app, app.source, previousEntry);
   } else if (kind === "stableDownloadEndpoint") {
-    entry = await stableDownloadEntry(app, app.source);
+    entry = await stableDownloadEntry(app, app.source, previousEntry);
   } else if (kind === "versionEndpoint") {
-    entry = await versionEndpointEntry(app, app.source);
+    entry = await versionEndpointEntry(app, app.source, previousEntry);
   }
   // browserImport and unknown kinds yield no entry (previous-feed fallback handles it).
   // Non-releaseApi sources may still publish a changelog (GitHub release, Atom
@@ -1461,6 +1617,11 @@ function toCatalogApplication(app) {
   // `endpointHeaders` is a CI-only fetch hint (e.g. HexHub's version API needs
   // a Referer); the desktop app must never see it.
   if (record.source && "endpointHeaders" in record.source) delete record.source.endpointHeaders;
+  // Download-reuse hints are CI-only too: they describe how the *generator*
+  // decides whether a .deb needs re-downloading and mean nothing to the app.
+  for (const hint of ["immutableDownloadUrl", "dynamicDownloadUrl", "forceDownload"]) {
+    if (record.source && hint in record.source) delete record.source[hint];
+  }
   if ("releaseNotes" in record) delete record.releaseNotes;
   if ("sourceGroup" in record) delete record.sourceGroup;
   return record;
@@ -1714,7 +1875,9 @@ async function runGenerate({ OUT_PATH, config, previousFeed, group = null }) {
   const groupExtra = extraApplications.filter((app) => !isGroup || sourceGroupOf(app) === group);
 
   const applications = {};
-  const scraped = await mapLimit(groupApps, CONCURRENCY, (app) => scrapeAppEntry(app, releaseNotesOverrides));
+  const scraped = await mapLimit(groupApps, CONCURRENCY, (app) =>
+    scrapeAppEntry(app, releaseNotesOverrides, previousFeed),
+  );
   for (let index = 0; index < groupApps.length; index += 1) {
     const app = groupApps[index];
     const entry = scraped[index];
@@ -1770,6 +1933,7 @@ async function runGenerate({ OUT_PATH, config, previousFeed, group = null }) {
     );
   }
   logReused(reusedEntries);
+  logSkippedDownloads();
   logErrors(errors);
 }
 

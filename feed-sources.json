@@ -135,7 +135,8 @@
         "gatewayUrl": "https://umanager.nichangen.workers.dev",
         "payloadKind": "html",
         "downloadUrlField": ".deb",
-        "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"]
+        "downloadHosts": ["c.y.qq.com", "dldir.y.qq.com"],
+        "immutableDownloadUrl": true
       },
       "releaseNotes": {
         "changelogListHtmlUrl": "https://y.qq.com/download/download.html",
@@ -160,7 +161,8 @@
         "versionEndpointHosts": ["obsidian.md"],
         "payloadKind": "html",
         "downloadUrlField": "_amd64.deb",
-        "downloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"]
+        "downloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "immutableDownloadUrl": true
       },
       "releaseNotes": {
         "atomUrl": "https://obsidian.md/changelog.xml",
@@ -184,6 +186,7 @@
         "versionEndpointHosts": ["www.feishu.cn"],
         "query": { "platform": 10 },
         "payloadKind": "json",
+        "versionField": "data.version_number",
         "downloadUrlField": "data.download_link",
         "downloadHosts": ["*.feishucdn.com"],
         "resolveAtDownload": true
@@ -394,7 +397,8 @@
         "endpointHeaders": { "Referer": "https://www.trae.cn/" },
         "payloadKind": "json",
         "downloadUrlField": "data.manifest.linux.download.0[\"x64.deb\"]",
-        "downloadHosts": ["lf-cdn.trae.com.cn", "lf-cdn.trae.ai"]
+        "downloadHosts": ["lf-cdn.trae.com.cn", "lf-cdn.trae.ai"],
+        "immutableDownloadUrl": true
       }
     },
     {
