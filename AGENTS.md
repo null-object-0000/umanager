@@ -28,6 +28,7 @@ UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + Reac
 | 新增受管软件（免更新 App） | `feed-sources.json` |
 | 改受管软件的基础定义/域名白名单 | `src-tauri/resources/vendors.json`（需发版） |
 | feed 抓取/签名/发布 | `scripts/update-feed.mjs`、`.github/workflows/update-feed.yml` |
+| 「未变更就不重复下载 .deb」的判定规则 | `scripts/feed-download-reuse.mjs`（纯函数 + 单测，改规则前先读文件头注释） |
 | 发布 `.deb` | `.github/workflows/release.yml`（推 `v*` tag） |
 | 数据模型 | `crates/umanager-catalog/src/lib.rs` |
 | 计划 schema | `crates/umanager-plan/src/lib.rs` |
