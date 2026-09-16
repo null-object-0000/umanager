@@ -104,6 +104,8 @@ https://null-object-0000.github.io/umanager/feed.json.sig
 | `src-tauri/src/installable.rs` | 软件商店可安装列表 |
 | `src-tauri/src/lib.rs` | Tauri command 入口 |
 | `src-tauri/src/local_deb.rs` / `installation.rs` | 本地 `.deb` 导入 / 安装形态检测 |
+| `src-tauri/src/translation.rs` | 可选的 LLM「翻译 + 更新重点」：流式请求、结果按原文内容缓存（`~/.local/share/io.github.umanager.app/changelog-translations.json`） |
+| `src/changelogTranslation.ts` | 翻译/归纳的展示逻辑（英文判定、按钮文案、缓存来源说明；纯函数 + vitest 单测） |
 | `src-tauri/src/dev_tools.rs` / `dev_cli_tools.rs` | nvm/rustup 工具链 / CLI 开发工具 |
 | `src/App.tsx` / `src/api.ts` / `src/types.ts` | 前端（软件页工具栏：`全部/已安装/可更新/可安装` 在左、`排序` 在右） |
 | `src/model.ts` / `src/VersionDate.tsx` | 列表排序纯函数（`sortSoftwareItems`，含 vitest 单测） / 卡片「版本发布时间」 |
@@ -247,3 +249,12 @@ Windows 应用使用独立于 Debian 特权计划的用户级流程：
 - Wine 配置只写明确列出的兼容键；默认值在 `resources/windows/wecom-defaults.json`。标题栏修复从 C 源码交叉编译后嵌入主程序，用户机器无需编译器。
 - 签名条目可携带可选的 `versionUpdatedAtUnixSeconds` / `versionUpdatedAtSource`（语义与主程序条目一致：安装包 HTTP `Last-Modified` → `serverModified`，否则采集推断 → `observed`）。它们只用于卡片日期与商店列表排序，不参与任何授权判断，但成对出现的结构校验与主程序条目共用 `feed::validate_version_updated_at`。
 - 配置与最近操作日志保存在 `~/.local/share/umanager/windows`。安装/更新没有绕过签名的“本地 EXE 安装”入口；已有应用的启动、配置与卸载不依赖在线 feed。
+
+## LLM 翻译与更新重点（可选功能）
+
+更新日志（应用详情「新内容」、CLI 工具「版本更新记录」）默认展示原文。用户在「设置 → LLM 翻译」填好 OpenAI 兼容服务后，纯英文更新日志上会出现「翻译并总结」：一次点击同时发起两个并行流式请求——翻译正文（`translation` 段）和 3–6 条「更新重点」（`summary` 段），后端用 `llm-translate-delta` 事件按 `section` 字段分别投递；总结失败不影响译文，只少一块「更新重点」。LLM 是**用户自带的可选服务**，不参与任何 feed 信任判断，只把更新日志文本发给用户自己填写的地址（默认仅信任 `https://`，`http://` 只允许 localhost/127.0.0.1）。
+
+结果按**原文内容的 SHA-256** 落到 `app_data_dir/changelog-translations.json`（最多 64 条、总体积不超过 2 MiB，超出淘汰最旧）：再次打开同一份更新日志先读缓存直接展示译文与更新重点，不再消耗 token，用户点「重新翻译」才会绕过缓存重新请求。因此：
+
+- 改动 `SYSTEM_PROMPT` / `SUMMARY_PROMPT` 或落盘字段语义时，必须同时递增 `translation.rs` 里的 `CACHE_VERSION`，否则旧缓存会被继续展示；
+- 缓存读改写由 `CACHE_LOCK` 串行化，文件损坏/截断/格式不认识一律按「没有缓存」处理，落盘失败不影响本次结果展示。

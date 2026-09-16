@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -30,6 +30,40 @@ const mockPlans: Record<string, DownloadPlan> = {
   chatgpt: { applicationId: "chatgpt", packageName: "chatgpt", version: "26.818.61809", architecture: "amd64", sourceKind: "officialRepository", repositoryUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb", downloadUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb/pool/main/c/chatgpt/chatgpt_26.818.61809_amd64.deb", fileName: "chatgpt_26.818.61809_amd64.deb", expectedSize: 388572198, expectedSha256: "1".repeat(64), targetPath: "/home/user/.cache/io.github.umanager.app/downloads/chatgpt.deb", releaseTag: null, assetName: null, websiteVersion: null },
   wechat: { applicationId: "wechat", packageName: "wechat", version: "4.1.2.1", architecture: "amd64", sourceKind: "officialWebsite", repositoryUrl: null, downloadUrl: "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb", fileName: "wechat-4.1.2.1.deb", expectedSize: 212419528, expectedSha256: null, targetPath: "/home/user/.cache/io.github.umanager.app/downloads/wechat.deb", releaseTag: null, assetName: null, websiteVersion: "4.1.2" },
   flclash: { applicationId: "flclash", packageName: "flclash", version: "0.8.97+2026082401", architecture: "amd64", sourceKind: "officialWebsite", repositoryUrl: null, downloadUrl: "https://github.com/chen08209/FlClash/releases/download/v0.8.97/FlClash-0.8.97-linux-amd64.deb", fileName: "flclash-0.8.97.deb", expectedSize: 42400000, expectedSha256: "b24f5aa073952fabfb5b65d67f2800c824fb6a5bce8663524382dc7319d3864c", targetPath: "/home/user/.cache/io.github.umanager.app/downloads/flclash.deb", releaseTag: "v0.8.97", assetName: "FlClash-0.8.97-linux-amd64.deb", websiteVersion: "0.8.97" },
+};
+
+// 更新日志的示例数据：vscode 走应用详情「新内容」、codex 走 CLI 工具「版本更新记录」。
+// 这两条特意放英文更新日志，方便在 dev 模式下直接验证「翻译 + 更新重点」的交互
+// （中文更新日志不会出现翻译入口）。
+const mockReleaseNotes: Record<string, { notes: string; url: string }> = {
+  vscode: {
+    notes: [
+      "## 1.134.0",
+      "",
+      "### Added",
+      "- New `chat.editing.autoAcceptDelay` setting to control how long suggestions stay open",
+      "- Support for dragging editor tabs between windows",
+      "",
+      "### Fixed",
+      "- Terminal no longer steals focus when a task finishes in the background",
+      "- Fixed a crash on startup when a workspace contains more than 500 files",
+    ].join("\n"),
+    url: "https://code.visualstudio.com/updates/v1_134",
+  },
+  flclash: {
+    notes: "## 0.8.97\n\n- 修复托盘与代理规则导入的问题\n- 优化订阅刷新与连接稳定性\n- 升级内置 Clash 内核",
+    url: "https://github.com/chen08209/FlClash/releases/tag/v0.8.97",
+  },
+  codex: {
+    notes: [
+      "## 0.149.1",
+      "",
+      "- Added `--sandbox` presets for the `codex exec` subcommand",
+      "- Fixed a hang when a tool call returns a non-UTF-8 payload",
+      "- Reduced startup time by lazily loading the MCP client",
+    ].join("\n"),
+    url: "https://github.com/openai/codex/releases/tag/rust-v0.149.1",
+  },
 };
 
 function mockDetails(applicationId: string): ApplicationDetails {
@@ -72,12 +106,8 @@ function mockDetails(applicationId: string): ApplicationDetails {
     versionUpdatedAtSource: versionTime?.[1] ?? null,
     releaseTag: plan.releaseTag,
     assetName: plan.assetName,
-    releaseNotes: applicationId === "flclash"
-      ? "## 0.8.97\n\n- 修复托盘与代理规则导入的问题\n- 优化订阅刷新与连接稳定性\n- 升级内置 Clash 内核"
-      : null,
-    releaseNotesUrl: applicationId === "flclash"
-      ? "https://github.com/chen08209/FlClash/releases/tag/v0.8.97"
-      : null,
+    releaseNotes: mockReleaseNotes[applicationId]?.notes ?? null,
+    releaseNotesUrl: mockReleaseNotes[applicationId]?.url ?? null,
     evidence: [
       { label: website ? "下载域名" : "APT 仓库域名", actual: plan.repositoryUrl ?? plan.downloadUrl, expected: plan.repositoryUrl ?? plan.downloadUrl, passed: true },
       { label: "Debian 软件包名", actual: plan.packageName, expected: plan.packageName, passed: true },
@@ -114,7 +144,9 @@ export function setNetworkSettings(settings: NetworkSettings): Promise<NetworkSe
 }
 
 export function getLlmSettings(): Promise<LlmSettings> {
-  if (isMock()) return Promise.resolve({ enabled: false, baseUrl: "", apiKey: "", model: "" });
+  // dev mock 里假装已经配好 LLM：这样英文更新日志的「翻译并总结」入口可以点，
+  // 走的也是 mock 的固定译文与更新重点（不发真实请求）。
+  if (isMock()) return Promise.resolve({ enabled: true, baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-mock", model: "mock-chat" });
   return invoke<LlmSettings>("get_llm_settings");
 }
 
@@ -123,20 +155,42 @@ export function setLlmSettings(settings: LlmSettings): Promise<LlmSettings> {
   return invoke<LlmSettings>("set_llm_settings", { settings });
 }
 
-export async function translateChangelog(text: string, requestId: string, onDelta: (delta: string) => void): Promise<string> {
+/// 翻译一份更新日志并同时归纳更新重点。`onDelta` 会收到带段落标签的增量：
+/// `summary` 投递到「更新重点」，`translation` 投递到译文正文。
+/// `force` 为 true 时绕过本地缓存重新请求 LLM（对应 UI 的「重新翻译」）。
+export async function translateChangelog(
+  text: string,
+  requestId: string,
+  onDelta: (delta: string, section: TranslationSection) => void,
+  options?: { force?: boolean },
+): Promise<ChangelogTranslation> {
   if (isMock()) {
-    // In dev mock there is no Tauri backend; emit the whole text as one delta.
-    onDelta(text);
-    return text;
+    // In dev mock there is no Tauri backend; emit the whole text as one delta and
+    // return a canned summary so the「更新重点」layout is visible without an LLM.
+    onDelta(text, "translation");
+    return {
+      summary: "- 演示数据：这里会显示 LLM 归纳出的本次更新重点\n- 真实环境下译文与重点会缓存在本机，下次打开直接展示",
+      translation: text,
+      cached: false,
+      model: "mock",
+      createdAtUnixSeconds: Math.floor(Date.now() / 1000),
+    };
   }
   const unlisten = await listen<LlmTranslateDelta>("llm-translate-delta", ({ payload }) => {
-    if (payload.requestId === requestId) onDelta(payload.delta);
+    if (payload.requestId === requestId) onDelta(payload.delta, payload.section);
   });
   try {
-    return await invoke<string>("translate_changelog", { text, requestId });
+    return await invoke<ChangelogTranslation>("translate_changelog", { text, requestId, force: options?.force ?? false });
   } finally {
     unlisten();
   }
+}
+
+/// 只读本地缓存：打开更新日志时先问一次，命中就直接展示上次的译文与更新重点，
+/// 不消耗 token。返回 null 表示这份更新日志还没翻译过。
+export function getCachedChangelogTranslation(text: string): Promise<ChangelogTranslation | null> {
+  if (isMock()) return Promise.resolve(null);
+  return invoke<ChangelogTranslation | null>("get_changelog_translation", { text });
 }
 
 export function testLlmConnection(settings: LlmSettings): Promise<string> {
@@ -491,7 +545,7 @@ const mockDevToolStates: Record<string, DevToolState> = {
   "claude-code": { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: null, accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "2.1.245", latestVersion: "2.1.245", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/claude", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 12), versionUpdatedAtSource: "official" },
   opencode: { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: null, accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "1.18.22", latestVersion: "1.18.22", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/opencode", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 19), versionUpdatedAtSource: "official" },
   pi: { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: null, accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installerKind: "curlScript", npmAvailable: true, installed: false, installKind: null, version: null, latestVersion: "0.84.3", channels: null, selectedChannel: null, binaryPath: null, updateAvailable: false, canUninstall: false, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 14), versionUpdatedAtSource: "official" },
-  codex: { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: null, accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.149.0", latestVersion: "0.149.1", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/codex", updateAvailable: true, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 23), versionUpdatedAtSource: "official" },
+  codex: { toolId: "codex", displayName: "Codex CLI", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/cli", icon: null, accentColor: "#171918", binaryName: "codex", npmPackage: "@openai/codex", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.149.0", latestVersion: "0.149.1", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/codex", updateAvailable: true, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 23), versionUpdatedAtSource: "official", releaseNotes: mockReleaseNotes.codex.notes, releaseNotesUrl: mockReleaseNotes.codex.url },
   dsh: { toolId: "dsh", displayName: "DeepSeek Harness", vendor: "DeepSeek", homepage: "https://github.com/deepseek-ai/deepseek-harness", icon: null, accentColor: "#4D6BFE", binaryName: "dsh", npmPackage: "@deepseek-ai/dsh", installerKind: "npm", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "0.1.1-rc.2", latestVersion: "0.1.1-rc.2", channels: { latest: "0.1.1-rc.2", alpha: "0.1.2-alpha.5", next: "0.1.1-rc.2" }, selectedChannel: "latest", binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/dsh", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 21), versionUpdatedAtSource: "official" },
   hermes: { toolId: "hermes", displayName: "Hermes Agent", vendor: "Nous Research", homepage: "https://hermes-agent.nousresearch.com/", icon: null, accentColor: "#8b5cf6", binaryName: "hermes", npmPackage: null, installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "0.21.0", latestVersion: "0.21.0", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/hermes", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 10), versionUpdatedAtSource: "serverModified" },
 };

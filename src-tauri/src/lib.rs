@@ -413,13 +413,26 @@ async fn set_llm_settings(
         .map_err(|error| format!("保存 LLM 设置任务异常结束：{error}"))?
 }
 
+/// 翻译一份更新日志并同时归纳更新重点。`force` 为真时忽略本地缓存重新请求 LLM，
+/// 否则命中缓存就直接返回上次结果（不消耗 token）。
 #[tauri::command]
 async fn translate_changelog(
     app: tauri::AppHandle,
     text: String,
     request_id: String,
-) -> Result<String, String> {
-    translation::translate_streaming(&app, &request_id, &text).await
+    force: Option<bool>,
+) -> Result<translation::ChangelogTranslation, String> {
+    translation::translate_streaming(&app, &request_id, &text, force.unwrap_or(false)).await
+}
+
+/// 只读本地缓存：用于打开更新日志时先展示上次的译文与更新重点，不发起 LLM 请求。
+#[tauri::command]
+async fn get_changelog_translation(
+    text: String,
+) -> Result<Option<translation::ChangelogTranslation>, String> {
+    tauri::async_runtime::spawn_blocking(move || translation::cached(&text))
+        .await
+        .map_err(|error| format!("读取翻译缓存任务异常结束：{error}"))
 }
 
 #[tauri::command]
@@ -736,6 +749,7 @@ pub fn run() {
             get_llm_settings,
             set_llm_settings,
             translate_changelog,
+            get_changelog_translation,
             test_llm_connection,
             get_feed_status,
             get_feed_source_statuses,

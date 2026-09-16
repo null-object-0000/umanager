@@ -248,6 +248,21 @@ export interface LlmSettings {
 export interface LlmTranslateDelta {
   requestId: string;
   delta: string;
+  /// 增量所属的段落：`summary`（更新重点）或 `translation`（完整译文）。
+  section: TranslationSection;
+}
+
+export type TranslationSection = "summary" | "translation";
+
+/// 一次「翻译 + 归纳」的结果，同时用于流式结束后的返回值与本地缓存回读。
+export interface ChangelogTranslation {
+  /// 归纳出的更新重点（Markdown 列表）。总结请求失败时为 null，不影响译文。
+  summary: string | null;
+  translation: string;
+  /// true = 直接来自本地缓存，本次没有请求 LLM。
+  cached: boolean;
+  model: string;
+  createdAtUnixSeconds: number;
 }
 
 export interface FeedStatus {

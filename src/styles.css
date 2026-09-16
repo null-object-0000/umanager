@@ -1148,8 +1148,52 @@ nav { display: grid; gap: 2px; }
 }
 .translate-toggle:hover:not(:disabled) { background: rgba(0, 113, 227, 0.16); }
 .translate-toggle:disabled { opacity: 0.55; cursor: default; }
+.translate-toggle.ghost {
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+  color: var(--text-2);
+}
+.translate-toggle.ghost:hover:not(:disabled) { background: var(--gray-100); color: var(--text); }
+.changelog-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .release-notes-pending { margin: 0; color: var(--text-3); font-size: var(--fs-sm); }
 .changelog-translate-error { color: var(--red-text); font-size: var(--fs-sm); margin: 0 0 10px; }
+.changelog-translate-cache { margin: 10px 0 0; color: var(--text-3); font-size: var(--fs-xs); }
+/* 「更新重点」归纳块：译文上方的浅蓝卡片，不随译文滚动。 */
+.changelog-summary {
+  margin: 0 0 10px;
+  padding: 11px 14px;
+  border: 1px solid rgba(0, 113, 227, 0.18);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  word-break: break-word;
+}
+.changelog-summary-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.changelog-summary > :first-child { margin-top: 0; }
+.changelog-summary > :last-child { margin-bottom: 0; }
+.changelog-summary p { margin: 6px 0; }
+.changelog-summary ul, .changelog-summary ol { margin: 0; padding-left: 20px; }
+.changelog-summary li { margin: 3px 0; }
+.changelog-summary a { color: var(--accent); text-decoration: none; }
+.changelog-summary a:hover { text-decoration: underline; }
+.changelog-summary code {
+  font: var(--fs-xs)/1.5 var(--font-mono);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.changelog-summary-pending { margin: 0; color: var(--text-3); }
+.changelog-summary-missing { margin: 0 0 10px; color: var(--text-3); font-size: var(--fs-sm); }
 
 /* =============================================================================
    Dialogs / modals
