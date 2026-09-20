@@ -16,10 +16,11 @@ UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + Reac
 3. **新增受管软件只改 `feed-sources.json`**（仓库根目录，CI-only）。CI 会把它抓取并 Ed25519 签名进 `catalogJson`，老版本 App 无需更新。
 4. **特权 helper 只通过「内置公钥 + 计划内已签名 `catalogJson`/`catalogSignature`」授权 feed 新增软件**。不要放宽 helper 白名单去信任计划里的任意未签名字段。
 5. **所有下载域名默认都是精确白名单**（`*Hosts`），禁止通配/前缀匹配。**唯一例外**：主机条目写成 `*.<domain>`（如飞书的 `*.feishucdn.com`）时，允许该域名及其子域——这是为 CDN 分片主机名会漂移的厂商（飞书 `lf?-ug-sign.feishucdn.com`）刻意保留的窄例外。`host_matches`（`src-tauri/src/source_engine.rs`）与生成器 `hostAllowedInList`（`scripts/update-feed.mjs`）实现同一语义，且必须同时更新。此例外不削弱其他防线：下载仍限 HTTPS、下载 URL 由厂商签名（`x-signature`/时间戳），`.deb` 仍按签名 feed 的 SHA-256 校验。
-6. **系统命令固定 argv、不经 shell**：`dpkg-query`、`dpkg-deb`、`dpkg --compare-versions`、`dpkg --install`、`dpkg --remove`；不拼接用户输入。
-7. **计划不可变**：`plan_id = SHA-256(payload)`，15 分钟有效期，只读、归属当前用户（`crates/umanager-plan`）。
-8. **私钥只存在于 GitHub Actions secret `FEED_SIGNING_KEY`**；任何提交都不得包含私钥。公钥（hex `57d369…c8f9`）内置在 `src-tauri/src/feed.rs` 与 `crates/umanager-helper/src/main.rs`。
-9. **schema 同步**：feed schema 与 plan schema 当前均为 **v2**。升级时主程序、helper、`scripts/update-feed.mjs` 三处必须同步修改。
+6. **下载只经后台队列**（`src-tauri/src/download_queue.rs` → `source_engine::download_and_verify`）。不要新增绕过域名白名单、HTTPS、大小 / SHA-256 / `.deb` 元数据校验的下载路径；队列只做调度、取消与状态推送，不做任何特权操作。
+7. **系统命令固定 argv、不经 shell**：`dpkg-query`、`dpkg-deb`、`dpkg --compare-versions`、`dpkg --install`、`dpkg --remove`；不拼接用户输入。
+8. **计划不可变**：`plan_id = SHA-256(payload)`，15 分钟有效期，只读、归属当前用户（`crates/umanager-plan`）。
+9. **私钥只存在于 GitHub Actions secret `FEED_SIGNING_KEY`**；任何提交都不得包含私钥。公钥（hex `57d369…c8f9`）内置在 `src-tauri/src/feed.rs` 与 `crates/umanager-helper/src/main.rs`。
+10. **schema 同步**：feed schema 与 plan schema 当前均为 **v2**。升级时主程序、helper、`scripts/update-feed.mjs` 三处必须同步修改。
 
 ## 关键文件（改哪里）
 
@@ -34,6 +35,7 @@ UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + Reac
 | 计划 schema | `crates/umanager-plan/src/lib.rs` |
 | 特权 helper（白名单/验签/安装卸载） | `crates/umanager-helper/src/main.rs` |
 | feed 拉取/验签/合并/状态 | `src-tauri/src/feed.rs` |
+| 后台下载队列（并发/取消/状态） | `src-tauri/src/download_queue.rs`、`src/downloadQueue.ts`（展示纯函数） |
 | 详情/下载计划/下载校验 | `src-tauri/src/source_engine.rs` |
 | Tauri 命令入口 | `src-tauri/src/lib.rs` |
 
@@ -68,4 +70,4 @@ npm run update-feed   # 本地生成 feed；需网络，设置 FEED_SIGNING_KEY 
 
 ## 目录与数据流（一句版）
 
-`feed-sources.json` + `vendors.json` →（CI `update-feed`）→ 签名 `feed.json` →（App `feed.rs` 拉取验签）→ 合并 `catalogJson` 新增软件 →（`source_engine`）`DownloadPlan` → 下载校验 →（`operation_plan`）不可变计划 →（特权 `helper`）验签 + 复核 → 固定 `dpkg`。
+`feed-sources.json` + `vendors.json` →（CI `update-feed`）→ 签名 `feed.json` →（App `feed.rs` 拉取验签）→ 合并 `catalogJson` 新增软件 →（`source_engine`）`DownloadPlan` →（`download_queue`）后台下载 + 校验 →（`operation_plan`）不可变计划 →（特权 `helper`）验签 + 复核 → 固定 `dpkg`。

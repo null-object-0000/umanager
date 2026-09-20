@@ -114,6 +114,30 @@ export interface DownloadProgress {
   bytesPerSecond: number;
 }
 
+export type DownloadJobStatus = "queued" | "downloading" | "verifying" | "ready" | "error" | "canceled";
+
+/// 后台下载队列里的一条任务。安装 / 更新都是两阶段：这一阶段只把官方安装包下载并校验
+/// 进缓存，用户可以在下载期间离开详情页做别的事；`ready` 之后才由用户确认、走特权安装。
+export interface DownloadJob {
+  jobId: string;
+  applicationId: string;
+  packageName: string;
+  displayName: string;
+  /// 目标版本（下载计划里的版本；刚入队时可能只有调用方给的候选版本）。
+  version: string | null;
+  status: DownloadJobStatus;
+  progress: DownloadProgress | null;
+  error: string | null;
+  result: DownloadResult | null;
+  enqueuedAtUnixSeconds: number;
+  finishedAtUnixSeconds: number | null;
+}
+
+/// 下载队列设置。并发数决定同时下载几个安装包（1–3，默认串行）。
+export interface DownloadQueueSettings {
+  concurrency: number;
+}
+
 export interface InstallableApplication {
   applicationId: string;
   packageName: string;

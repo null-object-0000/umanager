@@ -1750,3 +1750,49 @@ nav { display: grid; gap: 2px; }
 .windows-confirm p { line-height: 1.6; }
 .windows-hash { display: block; font-size: 11px; overflow-wrap: anywhere; }
 @media (max-width: 760px) { .windows-settings, .windows-facts { grid-template-columns: 1fr; } }
+
+/* =============================================================================
+   下载队列（后台下载 + 「下载」页）
+   ============================================================================= */
+
+.download-queue-panel { padding-bottom: 24px; }
+.download-queue-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+
+.download-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-card);
+  background: var(--card);
+  border: 1px solid rgba(0, 0, 0, 0.02);
+  box-shadow: var(--shadow-card);
+}
+
+.download-queue-main { display: flex; flex-direction: column; gap: 7px; flex: 1; min-width: 0; }
+.download-queue-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.download-queue-title strong { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; }
+.download-queue-package {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-queue-progress { display: flex; align-items: center; gap: 10px; }
+.download-queue-bar { flex: 1; height: 6px; border-radius: var(--radius-pill); background: rgba(0, 0, 0, 0.07); overflow: hidden; }
+.download-queue-bar > span { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--accent); transition: width 0.25s ease; }
+.download-queue-stats { flex: none; color: var(--text-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.download-queue-note { margin: 0; color: var(--text-3); font-size: var(--fs-sm); }
+.download-queue-error { margin: 0; color: var(--red-text); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.download-queue-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.download-queue-hint { margin: 16px 0 0; color: var(--text-3); font-size: var(--fs-sm); line-height: 1.5; }
+
+.status-badge.queued { color: var(--text-2); background: rgba(0, 0, 0, 0.05); }
+.status-badge.downloading, .status-badge.verifying { color: var(--accent); background: var(--accent-soft); }
+.status-badge.error { color: var(--red-text); background: var(--red-soft); }
+.status-badge.canceled { color: var(--text-3); background: rgba(0, 0, 0, 0.05); }
+
+.download-concurrency { width: fit-content; margin: 4px 0 10px; }

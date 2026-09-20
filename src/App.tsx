@@ -11,10 +11,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, ClipboardEntry, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import { cancelDownload, clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, dragClipboardImage, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, ClipboardEntry, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { aiButtonLabel, aiMode, canRegenerate, formatCachedOrigin, regenerateButtonLabel, shouldWarnMissingSummary } from "./changelogTranslation";
 import type { AiActionState } from "./changelogTranslation";
+import { activeJobCount, findJob, installActionLabel, isActiveStatus, jobPercent, jobProgress, jobStatusLabel, queuedPosition, sortJobs } from "./downloadQueue";
 import { debCategory, devToolCategory, orderedCategories, windowsCategory } from "./categories";
 import { aptInstallCommand, aptPackageNames } from "./dependencyGap";
 import { readSortMode, sortModeLabels, sortSoftwareItems } from "./model";
@@ -44,7 +45,7 @@ import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 import umanagerLogo from "./assets/umanager-logo.png";
 
 type Filter = "all" | "installed" | "updates" | "installable";
-type Page = "installed" | "updates" | "dev" | "scripts" | "clipboard" | "settings";
+type Page = "installed" | "updates" | "downloads" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
@@ -82,12 +83,13 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" | "more" | "chevrons" | "check" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "download" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" | "more" | "chevrons" | "check" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
     history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></>,
     update: <><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></>,
+    download: <><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></>,
     back: <><path d="M15 5l-7 7 7 7"/></>,
     clipboard: <><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
@@ -840,6 +842,44 @@ function LlmSettingsPanel() {
   </section>;
 }
 
+// 「设置 → 下载」：后台下载队列的并发数。队列本身在 Rust 侧常驻，这里只改调度额度。
+function DownloadSettingsPanel() {
+  const [concurrency, setConcurrency] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getDownloadSettings()
+      .then((settings) => setConcurrency(settings.concurrency))
+      .catch((reason) => setError(String(reason)));
+  }, []);
+
+  const choose = async (value: number) => {
+    setSaving(true); setError(null); setSaved(false);
+    try {
+      const settings = await setDownloadSettings({ concurrency: value });
+      setConcurrency(settings.concurrency);
+      setSaved(true);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const current = concurrency ?? 1;
+  return <section className="settings-panel network-panel">
+    <div className="settings-section-heading"><div><div><h2>下载</h2><p>同时下载几个安装包。下载在后台队列里进行：可以随时离开页面、切到别的软件，也能取消正在下载的任务</p></div></div><span className={`install-kind-badge ${concurrency !== null ? "" : "unknown"}`}>{concurrency !== null ? `并发 ${current}` : "读取中"}</span></div>
+    {error && <div className="inline-error">{error}</div>}
+    <div className="filter-tabs segmented download-concurrency" role="tablist" aria-label="下载并发数">
+      {[1, 2, 3].map((value) => <button key={value} role="tab" aria-selected={current === value} className={current === value ? "active" : ""} disabled={saving || concurrency === null} onClick={() => void choose(value)}>{value} 个</button>)}
+    </div>
+    <p className="proxy-hint">并发下载会让几个数百 MB 的安装包互相抢带宽，每个进度都变慢；串行通常总耗时更短。改动立即生效并跨重启保留。</p>
+    {saved && !error && <span className="proxy-saved">✓ 已保存</span>}
+  </section>;
+}
+
 function FeedStatusPanel() {
   const [status, setStatus] = useState<FeedStatus | null>(null);
   const [sources, setSources] = useState<FeedSourceStatus[] | null>(null);
@@ -945,6 +985,7 @@ function SettingsPage({ info, loading, error, onRefresh }: { info: InstallationI
     </section>
     <NetworkSettingsPanel/>
     <LlmSettingsPanel/>
+    <DownloadSettingsPanel/>
     <FeedStatusPanel/>
   </main>;
 }
@@ -964,7 +1005,7 @@ function DownloadCard({ plan }: { plan: DownloadPlan }) {
   return <div className="download-plan-card"><div className="download-file"><div><strong>{plan.fileName}</strong><span>{formatBytes(plan.expectedSize)} · {plan.architecture}</span></div><span className="apt-index-badge">{isWebsite ? "发布资产" : "APT 索引"}</span></div><dl><div><dt>版本</dt><dd>{plan.version}</dd></div><div><dt>SHA-256</dt><dd title={plan.expectedSha256 ?? undefined}>{plan.expectedSha256 ?? "下载后计算"}</dd></div><div><dt>缓存位置</dt><dd title={plan.targetPath}>{plan.targetPath}</dd></div></dl></div>;
 }
 
-function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClose, onInstalled, onLaunch, onRemove }: { item: ManagedPackage; download: DownloadState | undefined; onStartDownload: (notify: { title: string; body: string }) => void; onClearDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void; onRemove: () => void }) {
+function UpdateDrawer({ item, job, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch, onRemove }: { item: ManagedPackage; job: DownloadJob | undefined; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void; onRemove: () => void }) {
   const applicationId = catalogByPackage[item.packageName]?.applicationId;
   const isSelfUpdate = item.packageName === "u-manager";
   const [details, setDetails] = useState<ApplicationDetails | null>(null);
@@ -989,14 +1030,13 @@ function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClos
 
   const isWebsite = details?.sourceKind === "officialWebsite";
   const hasUpdate = details?.updateState === "updateAvailable";
-  const downloadStatus = download?.status;
+  const downloadStatus = job?.status;
   const downloading = downloadStatus === "downloading" || downloadStatus === "verifying";
+  const queued = downloadStatus === "queued";
   const ready = downloadStatus === "ready";
-  const downloadResult = download !== undefined && download.status === "ready" ? download.result : null;
-  const downloadError = download !== undefined && download.status === "error" ? download.error : null;
+  const downloadResult = job !== undefined && job.status === "ready" ? job.result : null;
+  const downloadError = job !== undefined && job.status === "error" ? job.error : null;
   const installRunning = installPhase === "planning" || installPhase === "dry-run" || installPhase === "installing";
-  const running = downloading || installRunning;
-  const targetVersion = details?.candidateVersion ?? downloadPlan?.version ?? "";
 
   const install = async () => {
     setError(null);
@@ -1011,7 +1051,7 @@ function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClos
       const report = await installPackage(plan.plan.planId, (event) => appendProgress(setProgressEvents, event));
       setInstalled(report);
       onInstalled();
-      onClearDownload();
+      onDismissDownload();
       setInstallPhase("done");
     } catch (reason) {
       setError(String(reason));
@@ -1032,15 +1072,19 @@ function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClos
   }
   else if (installRunning) { actionLabel = installPhase === "planning" ? "准备中…" : installPhase === "dry-run" ? "复核中…" : "安装中…"; actionDisabled = true; onAction = () => {}; }
   else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
-  else if (ready) { actionLabel = "安装"; actionDisabled = false; onAction = () => void install(); }
-  else if (hasUpdate) { actionLabel = "更新"; actionDisabled = !downloadPlan; onAction = () => onStartDownload({ title: `${item.displayName} 下载完成`, body: `安装包已通过校验，回到 UManager 继续更新 ${targetVersion}（需系统授权）。` }); }
+  else if (ready) { actionLabel = "更新"; actionDisabled = false; onAction = () => void install(); }
+  else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
+  else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
+  else if (hasUpdate) { actionLabel = "更新"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
   else if (isSelfUpdate) { actionLabel = "已是最新"; actionDisabled = true; onAction = () => {}; }
   else { actionLabel = "打开"; actionDisabled = !launchable; onAction = onLaunch; }
-  const heroAction = downloading && download?.progress
-    ? <HeroDownloadProgress progress={download.progress}/>
+  const heroAction = downloading && job?.progress
+    ? <><HeroDownloadProgress progress={job.progress}/><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
+    : queued
+    ? <><button className="hero-button" disabled>已排队</button><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
     : <>
         <button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>
-        {removable && !installRunning && !downloading && <button className="ghost-link" onClick={onRemove}>卸载</button>}
+        {removable && !installRunning && !downloading && !queued && <button className="ghost-link" onClick={onRemove}>卸载</button>}
       </>;
 
   return <DetailShell
@@ -1050,12 +1094,13 @@ function UpdateDrawer({ item, download, onStartDownload, onClearDownload, onClos
     subtitle={`${item.vendor} · ${item.packageName}`}
     description={catalogByPackage[item.packageName]?.description}
     action={heroAction}
-    canClose={!running}
+    canClose={!installRunning}
     onClose={onClose}
   >
     {loading && <div className="drawer-loading"><span className="loader"/><p>正在读取官方源与安装包元数据…</p></div>}
     {error && !details && <div className="message error"><strong>无法检查 {item.displayName} 更新</strong><span>{error}</span></div>}
     {details && <div className="drawer-content">
+      {(downloading || queued) && <div className="message" role="status" aria-live="polite"><strong>下载在后台队列里进行</strong><span>可以点左上角「返回」继续做别的事；下载完成后到「下载」页或回到这里点「更新」。</span></div>}
       <div className={`trust-banner ${details.trusted ? "trusted" : "needsReview"}`}><Icon name="shield"/><div><strong>{details.trusted ? `来源验证通过 · ${sourceText[details.sourceKind] ?? details.sourceKind}` : "来源需要复核"}</strong><span>{isWebsite ? "官网、下载域名、Debian 包名和架构均符合软件源策略" : "包名、架构和官方仓库均符合软件源策略"}</span></div></div>
       <WhatsNew version={details.candidateVersion ?? downloadPlan?.version ?? null} seconds={details.versionUpdatedAtUnixSeconds} notes={details.releaseNotes} url={details.releaseNotesUrl}/>
       {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
@@ -1130,28 +1175,29 @@ function softwareItemUpdatedAt(item: SoftwareItem): number | null {
   return item.windows?.state.versionUpdatedAtUnixSeconds ?? null;
 }
 
-type DownloadState =
-  | { status: "downloading" | "verifying"; progress: DownloadProgress }
-  | { status: "ready"; result: DownloadResult }
-  | { status: "error"; error: string };
-
-function SoftwareRow({ item, category, progress, onOpen, onRemove, onLaunch }: { item: MergedSoftware; category: string; progress: DownloadProgress | null; onOpen: () => void; onRemove: () => void; onLaunch: () => void }) {
+function SoftwareRow({ item, category, job, onOpen, onRemove, onLaunch }: { item: MergedSoftware; category: string; job: DownloadJob | undefined; onOpen: () => void; onRemove: () => void; onLaunch: () => void }) {
   const catalogApp = catalogByPackage[item.packageName];
   const autoInstallable = !!catalogApp && isAutoInstallable(item.packageName);
   const canOpen = item.installed ? autoInstallable : item.installAvailable;
   const updateAvailable = item.installed && item.updateState === "updateAvailable" && autoInstallable;
   const launchable = item.installed && isLaunchable(item.packageName);
-  const downloading = progress !== null && (progress.phase === "downloading" || progress.phase === "verifying");
-  const statusText = item.installed
+  // 队列里的进度环与「待安装」都来自后台队列：下载期间卡片显示进度，下载完成后
+  // 卡片直接变成「安装 / 更新」，用户点开详情即可确认安装。
+  const progress = jobProgress(job);
+  const downloading = progress !== null;
+  const pendingInstall = job?.status === "ready";
+  const statusText = pendingInstall ? "待安装" : item.installed
     ? item.updateState === "updateAvailable" ? "可更新" : item.updateState === "upToDate" ? "已是最新" : "手动检查"
     : item.installAvailable ? "可安装" : "不可用";
-  const statusClass = item.installed ? item.updateState : item.installAvailable ? "updateAvailable" : "unknown";
+  const statusClass = pendingInstall ? "updateAvailable" : item.installed ? item.updateState : item.installAvailable ? "updateAvailable" : "unknown";
   return <article className={`app-card ${canOpen ? "supported" : ""}`} role={canOpen ? "button" : undefined} tabIndex={canOpen ? 0 : undefined} onClick={() => { if (canOpen) onOpen(); }} onKeyDown={(event) => { if (canOpen && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
     <div className="app-card-top">
       <AppLogo packageName={item.packageName} displayName={item.displayName}/>
       <div className="app-card-actions">
         {downloading
           ? <CardDownloadRing progress={progress}/>
+          : pendingInstall
+          ? <button className="get-button update" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`${installActionLabel(item.installed)} ${item.displayName}`}>{installActionLabel(item.installed)}</button>
           : <>
             {!item.installed && item.installAvailable && <button className="get-button" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`获取 ${item.displayName}`}>获取</button>}
             {updateAvailable && <button className="get-button update" onClick={(event) => { event.stopPropagation(); onOpen(); }} onKeyDown={(event) => event.stopPropagation()} aria-label={`更新 ${item.displayName}`}>更新</button>}
@@ -1173,7 +1219,7 @@ function SoftwareRow({ item, category, progress, onOpen, onRemove, onLaunch }: {
   </article>;
 }
 
-function InstallDrawer({ offer, download, onStartDownload, onClearDownload, onClose, onInstalled, onLaunch }: { offer: InstallableApplication; download: DownloadState | undefined; onStartDownload: (notify: { title: string; body: string }) => void; onClearDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void }) {
+function InstallDrawer({ offer, job, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch }: { offer: InstallableApplication; job: DownloadJob | undefined; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void }) {
   const downloadPlan = offer.downloadPlan;
   const isWebsite = offer.sourceKind === "officialWebsite";
   const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
@@ -1183,13 +1229,13 @@ function InstallDrawer({ offer, download, onStartDownload, onClearDownload, onCl
   const [error, setError] = useState<string | null>(null);
   const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
 
-  const downloadStatus = download?.status;
+  const downloadStatus = job?.status;
   const downloading = downloadStatus === "downloading" || downloadStatus === "verifying";
+  const queued = downloadStatus === "queued";
   const ready = downloadStatus === "ready";
-  const downloadResult = download !== undefined && download.status === "ready" ? download.result : null;
-  const downloadError = download !== undefined && download.status === "error" ? download.error : null;
+  const downloadResult = job !== undefined && job.status === "ready" ? job.result : null;
+  const downloadError = job !== undefined && job.status === "error" ? job.error : null;
   const installRunning = installPhase === "planning" || installPhase === "dry-run" || installPhase === "installing";
-  const running = downloading || installRunning;
 
   const install = async () => {
     setError(null);
@@ -1204,7 +1250,7 @@ function InstallDrawer({ offer, download, onStartDownload, onClearDownload, onCl
       const report = await installPackage(plan.plan.planId, (event) => appendProgress(setProgressEvents, event));
       setInstalled(report);
       onInstalled();
-      onClearDownload();
+      onDismissDownload();
       setInstallPhase("done");
     } catch (reason) {
       setError(String(reason));
@@ -1221,9 +1267,13 @@ function InstallDrawer({ offer, download, onStartDownload, onClearDownload, onCl
   else if (installRunning) { actionLabel = installPhase === "planning" ? "准备中…" : installPhase === "dry-run" ? "复核中…" : "安装中…"; actionDisabled = true; onAction = () => {}; }
   else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
   else if (ready) { actionLabel = "安装"; actionDisabled = false; onAction = () => void install(); }
-  else { actionLabel = "获取"; actionDisabled = !downloadPlan; onAction = () => onStartDownload({ title: `${offer.displayName} 下载完成`, body: `安装包已通过校验，回到 UManager 继续安装（需系统授权）。` }); }
-  const heroAction = downloading && download?.progress
-    ? <HeroDownloadProgress progress={download.progress}/>
+  else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
+  else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
+  else { actionLabel = "获取"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
+  const heroAction = downloading && job?.progress
+    ? <><HeroDownloadProgress progress={job.progress}/><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
+    : queued
+    ? <><button className="hero-button" disabled>已排队</button><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
     : <button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>;
 
   return <DetailShell
@@ -1233,11 +1283,12 @@ function InstallDrawer({ offer, download, onStartDownload, onClearDownload, onCl
     subtitle={`${offer.vendor} · ${offer.packageName}`}
     description={offer.description}
     action={heroAction}
-    canClose={!running}
+    canClose={!installRunning}
     onClose={onClose}
   >
     <div className="drawer-content">
       <div className="trust-banner trusted"><Icon name="shield"/><div><strong>来源验证通过 · {sourceText[offer.sourceKind] ?? offer.sourceKind}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
+      {(downloading || queued) && <div className="message" role="status" aria-live="polite"><strong>下载在后台队列里进行</strong><span>可以点左上角「返回」继续浏览或安装别的软件；下载完成后到「下载」页或回到这里点「安装」。</span></div>}
       <WhatsNew version={offer.candidateVersion ?? null} seconds={offer.versionUpdatedAtUnixSeconds} notes={offer.releaseNotes} url={offer.releaseNotesUrl}/>
       {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
       {downloadError && <div className="inline-error">{downloadError}</div>}
@@ -1981,6 +2032,78 @@ function ClipboardImageDialog({ entry, onClose, onCopied }: { entry: ClipboardEn
   </section>;
 }
 
+// ---------------------------------------------------------------------------
+// 「下载」页：后台下载队列的完整视图。安装 / 更新是两阶段的——这里只负责第一阶段
+// （下载 + 校验），用户可以随时离开；第二阶段（锁定计划 + 管理员授权 + dpkg）仍然
+// 在安装 / 更新抽屉里由用户逐次确认。
+// ---------------------------------------------------------------------------
+
+function DownloadQueueRow({ job, position, installed, onOpen, onRetry, onCancel, onRemove }: {
+  job: DownloadJob;
+  position: number;
+  installed: boolean;
+  onOpen: (job: DownloadJob) => void;
+  onRetry: (job: DownloadJob) => void;
+  onCancel: (jobId: string) => void;
+  onRemove: (jobId: string) => void;
+}) {
+  const progress = jobProgress(job);
+  const percent = jobPercent(progress);
+  const active = isActiveStatus(job.status);
+  return <li className={`download-queue-row ${job.status}`}>
+    <AppLogo packageName={job.packageName} displayName={job.displayName}/>
+    <div className="download-queue-main">
+      <div className="download-queue-title">
+        <strong>{job.displayName}</strong>
+        <span className="download-queue-package">{job.packageName}{job.version ? ` · v${job.version}` : ""}</span>
+        <span className={`status-badge ${job.status === "ready" ? "updateAvailable" : job.status}`}>{jobStatusLabel(job, position)}</span>
+      </div>
+      {progress
+        ? <div className="download-queue-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-label={`${job.displayName} 下载进度 ${percent}%`}>
+            <span className="download-queue-bar"><span style={{ width: `${percent}%` }}/></span>
+            <span className="download-queue-stats">{formatBytes(progress.transferredBytes)} / {formatBytes(progress.totalBytes)}{progress.bytesPerSecond > 0 ? ` · ${formatBytes(progress.bytesPerSecond)}/s` : ""}</span>
+          </div>
+        : job.status === "error" && job.error
+        ? <p className="download-queue-error">{job.error}</p>
+        : job.status === "ready"
+        ? <p className="download-queue-note">已下载并通过大小、SHA-256、包名、版本与架构校验，等待你确认{installActionLabel(installed)}。</p>
+        : job.status === "canceled"
+        ? <p className="download-queue-note">已取消。缓存里已校验的安装包会保留，重新下载会直接复用。</p>
+        : <p className="download-queue-note">等待前面的任务结束。</p>}
+    </div>
+    <div className="download-queue-actions">
+      {job.status === "ready" && <button className="get-button update" onClick={() => onOpen(job)}>{installActionLabel(installed)}</button>}
+      {active && <button className="ghost-link" onClick={() => onCancel(job.jobId)}>取消下载</button>}
+      {(job.status === "error" || job.status === "canceled") && <button className="get-button" onClick={() => onRetry(job)}>重试</button>}
+      {!active && <button className="ghost-link" onClick={() => onRemove(job.jobId)}>移除记录</button>}
+    </div>
+  </li>;
+}
+
+function DownloadsPage({ jobs, installedOf, onOpen, onRetry, onCancel, onRemove }: {
+  jobs: DownloadJob[];
+  installedOf: (packageName: string) => boolean;
+  onOpen: (job: DownloadJob) => void;
+  onRetry: (job: DownloadJob) => void;
+  onCancel: (jobId: string) => void;
+  onRemove: (jobId: string) => void;
+}) {
+  const ordered = sortJobs(jobs);
+  const active = activeJobCount(jobs);
+  return <main className="workspace">
+    <header className="workspace-header">
+      <div><h1>下载</h1><p>安装包在后台队列里下载并校验，下载期间可以离开这里做别的事</p></div>
+      <div className="header-actions">{active > 0 && <time>进行中 {active}</time>}</div>
+    </header>
+    <section className="software-panel download-queue-panel">
+      {ordered.length === 0
+        ? <div className="dev-empty">下载队列为空。在「软件」或「更新」页点「获取 / 更新」后，安装包会排到这里下载。</div>
+        : <ul className="download-queue-list">{ordered.map((job) => <DownloadQueueRow key={job.jobId} job={job} position={queuedPosition(jobs, job)} installed={installedOf(job.packageName)} onOpen={onOpen} onRetry={onRetry} onCancel={onCancel} onRemove={onRemove}/>)}</ul>}
+      <p className="download-queue-hint">下载只写入缓存、不请求系统授权；点「安装 / 更新」才会锁定不可变计划并弹出一次管理员授权。并发数在「设置 → 下载」里调整。</p>
+    </section>
+  </main>;
+}
+
 export default function App() {
   if (clipboardPanelMode()) return <ClipboardPanel/>;
   const [page, setPage] = useState<Page>("installed");
@@ -2009,7 +2132,10 @@ export default function App() {
   const [devToolStates, setDevToolStates] = useState<Record<string, DevToolState | null>>({});
   const [devToolsError, setDevToolsError] = useState<string | null>(null);
   const [selectedDevTool, setSelectedDevTool] = useState<DevTool | null>(null);
-  const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
+  // 后台下载队列的快照。下载阶段完全交给 Rust 侧的常驻队列，这里只做展示与操作，
+  // 因此离开详情页、切到别的页面都不会中断下载。
+  const [downloadJobs, setDownloadJobs] = useState<DownloadJob[]>([]);
+  const downloadJobsRef = useRef<DownloadJob[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [windowsState, setWindowsState] = useState<WindowsState | null>(null);
   const [windowsPlan, setWindowsPlan] = useState<WindowsPlan | null>(null);
@@ -2077,6 +2203,13 @@ export default function App() {
     // 安装包下载进度与 Debian 软件包用同一份载荷，卡片圆环据此替换操作按钮。
     const unlistenDownload = listen<DownloadProgress>("windows-download-progress", (event) => setWindowsProgress(event.payload)).catch(() => () => {});
     return () => { void unlisten.then((dispose) => dispose()); void unlistenDownload.then((dispose) => dispose()); };
+  }, []);
+  // 下载队列：挂载时先拉一次快照（应用重启后仍能看到待安装的任务），之后靠事件更新。
+  useEffect(() => {
+    let disposed = false;
+    void listDownloads().then((jobs) => { if (!disposed) applyDownloadJobs(jobs); }).catch(() => { /* 队列不可用时按空队列展示 */ });
+    const unsubscribe = onDownloadQueueChanged((jobs) => { if (!disposed) applyDownloadJobs(jobs); }).catch(() => () => {});
+    return () => { disposed = true; void unsubscribe.then((dispose) => dispose()); };
   }, []);
 
   const softwareItems = useMemo(() => {
@@ -2163,6 +2296,7 @@ export default function App() {
   }, [softwareItems]);
   const categoryChips = useMemo(() => orderedCategories(categoryCatalog, presentCategories), [categoryCatalog, presentCategories]);
   const updatesCount = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.kind === "devTool" ? item.toolState?.updateAvailable === true : item.windows?.state.updateAvailable === true).length, [softwareItems]);
+  const activeDownloads = activeJobCount(downloadJobs);
   const updatableItems = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.kind === "devTool" ? item.toolState?.updateAvailable === true : item.windows?.state.updateAvailable === true), [softwareItems]);
   const visibleSoftware = useMemo(() => {
     const filtered = softwareItems.filter((item) => {
@@ -2254,32 +2388,44 @@ export default function App() {
     }
   };
   const applicationIdOf = (packageName: string) => catalogByPackage[packageName]?.applicationId;
-  const downloadProgressOf = (packageName: string): DownloadProgress | null => {
-    const state = downloads[packageName];
-    return state && (state.status === "downloading" || state.status === "verifying") ? state.progress : null;
-  };
-  const startDownload = async (applicationId: string, packageName: string, notify: { title: string; body: string }) => {
-    const current = downloads[packageName];
-    if (current && (current.status === "downloading" || current.status === "verifying" || current.status === "ready")) return;
-    setDownloads((prev) => ({ ...prev, [packageName]: { status: "downloading", progress: { packageName, phase: "downloading", transferredBytes: 0, totalBytes: 0, bytesPerSecond: 0 } } }));
-    try {
-      const result = await downloadPackage(applicationId, packageName, (progress) => {
-        setDownloads((prev) => ({ ...prev, [packageName]: { status: progress.phase === "verifying" ? "verifying" : "downloading", progress } }));
-      });
-      if (!result.verified) {
-        setDownloads((prev) => ({ ...prev, [packageName]: { status: "error", error: "安装包校验未通过，已停止，未更改系统。" } }));
-        return;
-      }
-      setDownloads((prev) => ({ ...prev, [packageName]: { status: "ready", result } }));
-      if (!document.hasFocus()) {
-        void notifyDownloadComplete(notify.title, notify.body).catch(() => { /* 通知失败不影响流程 */ });
-      }
-    } catch (reason) {
-      setDownloads((prev) => ({ ...prev, [packageName]: { status: "error", error: String(reason) } }));
+  const jobOf = (packageName: string) => findJob(downloadJobs, packageName);
+  /// 应用一份新的队列快照。窗口不在前台时，刚变成「待安装」的任务补一条桌面通知。
+  const applyDownloadJobs = (jobs: DownloadJob[]) => {
+    const before = new Map(downloadJobsRef.current.map((job) => [job.jobId, job.status]));
+    for (const job of jobs) {
+      const previous = before.get(job.jobId);
+      if (job.status !== "ready" || previous === undefined || previous === "ready") continue;
+      if (document.hasFocus()) continue;
+      void notifyDownloadComplete(`${job.displayName} 下载完成`, "安装包已通过校验，回到 UManager 继续安装或更新（需系统授权）。").catch(() => { /* 通知失败不影响流程 */ });
     }
+    downloadJobsRef.current = jobs;
+    setDownloadJobs(jobs);
   };
-  const clearDownload = (packageName: string) => {
-    setDownloads((prev) => { const next = { ...prev }; delete next[packageName]; return next; });
+  // 队列命令都返回最新快照，因此不需要等事件回来再更新界面。
+  const enqueueFor = async (applicationId: string, version: string | null) => {
+    try { applyDownloadJobs(await enqueueDownload(applicationId, version)); }
+    catch (reason) { setNotice(String(reason)); }
+  };
+  /// 按软件包名操作队列：抽屉只知道 packageName，队列任务里才有 jobId。
+  const enqueuePackage = (packageName: string, applicationId: string | undefined, version: string | null) => {
+    if (!applicationId) { setNotice(`软件源中未找到 ${packageName} 的适配策略`); return; }
+    void enqueueFor(applicationId, version);
+  };
+  const cancelPackageJob = (packageName: string) => {
+    const job = jobOf(packageName);
+    if (job) void cancelJob(job.jobId);
+  };
+  const dismissPackageJob = (packageName: string) => {
+    const job = jobOf(packageName);
+    if (job) void dismissJob(job.jobId);
+  };
+  const cancelJob = async (jobId: string) => {
+    try { applyDownloadJobs(await cancelDownload(jobId)); }
+    catch (reason) { setNotice(String(reason)); }
+  };
+  const dismissJob = async (jobId: string) => {
+    try { applyDownloadJobs(await removeDownload(jobId)); }
+    catch (reason) { setNotice(String(reason)); }
   };
   const launchApp = (packageName: string) => {
     const applicationId = catalogByPackage[packageName]?.applicationId;
@@ -2295,6 +2441,20 @@ export default function App() {
     setPage("installed");
     setInstallOffer(null); setUpdatePackage(null); setSelectedDevTool(null);
     if (!installableOffers && !installableLoading) void refreshInstallable();
+  };
+  /// 从「下载」页点「安装 / 更新」：按队列任务里记录的 applicationId 打开对应抽屉，
+  /// 抽屉会看到这条任务已经是 ready，于是直接进入第二阶段的确认与授权。
+  const openQueuedJob = (job: DownloadJob) => {
+    const managed = result?.packages.find((pkg) => pkg.packageName === job.packageName);
+    if (managed) { setUpdatePackage(managed); return; }
+    const offer = installableOffers?.find((entry) => entry.packageName === job.packageName);
+    if (offer) { setInstallOffer(offer); return; }
+    void refreshInstallable();
+    setNotice(`软件源里暂时找不到 ${job.displayName} 的可安装信息，请先在「软件」页刷新列表。`);
+  };
+  const showDownloadsPage = () => {
+    setPage("downloads");
+    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
   };
   const showDevToolsPage = () => {
     setPage("dev");
@@ -2321,6 +2481,7 @@ export default function App() {
         <div className="nav-section">商店</div>
         <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件</button>
         <button className={`nav-item ${page === "updates" ? "active" : ""}`} onClick={showUpdatesPage}><Icon name="update"/>更新{updatesCount > 0 && <span className="nav-badge">{updatesCount}</span>}</button>
+        <button className={`nav-item ${page === "downloads" ? "active" : ""}`} onClick={showDownloadsPage}><Icon name="download"/>下载{activeDownloads > 0 && <span className="nav-badge">{activeDownloads}</span>}</button>
         <div className="nav-section">工具</div>
         <button className={`nav-item ${page === "scripts" ? "active" : ""}`} onClick={showScriptsPage}><Icon name="script"/>维护脚本</button>
         <button className={`nav-item ${page === "dev" ? "active" : ""}`} onClick={showDevToolsPage}><Icon name="dev"/>开发环境</button>
@@ -2365,7 +2526,7 @@ export default function App() {
         {!result && !installableOffers && !devTools && <div className="empty-state"><span className="loader"/><p>正在读取已安装与可安装软件…</p></div>}
         {result && visibleSoftware.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
         <div className="app-grid">{visibleSoftware.map((item) => item.kind === "deb"
-          ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
+          ? <SoftwareRow item={item.deb!} category={item.category} job={jobOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
           : item.kind === "devTool"
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
             : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
@@ -2385,17 +2546,17 @@ export default function App() {
         {!result && !installableOffers && !devTools && <div className="empty-state"><span className="loader"/><p>正在读取更新状态…</p></div>}
         {result && updatableItems.length === 0 && <div className="empty-state"><p>所有软件均为最新版本。</p></div>}
         <div className="app-grid">{updatableItems.map((item) => item.kind === "deb"
-          ? <SoftwareRow item={item.deb!} category={item.category} progress={downloadProgressOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
+          ? <SoftwareRow item={item.deb!} category={item.category} job={jobOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
           : item.kind === "devTool"
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
             : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
-    </main> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
-    {updatePackage && <UpdateDrawer item={updatePackage} download={downloads[updatePackage.packageName]} onStartDownload={(notify) => void startDownload(applicationIdOf(updatePackage.packageName) ?? "", updatePackage.packageName, notify)} onClearDownload={() => clearDownload(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
+    </main> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
+    {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
     {installOffer && (
-      <InstallDrawer offer={installOffer} download={downloads[installOffer.packageName]} onStartDownload={(notify) => void startDownload(installOffer.applicationId, installOffer.packageName, notify)} onClearDownload={() => clearDownload(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
+      <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
     )}
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>

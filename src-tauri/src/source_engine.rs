@@ -94,6 +94,26 @@ pub struct DownloadProgress {
 
 pub type ProgressCallback = Arc<dyn Fn(DownloadProgress) + Send + Sync>;
 
+/// 协作式取消检查：返回 true 表示调用方要求中止。后台下载队列用它实现「取消下载」，
+/// 下载与校验循环每处理一个块检查一次，因此取消最多延迟一个块。
+pub type CancelCheck = Arc<dyn Fn() -> bool + Send + Sync>;
+
+/// 永远不会取消的检查，供不经过下载队列的调用方（例如安装计划里的缓存复核）使用。
+pub fn never_cancel() -> CancelCheck {
+    Arc::new(|| false)
+}
+
+/// 取消时的固定错误文案。下载队列据此把任务标记为「已取消」而不是「失败」。
+pub const CANCELED_ERROR: &str = "已取消下载";
+
+/// 取消检查点：命中时返回统一的取消错误，由调用方的错误路径清理临时文件。
+fn ensure_not_canceled(cancel: &CancelCheck) -> Result<(), String> {
+    if cancel() {
+        return Err(CANCELED_ERROR.to_owned());
+    }
+    Ok(())
+}
+
 pub(crate) struct Installable {
     pub(crate) installed_version: Option<String>,
     pub(crate) candidate_version: Option<String>,
@@ -152,8 +172,10 @@ pub async fn download_and_verify(
     app: &Application,
     cache_dir: PathBuf,
     progress: ProgressCallback,
+    cancel: CancelCheck,
 ) -> Result<DownloadResult, String> {
     let plan = build_download_plan(app, &cache_dir).await?;
+    ensure_not_canceled(&cancel)?;
     let target_path = PathBuf::from(&plan.target_path);
     let parent = target_path
         .parent()
@@ -162,7 +184,7 @@ pub async fn download_and_verify(
         .await
         .map_err(|error| format!("无法创建下载缓存目录：{error}"))?;
     if target_path.is_file() {
-        let verified = verify_plan_file(app, &plan, &target_path, Some(&progress)).await?;
+        let verified = verify_plan_file(app, &plan, &target_path, Some(&progress), &cancel).await?;
         emit_progress(&progress, &plan, "completed", verified.0, 0);
         return Ok(result_from_verified(plan, verified, true));
     }
@@ -173,7 +195,7 @@ pub async fn download_and_verify(
         std::process::id(),
         unix_timestamp()
     ));
-    let verified = match download_plan_file(app, &plan, &temporary_path, &progress).await {
+    let verified = match download_plan_file(app, &plan, &temporary_path, &progress, &cancel).await {
         Ok(value) => value,
         Err(error) => {
             let _ = tokio::fs::remove_file(&temporary_path).await;
@@ -197,7 +219,7 @@ pub async fn verify_cached(app: &Application, cache_dir: &Path) -> Result<Downlo
     if !target_path.is_file() {
         return Err("安装包尚未下载或不再位于缓存中".to_owned());
     }
-    let verified = verify_plan_file(app, &plan, &target_path, None).await?;
+    let verified = verify_plan_file(app, &plan, &target_path, None, &never_cancel()).await?;
     Ok(result_from_verified(plan, verified, true))
 }
 
@@ -650,6 +672,7 @@ async fn download_plan_file(
     plan: &DownloadPlan,
     path: &Path,
     progress: &ProgressCallback,
+    cancel: &CancelCheck,
 ) -> Result<VerifiedFile, String> {
     let download_hosts = app.download_hosts().into_iter().map(str::to_owned).collect::<Vec<_>>();
     let download_url = resolve_download_url(app, &plan.download_url).await?;
@@ -689,6 +712,9 @@ async fn download_plan_file(
         .await
         .map_err(|error| format!("读取安装包下载内容失败：{error}"))?
     {
+        // 取消检查放在写盘之前：用户点「取消下载」后最多再多读一个块，且不会把
+        // 半个包写进缓存（临时文件由调用方的错误路径删除）。
+        ensure_not_canceled(cancel)?;
         size = size
             .checked_add(chunk.len() as u64)
             .ok_or_else(|| "安装包大小溢出".to_owned())?;
@@ -731,6 +757,7 @@ async fn download_plan_file(
         return Err("安装包 SHA-256 与元数据源记录不一致".to_owned());
     }
     emit_progress(progress, plan, "verifying", size, 0);
+    ensure_not_canceled(cancel)?;
     let metadata = inspect_deb(path).await?;
     validate_downloaded_metadata(plan, &metadata)?;
     Ok((size, sha256, metadata))
@@ -741,6 +768,7 @@ async fn verify_plan_file(
     plan: &DownloadPlan,
     path: &Path,
     progress: Option<&ProgressCallback>,
+    cancel: &CancelCheck,
 ) -> Result<VerifiedFile, String> {
     let mut file = tokio::fs::File::open(path)
         .await
@@ -750,6 +778,7 @@ async fn verify_plan_file(
     let mut size = 0_u64;
     let mut last_at = Instant::now();
     loop {
+        ensure_not_canceled(cancel)?;
         let count = file
             .read(&mut buffer)
             .await

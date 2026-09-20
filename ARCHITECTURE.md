@@ -15,6 +15,7 @@ UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），�
 - App 只拉取 `feed.json` + `feed.json.sig`，验签、校验 HTTPS 精确域名与字段格式后使用。
 - 每次验签成功后把 `feed.json` 原文 + 签名原子写入应用缓存（`feed/feed-cache.json`）；之后读取优先本地缓存，每次用内置公钥重新验签，过期则 stale-while-revalidate（先返回缓存、后台刷新，15 分钟周期 + 设置页手动刷新）。
 - 真正的安装路径不变：按 feed 中的下载地址下载 `.deb` → 核对域名、大小、SHA-256、`.deb` 包名/版本/架构 → 生成不可变计划 → 特权 helper 复核 → 固定 `dpkg --install` / `dpkg --remove`。
+- 下载（第一阶段）走**常驻后台队列**（`download_queue.rs`），用户可以随时离开页面做别的事；安装 / 卸载（第二阶段）仍需逐次确认并弹一次管理员授权。
 
 发布地址：
 
@@ -98,7 +99,9 @@ https://null-object-0000.github.io/umanager/feed.json.sig
 | `crates/umanager-plan/src/lib.rs` | 不可变计划 schema（v2，含签名目录字段） |
 | `crates/umanager-helper/src/main.rs` | 特权 helper：白名单、验签、固定 dpkg 命令 |
 | `src-tauri/src/feed.rs` | feed 拉取/验签/磁盘缓存 + SWR + 后台刷新/合并新增软件/状态 |
-| `src-tauri/src/source_engine.rs` | feed → `ApplicationDetails`/`DownloadPlan` + 下载校验 |
+| `src-tauri/src/source_engine.rs` | feed → `ApplicationDetails`/`DownloadPlan` + 下载校验（含协作式取消检查点） |
+| `src-tauri/src/download_queue.rs` | 后台下载队列：并发 1–3、去重、取消（排队中出队 / 下载中置取消位）、`download-queue-changed` 快照事件 |
+| `src/downloadQueue.ts` | 队列展示纯函数（排序、状态文案、徽标计数、进度）+ vitest 单测 |
 | `src-tauri/src/scanner.rs` | 本机已安装包扫描（候选版本由 feed 填） |
 | `src-tauri/src/operation_plan.rs` | 安装/卸载/自更新计划的生成 |
 | `src-tauri/src/installable.rs` | 软件商店可安装列表 |
@@ -206,7 +209,9 @@ npm run update-feed
 
 **安装 / 卸载**：下载后复核 HTTPS 精确域名、重定向、大小、SHA-256 与 `.deb` 包元数据；helper 在 dry-run 与真正执行前都会再次核对安装状态、系统架构、计划与官方源记录。卸载走独立不可变计划，仅执行白名单中固定的 `dpkg --remove`，不 `purge`、不自动移除依赖、不删除用户主目录数据。UManager 自身卸载也不再是“设置”里的独立入口：`selfUpdate` 源渲染的 `u-manager` 应用 `removable: true`，因此作为受管软件出现在“软件 / 更新”页，与其他软件共用同一个 `RemovalDialog` 与同一套 `create_removal_operation_plan` / `run_removal_dry_run` / `remove_managed_package` 命令；`create_removal_operation_plan` 对 `u-manager` 分发到 `create_self_removal_plan`，`resolve_removal_action` 再按计划里的 `removeUmanager` 动作路由到 helper 的 `remove-umanager`。
 
-**UManager 自更新**：不再是“设置”里的独立入口，而是作为受管软件的一员出现在“软件 / 更新”页，复用与其他软件完全一致的下载 → SHA-256 校验 → 不可变计划 → 特权复核 → 安装流程。`selfUpdate` 源在 `require_application` 里被解析成普通 `releaseApi` 应用，走同一套 `get_application_details` / `download_package` / `create_operation_plan` / `run_operation_dry_run` / `install_package` 命令；`create_operation_plan` 对 `umanager` 分发到 `create_self_update_plan`，生成 `installSelfUpdate` 计划，helper 用 `install-umanager` 动作复核“必须比当前版本新、必须是 `.deb` 安装版”后执行。安装完成后抽屉按钮显示为“重启 UManager”（调用 `restart_app`）。
+**下载队列（第一阶段）**：`enqueue_download` 只解析应用身份（`require_application`）并入队，实际下载由常驻调度器按并发额度（设置项 1–3，默认串行，落盘 `downloads.json`）取出队首任务执行；同一个应用已有「排队中 / 下载中 / 待安装」任务时复用，失败或已取消的任务会被新的入队替换（即「重试」）。状态（`queued` / `downloading` / `verifying` / `ready` / `error` / `canceled`）通过 `download-queue-changed` 推送整份快照，前端挂载时用 `list_downloads` 先拉一次。**取消**是协作式的：排队中的直接出队；下载 / 校验中的置取消位，`source_engine` 在每个网络块与文件块前检查，命中即返回统一错误并走既有错误路径删除 `.tmp`，因此不会留下半个包；已下完的文件留在内容寻址的缓存里，重新入队会直接命中缓存。队列只调用 `source_engine::download_and_verify`（域名白名单、HTTPS、大小 / SHA-256 / `.deb` 元数据校验照旧），不做任何特权操作；`ready` 只是「缓存里有通过校验的安装包」，安装仍要用户点「安装 / 更新」走第二阶段的不可变计划 + helper 复核。队列状态在内存里，重启后不恢复；但缓存里的 `.deb` 仍在，重新入队只花校验时间。
+
+**UManager 自更新**：不再是“设置”里的独立入口，而是作为受管软件的一员出现在“软件 / 更新”页，复用与其他软件完全一致的下载 → SHA-256 校验 → 不可变计划 → 特权复核 → 安装流程。`selfUpdate` 源在 `require_application` 里被解析成普通 `releaseApi` 应用，走同一套 `get_application_details` / `enqueue_download` / `create_operation_plan` / `run_operation_dry_run` / `install_package` 命令；`create_operation_plan` 对 `umanager` 分发到 `create_self_update_plan`，生成 `installSelfUpdate` 计划，helper 用 `install-umanager` 动作复核“必须比当前版本新、必须是 `.deb` 安装版”后执行。安装完成后抽屉按钮显示为“重启 UManager”（调用 `restart_app`）。
 
 helper 只接受固定动作（均支持 `--dry-run` 与 `--execute`）：
 

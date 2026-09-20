@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogAiMode, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogAiMode, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -351,23 +351,174 @@ export function getDownloadPlan(applicationId: string): Promise<DownloadPlan> {
   return invoke<DownloadPlan>("get_download_plan", { applicationId });
 }
 
-export async function downloadPackage(applicationId: string, packageName: string, onProgress?: (progress: DownloadProgress) => void): Promise<DownloadResult> {
+// ---------------------------------------------------------------------------
+// 后台下载队列
+//
+// 下载阶段（安装 / 更新的第一阶段）在 Rust 侧的常驻队列里跑：入队后前端可以立刻返回
+// 去别的页面，队列状态靠 `download-queue-changed` 事件推送整份快照。命令一律返回最新
+// 快照，避免「命令返回」与「事件到达」之间的短暂不一致。
+// ---------------------------------------------------------------------------
+
+export function listDownloads(): Promise<DownloadJob[]> {
+  if (isMock()) return Promise.resolve(mockQueueSnapshot());
+  return invoke<DownloadJob[]>("list_downloads");
+}
+
+export async function enqueueDownload(applicationId: string, version: string | null): Promise<DownloadJob[]> {
   if (isMock()) {
-    const plan = mockPlans[applicationId];
-    onProgress?.({ packageName, phase: "downloading", transferredBytes: plan.expectedSize, totalBytes: plan.expectedSize, bytesPerSecond: 24 * 1024 * 1024 });
-    onProgress?.({ packageName, phase: "verifying", transferredBytes: plan.expectedSize, totalBytes: plan.expectedSize, bytesPerSecond: 0 });
-    return { plan, actualSize: plan.expectedSize, actualSha256: plan.expectedSha256 ?? "0".repeat(64), packageName: plan.packageName, version: plan.version, architecture: plan.architecture, reusedExistingFile: false, verified: true };
+    mockEnqueue(applicationId, version);
+    return mockQueueSnapshot();
   }
-  const unlisten = await listen<DownloadProgress>("apt-download-progress", ({ payload }) => {
-    // 多个软件包可能同时下载：后端事件携带 packageName，只转发当前包的进度，避免相互串台。
-    if (payload.packageName !== packageName) return;
-    onProgress?.(payload);
-  });
-  try {
-    return await invoke<DownloadResult>("download_package", { applicationId });
-  } finally {
-    unlisten();
+  return invoke<DownloadJob[]>("enqueue_download", { applicationId, version });
+}
+
+export async function cancelDownload(jobId: string): Promise<DownloadJob[]> {
+  if (isMock()) {
+    mockCancel(jobId);
+    return mockQueueSnapshot();
   }
+  return invoke<DownloadJob[]>("cancel_download", { jobId });
+}
+
+export async function removeDownload(jobId: string): Promise<DownloadJob[]> {
+  if (isMock()) {
+    mockRemove(jobId);
+    return mockQueueSnapshot();
+  }
+  return invoke<DownloadJob[]>("remove_download", { jobId });
+}
+
+export function getDownloadSettings(): Promise<DownloadQueueSettings> {
+  if (isMock()) return Promise.resolve({ concurrency: mockConcurrency });
+  return invoke<DownloadQueueSettings>("get_download_settings");
+}
+
+export async function setDownloadSettings(settings: DownloadQueueSettings): Promise<DownloadQueueSettings> {
+  if (isMock()) {
+    mockConcurrency = Math.min(3, Math.max(1, Math.round(settings.concurrency)));
+    mockPump();
+    return { concurrency: mockConcurrency };
+  }
+  return invoke<DownloadQueueSettings>("set_download_settings", { settings });
+}
+
+/// 订阅队列快照。返回取消订阅函数（与 Tauri `listen` 的用法一致）。
+export async function onDownloadQueueChanged(handler: (jobs: DownloadJob[]) => void): Promise<() => void> {
+  if (isMock()) {
+    mockQueueSubscribers.add(handler);
+    return () => { mockQueueSubscribers.delete(handler); };
+  }
+  return listen<DownloadJob[]>("download-queue-changed", (event) => handler(event.payload));
+}
+
+// dev mock：没有 Tauri 后端时用定时器模拟一个后台队列（并发数、排队、取消都能验证）。
+const MOCK_DOWNLOAD_TICK_MS = 150;
+const MOCK_DOWNLOAD_STEPS = 12;
+let mockJobs: DownloadJob[] = [];
+let mockSequence = 0;
+let mockConcurrency = 1;
+let mockTimer: ReturnType<typeof setInterval> | null = null;
+const mockQueueSubscribers = new Set<(jobs: DownloadJob[]) => void>();
+
+function mockQueueSnapshot(): DownloadJob[] {
+  return mockJobs.map((job) => ({ ...job }));
+}
+
+function mockPublishQueue() {
+  const snapshot = mockQueueSnapshot();
+  for (const subscriber of mockQueueSubscribers) subscriber(snapshot);
+}
+
+function mockPlan(job: DownloadJob): DownloadPlan {
+  const plan = mockPlans[job.applicationId];
+  if (plan) return plan;
+  const size = 42 * 1024 * 1024;
+  return {
+    applicationId: job.applicationId, packageName: job.packageName, version: job.version ?? "1.0.0", architecture: "amd64",
+    sourceKind: "officialWebsite", repositoryUrl: null, downloadUrl: `https://example.com/${job.packageName}.deb`,
+    fileName: `${job.packageName}.deb`, expectedSize: size, expectedSha256: "0".repeat(64),
+    targetPath: `/home/user/.cache/io.github.umanager.app/downloads/${job.packageName}.deb`,
+    releaseTag: null, assetName: null, websiteVersion: null,
+  };
+}
+
+function mockPump() {
+  if (mockTimer !== null) return;
+  mockTimer = setInterval(() => {
+    const running = mockJobs.filter((job) => job.status === "downloading" || job.status === "verifying").length;
+    let free = Math.max(0, mockConcurrency - running);
+    for (const job of mockJobs) {
+      if (job.status !== "queued" || free <= 0) continue;
+      free -= 1;
+      const plan = mockPlan(job);
+      job.status = "downloading";
+      job.progress = { packageName: job.packageName, phase: "downloading", transferredBytes: 0, totalBytes: plan.expectedSize, bytesPerSecond: 0 };
+    }
+    for (const job of mockJobs) {
+      if (job.status === "downloading" && job.progress) {
+        const step = job.progress.totalBytes / MOCK_DOWNLOAD_STEPS;
+        const next = job.progress.transferredBytes + step;
+        if (next >= job.progress.totalBytes) {
+          job.status = "verifying";
+          job.progress = { ...job.progress, phase: "verifying", transferredBytes: job.progress.totalBytes };
+        } else {
+          job.progress = { ...job.progress, transferredBytes: next, bytesPerSecond: step / (MOCK_DOWNLOAD_TICK_MS / 1000) };
+        }
+      } else if (job.status === "verifying") {
+        const plan = mockPlan(job);
+        job.status = "ready";
+        job.progress = null;
+        job.version = plan.version;
+        job.result = { plan, actualSize: plan.expectedSize, actualSha256: plan.expectedSha256 ?? "0".repeat(64), packageName: plan.packageName, version: plan.version, architecture: plan.architecture, reusedExistingFile: false, verified: true };
+        job.finishedAtUnixSeconds = Math.floor(Date.now() / 1000);
+      }
+    }
+    mockPublishQueue();
+    if (mockJobs.every((job) => job.status !== "queued" && job.status !== "downloading" && job.status !== "verifying")) {
+      const timer = mockTimer;
+      if (timer !== null) { clearInterval(timer); mockTimer = null; }
+    }
+  }, MOCK_DOWNLOAD_TICK_MS);
+}
+
+function mockEnqueue(applicationId: string, version: string | null) {
+  const existing = mockJobs.find((job) => job.applicationId === applicationId && job.status !== "error" && job.status !== "canceled");
+  if (existing) return;
+  mockJobs = mockJobs.filter((job) => job.applicationId !== applicationId);
+  const application = mockCatalog.find((entry) => entry.applicationId === applicationId);
+  mockSequence += 1;
+  mockJobs = [...mockJobs, {
+    jobId: `mock-download-${mockSequence}`,
+    applicationId,
+    packageName: application?.packageName ?? applicationId,
+    displayName: application?.displayName ?? applicationId,
+    version,
+    status: "queued",
+    progress: null,
+    error: null,
+    result: null,
+    enqueuedAtUnixSeconds: Math.floor(Date.now() / 1000),
+    finishedAtUnixSeconds: null,
+  }];
+  mockPump();
+  mockPublishQueue();
+}
+
+function mockCancel(jobId: string) {
+  const job = mockJobs.find((entry) => entry.jobId === jobId);
+  if (!job || (job.status !== "queued" && job.status !== "downloading" && job.status !== "verifying")) return;
+  job.status = "canceled";
+  job.progress = null;
+  job.finishedAtUnixSeconds = Math.floor(Date.now() / 1000);
+  mockPublishQueue();
+}
+
+/// 与后端一致：只有已结束（完成 / 失败 / 已取消）的任务能被移除记录。
+function mockRemove(jobId: string) {
+  const target = mockJobs.find((job) => job.jobId === jobId);
+  if (!target || target.status === "queued" || target.status === "downloading" || target.status === "verifying") return;
+  mockJobs = mockJobs.filter((job) => job.jobId !== jobId);
+  mockPublishQueue();
 }
 
 export function createOperationPlan(applicationId: string): Promise<OperationPlanArtifact> {

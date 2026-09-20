@@ -3,6 +3,7 @@ mod clipboard_history;
 mod dependency_check;
 mod dev_cli_tools;
 mod dev_tools;
+mod download_queue;
 mod feed;
 mod icon;
 mod installable;
@@ -30,7 +31,7 @@ use umanager_catalog::Catalog;
 /// here so UManager's own update flows through the exact same download / verify /
 /// plan / install commands as every other application (the plan itself is still
 /// created with the dedicated `installSelfUpdate` action below).
-fn require_application(catalog: &Catalog, application_id: &str) -> Result<umanager_catalog::Application, String> {
+pub(crate) fn require_application(catalog: &Catalog, application_id: &str) -> Result<umanager_catalog::Application, String> {
     if let Some(application) = catalog.by_application_id(application_id) {
         return Ok(application.clone());
     }
@@ -309,24 +310,6 @@ async fn get_download_plan(
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
     source_engine::build_download_plan(&application, &cache_dir).await
-}
-
-#[tauri::command]
-async fn download_package(
-    app: tauri::AppHandle,
-    application_id: String,
-) -> Result<source_engine::DownloadResult, String> {
-    let catalog = feed::effective_catalog().await?;
-    let application = require_application(&catalog, &application_id)?;
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    let event_app = app.clone();
-    let progress: source_engine::ProgressCallback = std::sync::Arc::new(move |payload| {
-        let _ = event_app.emit("apt-download-progress", payload);
-    });
-    source_engine::download_and_verify(&application, cache_dir, progress).await
 }
 
 #[tauri::command]
@@ -725,6 +708,7 @@ pub fn run() {
         .manage(local_deb::LocalDebState::from_process_arguments())
         .setup(|app| {
             network::initialize(app.handle());
+            download_queue::initialize(app.handle());
             translation::initialize(app.handle());
             feed::initialize(app.handle());
             dev_cli_tools::initialize(app.handle());
@@ -779,7 +763,12 @@ pub fn run() {
             uninstall_dev_tool,
             get_application_details,
             get_download_plan,
-            download_package,
+            download_queue::list_downloads,
+            download_queue::enqueue_download,
+            download_queue::cancel_download,
+            download_queue::remove_download,
+            download_queue::get_download_settings,
+            download_queue::set_download_settings,
             launch_application,
             open_external_url,
             create_operation_plan,
