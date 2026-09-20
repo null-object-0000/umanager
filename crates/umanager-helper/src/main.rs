@@ -1,6 +1,6 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -1300,57 +1300,65 @@ fn execute_streaming(mut command: Command, label: &str) -> Result<(), String> {
 /// not satisfied on this system, dpkg leaves the package unconfigured and prints
 /// a compact error. UManager deliberately does not resolve dependencies itself,
 /// so instead of echoing the raw dpkg tail back, surface a clear, actionable
-/// message that names the missing packages.
+/// message that names the unmet dependencies.
+///
+/// Two shapes reach this function and they must not be conflated:
+///
+/// * the dependency is absent (`Package bar is not installed.`);
+/// * the dependency is installed at the *wrong version* — the exact-pin case, as
+///   in `winehq-devel` requiring `wine-devel (= 11.18~resolute-1)` while 11.17 is
+///   installed. Claiming "尚未安装" there is simply false, so both versions are
+///   spelled out instead.
 ///
 /// The remedy depends on whether the configured apt sources can actually supply
-/// them, so the missing names are split before any advice is given:
+/// the dependency, so the groups are split before any advice is given:
 ///
-/// * A name with an apt candidate is fixable with `sudo apt-get install -f`.
-/// * A name that exists in *no* configured source (e.g. `docker-ce-cli`, which
-///   only Docker's own repository ships) is **not**. Recommending `install -f`
-///   there is actively harmful: apt has nothing to install, so its only way to
-///   satisfy the dependency is to *remove* the package the user just tried to
-///   install. That is the loop this split exists to break.
+/// * A group apt can supply *with a candidate that satisfies its version
+///   constraint* is fixable with `sudo apt-get install -f`.
+/// * A group that exists in *no* configured source (e.g. `docker-ce-cli`, which
+///   only Docker's own repository ships), or whose only candidate is still older
+///   than the pin, is **not**. Recommending `install -f` there is actively
+///   harmful: apt has nothing usable to install, so its only way to satisfy the
+///   dependency is to *remove* the package the user just tried to install. That
+///   is the loop this split exists to break.
 ///
 /// Returns `None` for any other failure so callers keep the original error text.
 fn dependency_failure_hint(rendered: &str) -> Option<String> {
     if !rendered.to_ascii_lowercase().contains("dependency problems") {
         return None;
     }
-    let missing = extract_missing_packages(rendered);
-    if missing.is_empty() {
+    let unmet = extract_unmet_dependencies(rendered);
+    if unmet.is_empty() {
         return Some(
             "安装包存在未满足的系统依赖，dpkg 未能完成配置；请先在终端补装依赖后重试".to_owned(),
         );
     }
-    Some(render_dependency_hint(
-        &missing,
-        &package_has_apt_candidate,
-    ))
+    Some(render_dependency_hint(&unmet, &dependency_installable))
 }
 
-/// Builds the user-facing hint from the already-extracted package names, asking
+/// Builds the user-facing hint from the already-extracted unmet groups, asking
 /// `is_installable` which of them the configured apt sources can supply. Split
 /// from [`dependency_failure_hint`] so the wording is unit-testable without
 /// depending on the apt state of the machine running the tests.
 fn render_dependency_hint(
-    missing: &[String],
-    is_installable: &dyn Fn(&str) -> bool,
+    unmet: &[UnmetDependency],
+    is_installable: &dyn Fn(&UnmetDependency) -> bool,
 ) -> String {
     let mut installable = Vec::new();
     let mut unavailable = Vec::new();
-    for package in missing {
-        if is_installable(package) {
-            installable.push(package.clone());
+    for dependency in unmet {
+        let described = describe_unmet_dependency(dependency);
+        if is_installable(dependency) {
+            installable.push(described);
         } else {
-            unavailable.push(package.clone());
+            unavailable.push(described);
         }
     }
 
     let mut message = String::new();
     if !installable.is_empty() {
         message.push_str(&format!(
-            "安装包缺少以下依赖，且当前系统尚未安装：{}。这些依赖在当前 apt 源中可以获取，\
+            "安装包有以下依赖未满足：{}。这些依赖在当前 apt 源中可以获取，\
 请先在终端执行 sudo apt-get install -f 补装后重试。",
             installable.join("、")
         ));
@@ -1360,9 +1368,9 @@ fn render_dependency_hint(
             message.push(' ');
         }
         message.push_str(&format!(
-            "另缺少：{}，它们不在当前配置的 apt 源中，apt 无法补装。请不要执行 \
-sudo apt-get install -f，它会反过来卸载刚安装的软件；请先按厂商官方文档添加对应的 apt 软件源\
-（例如 Docker 需要先添加 Docker 官方 apt 源）后再重试。",
+            "另有以下依赖未满足：{}，它们不在当前配置的 apt 源中（或源里的候选版本仍不满足版本要求），\
+apt 无法补装。请不要执行 sudo apt-get install -f，它会反过来卸载刚安装的软件；\
+请先按厂商官方文档添加对应的 apt 软件源（例如 Docker 需要先添加 Docker 官方 apt 源）后再重试。",
             unavailable.join("、")
         ));
     }
@@ -1379,19 +1387,28 @@ const CANDIDATE_LABELS: [&str; 2] = ["Candidate:", "候选："];
 /// catalogue, which is Unicode-fullwidth.
 const NO_CANDIDATE_MARKERS: [&str; 2] = ["(none)", "(无)"];
 
-/// Whether the configured apt sources offer any candidate version of `package`.
-/// Best-effort and advisory: any failure to observe apt (missing binary, unreadable
-/// lists, unrecognized output) answers `true`, so a broken apt state can never
-/// produce the "you must add a software source" advice.
-fn package_has_apt_candidate(package: &str) -> bool {
+/// What `apt-cache policy` reports for a package's candidate version.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AptCandidate {
+    /// A concrete version the configured sources would install.
+    Version(String),
+    /// The sources carry no version at all (`候选： (无)`).
+    Missing,
+    /// apt could not be observed (missing binary, unreadable lists, output we do
+    /// not recognize): never claim the sources cannot help.
+    Unknown,
+}
+
+/// Candidate version the configured apt sources offer for `package`.
+fn apt_candidate_version(package: &str) -> AptCandidate {
     let output = match clean_command(APT_CACHE_BIN)
         .args(["policy", package])
         .output()
     {
         Ok(output) if output.status.success() => output,
-        _ => return true,
+        _ => return AptCandidate::Unknown,
     };
-    package_has_apt_candidate_in(&String::from_utf8_lossy(&output.stdout))
+    apt_candidate_version_in(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// `apt-cache policy <pkg>` on a package absent from every source still succeeds
@@ -1404,49 +1421,206 @@ fn package_has_apt_candidate(package: &str) -> bool {
 ///   版本列表：
 /// ```
 ///
-/// Any other outcome (a real candidate, or output we cannot recognize) counts as
-/// installable.
-fn package_has_apt_candidate_in(output: &str) -> bool {
+/// Any other outcome we cannot recognize counts as [`AptCandidate::Unknown`], so a
+/// broken apt state can never produce the "you must add a software source" advice.
+fn apt_candidate_version_in(output: &str) -> AptCandidate {
     let Some(rest) = output.lines().find_map(|line| {
         let line = line.trim();
         CANDIDATE_LABELS
             .iter()
             .find_map(|label| line.strip_prefix(label))
     }) else {
-        return true;
+        return AptCandidate::Unknown;
     };
-    !NO_CANDIDATE_MARKERS.contains(&rest.trim())
+    let candidate = rest.trim();
+    if NO_CANDIDATE_MARKERS.contains(&candidate) {
+        return AptCandidate::Missing;
+    }
+    AptCandidate::Version(candidate.to_owned())
 }
 
-/// Extracts the concrete package names dpkg reports as missing from a dependency
-/// failure tail. Handles both the `Package X is not installed.` line and the
-/// `... depends on X ...; however:` line (dropping any version constraint).
-fn extract_missing_packages(rendered: &str) -> Vec<String> {
-    let mut packages: Vec<String> = Vec::new();
+/// Whether the configured apt sources can satisfy `alternative` — a candidate has
+/// to exist *and* satisfy its version constraint. Checking the constraint matters:
+/// for `wine-devel (= 11.18~resolute-1)` a source still carrying 11.17 cannot help,
+/// and advising `install -f` there would walk into the same uninstall trap as a
+/// dependency no source ships at all.
+fn apt_can_supply(alternative: &UnmetAlternative) -> bool {
+    match apt_candidate_version(&alternative.name) {
+        AptCandidate::Unknown => true,
+        AptCandidate::Missing => false,
+        AptCandidate::Version(candidate) => match &alternative.constraint {
+            Some((operator, required)) => version_satisfies(&candidate, operator, required),
+            None => true,
+        },
+    }
+}
+
+/// `dpkg --compare-versions <candidate> <operator> <required>`. An unrunnable
+/// comparison answers `true`: advisory wording must never turn a broken dpkg into
+/// "apt cannot help".
+fn version_satisfies(candidate: &str, operator: &str, required: &str) -> bool {
+    clean_command(DPKG_BIN)
+        .args(["--compare-versions", candidate, operator, required])
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Whether any alternative of `dependency` can be satisfied from the configured
+/// apt sources. A group we failed to parse stays installable so we never
+/// over-claim that apt is unable to help.
+fn dependency_installable(dependency: &UnmetDependency) -> bool {
+    dependency.alternatives.is_empty() || dependency.alternatives.iter().any(apt_can_supply)
+}
+
+/// One dependency group dpkg refused to satisfy, kept in the vendor's own wording
+/// (`wine-devel (= 11.18~resolute-1)`, `python3 | python3.11`). dpkg names the
+/// whole group on the `... depends on ...; however:` line and explains each
+/// alternative on the detail lines that follow, so both halves are merged here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UnmetDependency {
+    /// Original group text, shown verbatim to the user.
+    raw: String,
+    alternatives: Vec<UnmetAlternative>,
+}
+
+/// One `|`-separated alternative of an unmet group plus what dpkg found on this
+/// system: `installed = Some(version)` is a version-pin mismatch, `None` means the
+/// package is absent. Keeping the two apart is the point of the message —
+/// "尚未安装" is wrong for a package that *is* installed, just at the wrong version.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UnmetAlternative {
+    name: String,
+    /// `(operator, version)` when the alternative carries a version constraint.
+    constraint: Option<(String, String)>,
+    installed: Option<String>,
+}
+
+/// Extracts the unmet dependency groups dpkg reports in a dependency failure tail.
+/// Handles both the `... depends on <group> ...; however:` line and the detail
+/// lines that follow it (`Package X is not installed.` /
+/// `Version of X on system is V.`), so a version pin survives into the message.
+fn extract_unmet_dependencies(rendered: &str) -> Vec<UnmetDependency> {
+    let mut dependencies: Vec<UnmetDependency> = Vec::new();
+    // `None` = dpkg says the package is absent; `Some(version)` = installed, but at
+    // a version dpkg will not accept.
+    let mut installed: HashMap<String, Option<String>> = HashMap::new();
     for raw_line in rendered.lines() {
         let line = raw_line.trim();
         if let Some(rest) = line.strip_prefix("Package ") {
             if let Some(name) = rest.strip_suffix(" is not installed.") {
-                push_unique_package(&mut packages, name.trim());
+                let name = name.trim();
+                if valid_package_name(name) {
+                    installed.entry(name.to_owned()).or_insert(None);
+                }
             }
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("Version of ") {
+            if let Some((name, version)) = rest.split_once(" on system is ") {
+                let name = name.trim();
+                let version = version.trim().trim_end_matches('.').trim();
+                if valid_package_name(name) && !version.is_empty() {
+                    installed.insert(name.to_owned(), Some(version.to_owned()));
+                }
+            }
+            continue;
         }
         if let Some(position) = line.find(" depends on ") {
-            let rest = &line[position + " depends on ".len()..];
-            let name = rest
-                .split(|character: char| character == ';' || character == '(' || character.is_whitespace())
+            let group = line[position + " depends on ".len()..]
+                .split(';')
                 .next()
                 .unwrap_or("")
                 .trim();
-            push_unique_package(&mut packages, name);
+            let dependency = parse_unmet_dependency(group);
+            if !dependency.alternatives.is_empty()
+                && !dependencies
+                    .iter()
+                    .any(|existing| existing.raw == dependency.raw)
+            {
+                dependencies.push(dependency);
+            }
         }
     }
-    packages
+    for dependency in &mut dependencies {
+        for alternative in &mut dependency.alternatives {
+            alternative.installed = installed.get(&alternative.name).cloned().flatten();
+        }
+    }
+    dependencies
 }
 
-fn push_unique_package(packages: &mut Vec<String>, name: &str) {
-    if valid_package_name(name) && !packages.iter().any(|existing| existing == name) {
-        packages.push(name.to_owned());
+fn parse_unmet_dependency(group: &str) -> UnmetDependency {
+    UnmetDependency {
+        raw: group.to_owned(),
+        alternatives: group
+            .split('|')
+            .filter_map(parse_unmet_alternative)
+            .collect(),
     }
+}
+
+fn parse_unmet_alternative(token: &str) -> Option<UnmetAlternative> {
+    let token = token.trim();
+    if token.is_empty() {
+        return None;
+    }
+    let name_end = token.find(['(', ':']).unwrap_or(token.len());
+    let name = token[..name_end].trim().to_owned();
+    if !valid_package_name(&name) {
+        return None;
+    }
+    Some(UnmetAlternative {
+        name,
+        constraint: parse_version_constraint(token),
+        installed: None,
+    })
+}
+
+/// `(>= 1.2)` → `(">=", "1.2")`.
+fn parse_version_constraint(token: &str) -> Option<(String, String)> {
+    let start = token.find('(')?;
+    let end = token.rfind(')')?;
+    if end <= start {
+        return None;
+    }
+    let inner = token[start + 1..end].trim();
+    let operator_len = if inner.starts_with("<<")
+        || inner.starts_with("<=")
+        || inner.starts_with(">=")
+        || inner.starts_with(">>")
+    {
+        2
+    } else if inner.starts_with('<') || inner.starts_with('>') || inner.starts_with('=') {
+        1
+    } else {
+        return None;
+    };
+    let operator = inner[..operator_len].trim();
+    let version = inner[operator_len..].trim();
+    if operator.is_empty() || version.is_empty() {
+        return None;
+    }
+    Some((operator.to_owned(), version.to_owned()))
+}
+
+/// Renders one unmet group for the message. A version-pin mismatch spells out both
+/// versions (`wine-devel（已安装 11.17~resolute-1，需要 = 11.18~resolute-1）`)
+/// because "尚未安装 wine-devel" would be plainly false; everything else keeps the
+/// vendor's original text, which already carries the constraint.
+fn describe_unmet_dependency(dependency: &UnmetDependency) -> String {
+    if dependency.alternatives.len() != 1 {
+        return dependency.raw.clone();
+    }
+    let alternative = &dependency.alternatives[0];
+    let (Some((operator, required)), Some(installed)) =
+        (&alternative.constraint, &alternative.installed)
+    else {
+        return dependency.raw.clone();
+    };
+    format!(
+        "{}（已安装 {}，需要 {} {}）",
+        alternative.name, installed, operator, required
+    )
 }
 
 fn forward_output<R: Read>(
@@ -1983,6 +2157,22 @@ mod tests {
         );
     }
 
+    /// Test-only builder for the "not installed" shape: one bare name per group,
+    /// no version constraint, nothing installed.
+    fn unmet_groups(names: &[&str]) -> Vec<UnmetDependency> {
+        names
+            .iter()
+            .map(|name| UnmetDependency {
+                raw: (*name).to_owned(),
+                alternatives: vec![UnmetAlternative {
+                    name: (*name).to_owned(),
+                    constraint: None,
+                    installed: None,
+                }],
+            })
+            .collect()
+    }
+
     #[test]
     fn surfaces_actionable_hint_for_unmet_dependencies() {
         let tail = "dpkg: dependency problems prevent configuration of bytedance-feishu-stable:\n\
@@ -1995,17 +2185,73 @@ mod tests {
         // `dependency_failure_hint` probes the real apt state, so assert the
         // extraction + wording through the pure renderer to keep this test
         // independent of the machine it runs on.
-        let missing = extract_missing_packages(tail);
-        assert_eq!(missing, vec!["pulseaudio-utils".to_owned()]);
-        let hint = render_dependency_hint(&missing, &|_| true);
+        let unmet = extract_unmet_dependencies(tail);
+        assert_eq!(unmet.len(), 1);
+        assert_eq!(unmet[0].raw, "pulseaudio-utils");
+        assert_eq!(unmet[0].alternatives[0].installed, None);
+        let hint = render_dependency_hint(&unmet, &|_| true);
         assert!(hint.contains("sudo apt-get install -f"));
         assert!(hint.contains("pulseaudio-utils"));
+        // A genuinely absent dependency must not be described as a version pin.
+        assert!(!hint.contains("已安装"));
+    }
+
+    #[test]
+    fn version_pin_mismatch_names_both_versions_instead_of_claiming_missing() {
+        // The real wine case: `winehq-devel` 11.18 pins `wine-devel` to exactly
+        // 11.18 while 11.17 is installed. dpkg reports a dependency problem, and
+        // the old wording called wine-devel "尚未安装", which is simply false.
+        let tail = "dpkg: dependency problems prevent configuration of winehq-devel:\n\
+                     winehq-devel depends on wine-devel (= 11.18~resolute-1); however:\n\
+                      Version of wine-devel on system is 11.17~resolute-1.\n\
+                    dpkg: error processing package winehq-devel (--install):\n\
+                     dependency problems - leaving unconfigured\n";
+        let unmet = extract_unmet_dependencies(tail);
+        assert_eq!(unmet.len(), 1);
+        assert_eq!(unmet[0].raw, "wine-devel (= 11.18~resolute-1)");
+        assert_eq!(
+            unmet[0].alternatives[0].constraint,
+            Some(("=".to_owned(), "11.18~resolute-1".to_owned()))
+        );
+        assert_eq!(
+            unmet[0].alternatives[0].installed.as_deref(),
+            Some("11.17~resolute-1")
+        );
+        let hint = render_dependency_hint(&unmet, &|_| true);
+        assert!(hint.contains("wine-devel（已安装 11.17~resolute-1，需要 = 11.18~resolute-1）"));
+        assert!(!hint.contains("尚未安装"));
+        assert!(hint.contains("sudo apt-get install -f 补装后重试"));
+    }
+
+    #[test]
+    fn alternatives_and_constraints_survive_extraction() {
+        let tail = "x depends on python3 (>= 3.11) | python3.10; however:\n\
+                     Package python3 is not installed.\n\
+                     Version of python3.10 on system is 3.10.4-1.\n";
+        let unmet = extract_unmet_dependencies(tail);
+        assert_eq!(unmet.len(), 1);
+        assert_eq!(unmet[0].raw, "python3 (>= 3.11) | python3.10");
+        assert_eq!(unmet[0].alternatives.len(), 2);
+        assert_eq!(
+            unmet[0].alternatives[0].constraint,
+            Some((">=".to_owned(), "3.11".to_owned()))
+        );
+        assert_eq!(unmet[0].alternatives[0].installed, None);
+        assert_eq!(
+            unmet[0].alternatives[1].installed.as_deref(),
+            Some("3.10.4-1")
+        );
+        // With several alternatives the vendor's raw text is kept: picking one of
+        // them for the user would be a guess.
+        assert_eq!(
+            describe_unmet_dependency(&unmet[0]),
+            "python3 (>= 3.11) | python3.10"
+        );
     }
 
     #[test]
     fn hint_advises_install_f_only_for_dependencies_apt_can_supply() {
-        let missing = vec!["pass".to_owned(), "pulseaudio-utils".to_owned()];
-        let hint = render_dependency_hint(&missing, &|_| true);
+        let hint = render_dependency_hint(&unmet_groups(&["pass", "pulseaudio-utils"]), &|_| true);
         assert!(hint.contains("sudo apt-get install -f"));
         assert!(hint.contains("pass"));
         assert!(hint.contains("pulseaudio-utils"));
@@ -2016,8 +2262,7 @@ mod tests {
     fn hint_refuses_install_f_when_no_source_can_supply_the_dependency() {
         // The docker-desktop case: `docker-ce-cli` lives only in Docker's own
         // repository, so `apt-get install -f` would *remove* docker-desktop.
-        let missing = vec!["docker-ce-cli".to_owned()];
-        let hint = render_dependency_hint(&missing, &|_| false);
+        let hint = render_dependency_hint(&unmet_groups(&["docker-ce-cli"]), &|_| false);
         assert!(!hint.contains("执行 sudo apt-get install -f 补装"));
         assert!(hint.contains("docker-ce-cli"));
         assert!(hint.contains("请不要执行"));
@@ -2026,15 +2271,13 @@ mod tests {
 
     #[test]
     fn hint_splits_mixed_dependencies_into_two_remedies() {
-        let missing = vec![
-            "qemu-system-x86".to_owned(),
-            "docker-ce-cli".to_owned(),
-            "uidmap".to_owned(),
-        ];
-        let hint = render_dependency_hint(&missing, &|package| package != "docker-ce-cli");
+        let unmet = unmet_groups(&["qemu-system-x86", "docker-ce-cli", "uidmap"]);
+        let hint = render_dependency_hint(&unmet, &|dependency| {
+            dependency.alternatives[0].name != "docker-ce-cli"
+        });
         assert!(hint.contains("sudo apt-get install -f 补装后重试"));
         assert!(hint.contains("qemu-system-x86、uidmap"));
-        assert!(hint.contains("另缺少：docker-ce-cli"));
+        assert!(hint.contains("另有以下依赖未满足：docker-ce-cli"));
         assert!(hint.contains("请不要执行"));
     }
 
@@ -2049,18 +2292,28 @@ mod tests {
 
     #[test]
     fn apt_candidate_probe_reads_both_catalogue_spellings() {
-        assert!(!package_has_apt_candidate_in(
-            "docker-ce-cli:\n  Installed: (none)\n  Candidate: (none)\n  Version table:\n"
-        ));
-        assert!(!package_has_apt_candidate_in(
-            "docker-ce-cli:\n  已安装：(无)\n  候选： (无)\n  版本列表：\n"
-        ));
-        assert!(package_has_apt_candidate_in(
-            "qemu-system-x86:\n  已安装：(无)\n  候选： 1:10.2.1+ds-1ubuntu3.2\n  版本列表：\n"
-        ));
+        assert_eq!(
+            apt_candidate_version_in(
+                "docker-ce-cli:\n  Installed: (none)\n  Candidate: (none)\n  Version table:\n"
+            ),
+            AptCandidate::Missing
+        );
+        assert_eq!(
+            apt_candidate_version_in("docker-ce-cli:\n  已安装：(无)\n  候选： (无)\n  版本列表：\n"),
+            AptCandidate::Missing
+        );
+        assert_eq!(
+            apt_candidate_version_in(
+                "qemu-system-x86:\n  已安装：(无)\n  候选： 1:10.2.1+ds-1ubuntu3.2\n  版本列表：\n"
+            ),
+            AptCandidate::Version("1:10.2.1+ds-1ubuntu3.2".to_owned())
+        );
         // Unrecognized output must never claim a dependency cannot be installed.
-        assert!(package_has_apt_candidate_in(""));
-        assert!(package_has_apt_candidate_in("E: cannot parse package lists"));
+        assert_eq!(apt_candidate_version_in(""), AptCandidate::Unknown);
+        assert_eq!(
+            apt_candidate_version_in("E: cannot parse package lists"),
+            AptCandidate::Unknown
+        );
     }
 
     #[test]
@@ -2070,14 +2323,17 @@ mod tests {
     }
 
     #[test]
-    fn extracts_versioned_and_multiple_missing_packages() {
+    fn extracts_unmet_dependencies_dedupes_and_keeps_constraints() {
         let tail = "x depends on libgtk-3-0 (>= 3.24); however:\n\
                      Package libgtk-3-0 is not installed.\n\
                     x depends on pulseaudio-utils; however:\n\
-                     Package pulseaudio-utils is not installed.\n";
+                     Package pulseaudio-utils is not installed.\n\
+                    x depends on libgtk-3-0 (>= 3.24); however:\n\
+                     Package libgtk-3-0 is not installed.\n";
+        let unmet = extract_unmet_dependencies(tail);
         assert_eq!(
-            extract_missing_packages(tail),
-            vec!["libgtk-3-0".to_owned(), "pulseaudio-utils".to_owned()]
+            unmet.iter().map(|d| d.raw.as_str()).collect::<Vec<_>>(),
+            vec!["libgtk-3-0 (>= 3.24)", "pulseaudio-utils"]
         );
     }
 

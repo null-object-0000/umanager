@@ -151,7 +151,7 @@ export interface OperationPlanPayload {
 }
 
 export interface DependencyGap {
-  /** 依赖组能从已配置的 apt 源补装，`apt-get install -f` 可以解决。 */
+  /** 依赖组能从已配置的 apt 源补装，`apt-get install`（可精确到包名）可以解决。 */
   installable: string[];
   /** 依赖组不在任何已配置的 apt 源里，apt 无法补装。 */
   unavailable: string[];

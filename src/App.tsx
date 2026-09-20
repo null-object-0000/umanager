@@ -15,6 +15,7 @@ import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan,
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, ClipboardEntry, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { canRetranslate, formatCachedOrigin, looksEnglish, shouldWarnMissingSummary, translateButtonLabel } from "./changelogTranslation";
 import { debCategory, devToolCategory, orderedCategories, windowsCategory } from "./categories";
+import { aptInstallCommand, aptPackageNames } from "./dependencyGap";
 import { readSortMode, sortModeLabels, sortSoftwareItems } from "./model";
 import type { SortMode } from "./model";
 import { VersionDate } from "./VersionDate";
@@ -252,14 +253,23 @@ function DependencyGapWarning({ gap }: { gap: DependencyGap }) {
   if (installable.length === 0 && unavailable.length === 0) return null;
   return <div className="dependency-warning">
     <strong>⚠ 安装包依赖未满足</strong>
-    <span>UManager 用固定的 <code>dpkg --install</code> 安装，不会自动补装依赖，缺少以下依赖会导致安装失败：</span>
+    <span>UManager 用固定的 <code>dpkg --install</code> 安装，不会自动补装依赖；以下依赖未满足会导致安装失败：</span>
     {installable.length > 0 && <>
       <ul>{installable.map((item, index) => <li key={`installable-${index}-${item}`}><code>{item}</code></li>)}</ul>
-      <p>可在终端执行 <code>sudo apt-get install -f</code> 或手动安装上述依赖后再继续。</p>
+      <p>
+        可在终端执行 <code>{aptInstallCommand(installable)}</code>
+        {aptPackageNames(installable).length > 0 && <>（或 <code>sudo apt-get install -f</code>）</>}
+        补装后重试。
+      </p>
+      <p>
+        apt 不会继承你 shell 里的 <code>http_proxy</code>／<code>https_proxy</code>（<code>sudo</code> 会清空环境变量）；
+        若 apt 下载厂商源超时，请显式指定代理后重试，例如
+        <code>sudo apt-get -o Acquire::http::Proxy=http://127.0.0.1:7890 -o Acquire::https::Proxy=http://127.0.0.1:7890 install -f</code>。
+      </p>
     </>}
     {unavailable.length > 0 && <>
       <ul>{unavailable.map((item, index) => <li key={`unavailable-${index}-${item}`} className="dependency-warning-unavailable"><code>{item}</code></li>)}</ul>
-      <p><strong>不要执行 <code>sudo apt-get install -f</code>。</strong>上述依赖不在当前配置的 apt 源中，apt 无法补装，该命令只会反过来卸载刚安装的软件。请先按厂商官方文档添加对应的 apt 软件源（例如 Docker 需要先添加 Docker 官方 apt 源）后再继续。</p>
+      <p><strong>不要执行 <code>sudo apt-get install -f</code>。</strong>上述依赖不在当前配置的 apt 源中（或源里的版本不满足要求），apt 无法补装，该命令只会反过来卸载刚安装的软件。请先按厂商官方文档添加对应的 apt 软件源（例如 Docker 需要先添加 Docker 官方 apt 源）后再继续。</p>
     </>}
   </div>;
 }
