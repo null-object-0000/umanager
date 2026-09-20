@@ -254,10 +254,16 @@ export interface LlmTranslateDelta {
 
 export type TranslationSection = "summary" | "translation";
 
-/// 一次「翻译 + 归纳」的结果，同时用于流式结束后的返回值与本地缓存回读。
+/// 更新日志 AI 入口的模式：`translate` = 英文日志翻译成中文并归纳；`summarize` =
+/// 中文等日志只归纳「更新重点」（不翻译、不覆盖原文）。
+export type ChangelogAiMode = "translate" | "summarize";
+
+/// 一次「翻译 / 归纳」的结果，同时用于流式结束后的返回值与本地缓存回读。
 export interface ChangelogTranslation {
-  /// 归纳出的更新重点（Markdown 列表）。总结请求失败时为 null，不影响译文。
+  /// 归纳出的更新重点（Markdown 列表）。翻译模式下总结请求失败时为 null，不影响译文；
+  /// 归纳模式下必然有值（失败即整次请求失败）。
   summary: string | null;
+  /// 完整译文；归纳模式下为空字符串（没有译文可展示）。
   translation: string;
   /// true = 直接来自本地缓存，本次没有请求 LLM。
   cached: boolean;

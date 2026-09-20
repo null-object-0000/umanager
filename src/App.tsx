@@ -13,7 +13,8 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, downloadPackage, dragClipboardImage, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, ClipboardEntry, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
-import { canRetranslate, formatCachedOrigin, looksEnglish, shouldWarnMissingSummary, translateButtonLabel } from "./changelogTranslation";
+import { aiButtonLabel, aiMode, canRegenerate, formatCachedOrigin, regenerateButtonLabel, shouldWarnMissingSummary } from "./changelogTranslation";
+import type { AiActionState } from "./changelogTranslation";
 import { debCategory, devToolCategory, orderedCategories, windowsCategory } from "./categories";
 import { aptInstallCommand, aptPackageNames } from "./dependencyGap";
 import { readSortMode, sortModeLabels, sortSoftwareItems } from "./model";
@@ -420,102 +421,106 @@ function ChangelogLink({ url }: { url: string | null | undefined }) {
   return <p className="release-notes-link">完整更新记录：<a href={url} onClick={(event) => { event.preventDefault(); void openExternalUrl(url); }}>{url}</a></p>;
 }
 
-// 更新日志的「翻译 + 归纳」：一次请求同时产出译文与「更新重点」，两者一起按原文
-// 内容落到本地缓存；下次打开同一份更新日志先展示上次结果，只有点「重新翻译」才
-// 重新请求 LLM。
-function useChangelogTranslation(notes: string | null | undefined) {
-  const [translated, setTranslated] = useState<ChangelogTranslation | null>(null);
+// 更新日志的 AI 入口：英文日志一次请求同时产出译文与「更新重点」，中文等日志只产出
+// 「更新重点」（原文始终展示）。两者都按原文内容落到本地缓存，下次打开同一份更新日志
+// 先展示上次结果，只有点「重新翻译 / 重新归纳」才重新请求 LLM。
+function useChangelogAi(notes: string | null | undefined) {
+  const [result, setResult] = useState<ChangelogTranslation | null>(null);
   const [summaryStream, setSummaryStream] = useState<string | null>(null);
   const [translationStream, setTranslationStream] = useState<string | null>(null);
-  const [showTranslated, setShowTranslated] = useState(false);
-  const [translating, setTranslating] = useState(false);
+  const [showing, setShowing] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [llmEnabled, setLlmEnabled] = useState(false);
   const requestSeq = useRef(0);
-  const english = looksEnglish(notes ?? "");
+  const mode = aiMode(notes);
 
   useEffect(() => {
     // 换了一份更新日志：作废进行中的请求，并清掉上一份的内容。
     requestSeq.current += 1;
-    setTranslated(null); setShowTranslated(false); setTranslating(false);
+    setResult(null); setShowing(false); setBusy(false);
     setSummaryStream(null); setTranslationStream(null); setError(null);
-    if (!english) { setLlmEnabled(false); return; }
+    if (!mode) { setLlmEnabled(false); return; }
     let cancelled = false;
     getLlmSettings()
       .then((settings) => {
         if (cancelled || !settings.enabled) return;
         setLlmEnabled(true);
-        // 本地已有上次的翻译就直接展示（不请求 LLM），用户仍可点「重新翻译」。
-        return getCachedChangelogTranslation(notes ?? "").then((cached) => {
+        // 本地已有上次的结果就直接展示（不请求 LLM），用户仍可点「重新翻译 / 重新归纳」。
+        return getCachedChangelogTranslation(notes ?? "", mode).then((cached) => {
           if (cancelled || !cached) return;
-          setTranslated(cached);
-          setShowTranslated(true);
+          setResult(cached);
+          setShowing(true);
         });
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [english, notes]);
+  }, [mode, notes]);
 
   const run = async (force: boolean) => {
-    if (translating || !notes) return;
-    if (!force && showTranslated) { setShowTranslated(false); return; }
-    if (!force && translated) { setShowTranslated(true); return; }
+    if (busy || !notes || !mode) return;
+    if (!force && showing) { setShowing(false); return; }
+    if (!force && result) { setShowing(true); return; }
     const source = notes;
-    setTranslating(true); setError(null); setSummaryStream(null); setTranslationStream(null);
+    setBusy(true); setError(null); setSummaryStream(null); setTranslationStream(null);
     requestSeq.current += 1;
     const sequence = requestSeq.current;
-    const requestId = `translate-${Date.now()}-${sequence}`;
+    const requestId = `changelog-ai-${Date.now()}-${sequence}`;
     const current = () => requestSeq.current === sequence;
     try {
-      const result = await translateChangelog(source, requestId, (delta, section) => {
+      const value = await translateChangelog(source, requestId, mode, (delta, section) => {
         if (!current()) return;
         if (section === "summary") setSummaryStream((previous) => (previous ?? "") + delta);
         else setTranslationStream((previous) => (previous ?? "") + delta);
       }, { force });
       if (!current()) return;
-      setTranslated(result);
-      setShowTranslated(true);
+      setResult(value);
+      setShowing(true);
     } catch (reason) {
       if (!current()) return;
       setError(String(reason));
     } finally {
-      if (current()) setTranslating(false);
+      if (current()) setBusy(false);
     }
   };
 
-  const hasTranslation = translated !== null;
-  const content = translating
-    ? (translationStream ?? "")
-    : (showTranslated && translated ? translated.translation : notes ?? "");
-  // 「更新重点」是 AI 产物，和译文一起显示/隐藏：切回原文时整页只留原文。
-  const summary = translating ? summaryStream : (showTranslated ? translated?.summary ?? null : null);
-  const actionState = { translating, showTranslated, hasTranslation };
+  const isTranslate = mode === "translate";
+  const hasResult = result !== null;
+  // 归纳模式没有译文：正文永远是原文，AI 只影响上方「更新重点」那一块。
+  const content = isTranslate
+    ? (busy ? (translationStream ?? "") : (showing && result ? result.translation : notes ?? ""))
+    : notes ?? "";
+  // 「更新重点」是 AI 产物：翻译模式下和译文一起显示/隐藏（切回原文时整页只留原文），
+  // 归纳模式下只控制这一块。
+  const summary = busy ? summaryStream : (showing ? result?.summary ?? null : null);
+  // 没有正文时入口本来就不显示（`canRun` = false），这里的兜底只是给展示函数一个确定模式。
+  const actionState: AiActionState = { mode: mode ?? "summarize", busy, showing, hasResult };
 
   return {
     content,
     summary,
-    summaryPending: translating && summaryStream === null,
+    summaryPending: busy && summaryStream === null,
     summaryMissing: shouldWarnMissingSummary(summary, actionState),
-    pending: translating && translationStream === null,
-    canTranslate: english && llmEnabled,
-    translating,
-    showTranslated,
-    hasTranslation,
-    canRetranslate: canRetranslate(actionState),
-    cachedNote: !translating && showTranslated && translated?.cached
-      ? formatCachedOrigin(translated.model, formatUpdatedAt(translated.createdAtUnixSeconds))
+    pending: isTranslate && busy && translationStream === null,
+    canRun: mode !== null && llmEnabled,
+    label: aiButtonLabel(actionState),
+    regenerateLabel: regenerateButtonLabel(actionState.mode),
+    busy,
+    canRegenerate: canRegenerate(actionState),
+    cachedNote: !busy && showing && result?.cached
+      ? formatCachedOrigin(actionState.mode, result.model, formatUpdatedAt(result.createdAtUnixSeconds))
       : null,
     error,
     toggle: () => void run(false),
-    retranslate: () => void run(true),
+    regenerate: () => void run(true),
   };
 }
 
-function ChangelogTranslateButton({ translation }: { translation: ReturnType<typeof useChangelogTranslation> }) {
-  if (!translation.canTranslate) return null;
+function ChangelogAiButton({ ai }: { ai: ReturnType<typeof useChangelogAi> }) {
+  if (!ai.canRun) return null;
   return <div className="changelog-actions">
-    {translation.canRetranslate && <button className="translate-toggle ghost" onClick={translation.retranslate} disabled={translation.translating}>重新翻译</button>}
-    <button className="translate-toggle" onClick={translation.toggle} disabled={translation.translating}>{translateButtonLabel(translation)}</button>
+    {ai.canRegenerate && <button className="translate-toggle ghost" onClick={ai.regenerate} disabled={ai.busy}>{ai.regenerateLabel}</button>}
+    <button className="translate-toggle" onClick={ai.toggle} disabled={ai.busy}>{ai.label}</button>
   </div>;
 }
 
@@ -561,30 +566,30 @@ function ChangelogSummary({ summary, pending, missing }: { summary: string | nul
 }
 
 // 两个入口（应用详情「新内容」、更新抽屉「版本更新记录」）共用的正文。
-function ChangelogBody({ translation }: { translation: ReturnType<typeof useChangelogTranslation> }) {
+function ChangelogBody({ ai }: { ai: ReturnType<typeof useChangelogAi> }) {
   return <>
-    {translation.error && <p className="changelog-translate-error">{translation.error}</p>}
-    <ChangelogSummary summary={translation.summary} pending={translation.summaryPending} missing={translation.summaryMissing}/>
-    <ChangelogMarkdown content={translation.content} pending={translation.pending}/>
-    {translation.cachedNote && <p className="changelog-translate-cache">{translation.cachedNote}</p>}
+    {ai.error && <p className="changelog-translate-error">{ai.error}</p>}
+    <ChangelogSummary summary={ai.summary} pending={ai.summaryPending} missing={ai.summaryMissing}/>
+    <ChangelogMarkdown content={ai.content} pending={ai.pending}/>
+    {ai.cachedNote && <p className="changelog-translate-cache">{ai.cachedNote}</p>}
   </>;
 }
 
 function ReleaseNotes({ notes, url, version }: { notes: string | null | undefined; url: string | null | undefined; version?: string | null }) {
-  const translation = useChangelogTranslation(notes);
+  const ai = useChangelogAi(notes);
   if (!notes && !url) return null;
   return <section className="detail-section release-notes-section">
     <div className="release-notes-head">
       <h3>版本更新记录{version ? ` · v${version}` : ""}</h3>
-      <ChangelogTranslateButton translation={translation}/>
+      <ChangelogAiButton ai={ai}/>
     </div>
-    <ChangelogBody translation={translation}/>
+    <ChangelogBody ai={ai}/>
     <ChangelogLink url={url}/>
   </section>;
 }
 
 function WhatsNew({ version, seconds, notes, url }: { version: string | null; seconds: number | null | undefined; notes: string | null | undefined; url: string | null | undefined }) {
-  const translation = useChangelogTranslation(notes);
+  const ai = useChangelogAi(notes);
   if (!version && !notes && !url) return null;
   const dateText = seconds != null ? formatUpdatedAt(seconds) : null;
   return <section className="detail-section whats-new-section">
@@ -594,9 +599,9 @@ function WhatsNew({ version, seconds, notes, url }: { version: string | null; se
         {version && <strong className="whats-new-version">版本 {version}</strong>}
         {dateText && <span className="whats-new-date">{dateText}</span>}
       </div>
-      <ChangelogTranslateButton translation={translation}/>
+      <ChangelogAiButton ai={ai}/>
     </div>
-    <ChangelogBody translation={translation}/>
+    <ChangelogBody ai={ai}/>
     <ChangelogLink url={url}/>
   </section>;
 }
@@ -809,11 +814,11 @@ function LlmSettingsPanel() {
   };
 
   return <section className="settings-panel network-panel">
-    <div className="settings-section-heading"><div><div><h2>LLM 翻译</h2><p>用你自己的 OpenAI 兼容服务，一键把英文更新日志翻译成中文并归纳「更新重点」；结果缓存在本机，下次打开直接展示，除非你点「重新翻译」</p></div></div><span className={`install-kind-badge ${enabled ? "" : "unknown"}`}>{enabled ? "已启用" : "未启用"}</span></div>
-    {loading && <div className="settings-loading"><span className="loader"/><span>正在读取 LLM 翻译设置…</span></div>}
+    <div className="settings-section-heading"><div><div><h2>LLM 翻译与归纳</h2><p>用你自己的 OpenAI 兼容服务：英文更新日志一键翻译成中文并归纳「更新重点」，中文等日志直接归纳「更新重点」（不改动原文）；结果缓存在本机，下次打开直接展示，除非你点「重新翻译 / 重新归纳」</p></div></div><span className={`install-kind-badge ${enabled ? "" : "unknown"}`}>{enabled ? "已启用" : "未启用"}</span></div>
+    {loading && <div className="settings-loading"><span className="loader"/><span>正在读取 LLM 设置…</span></div>}
     {!loading && <>
       <div className="network-proxy-form">
-        <label className="plan-confirmation proxy-toggle"><input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false); }} /><span>启用 LLM 翻译</span></label>
+        <label className="plan-confirmation proxy-toggle"><input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false); }} /><span>启用 LLM 翻译与归纳</span></label>
         <label className="proxy-url-field"><span>服务地址</span><input value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setSaved(false); }} placeholder="https://api.deepseek.com/v1" disabled={!enabled} spellCheck={false} aria-label="LLM 服务地址"/></label>
         <label className="proxy-url-field"><span>API Key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setSaved(false); }} placeholder="sk-…（本地服务可留空）" disabled={!enabled} spellCheck={false} aria-label="LLM API Key"/></label>
         <label className="proxy-url-field"><span>模型</span><input value={model} onChange={(event) => { setModel(event.target.value); setSaved(false); }} placeholder="deepseek-chat" disabled={!enabled} spellCheck={false} aria-label="LLM 模型名称"/></label>
@@ -827,7 +832,7 @@ function LlmSettingsPanel() {
         </div>
       </div>
       <dl className="installation-facts network-facts">
-        <div><dt>当前状态</dt><dd>{enabled ? "LLM 翻译已启用" : "未启用"}</dd></div>
+        <div><dt>当前状态</dt><dd>{enabled ? "LLM 翻译与归纳已启用" : "未启用"}</dd></div>
         <div><dt>服务地址</dt><dd title={settings?.baseUrl ?? ""}>{settings?.baseUrl && settings.baseUrl.trim() ? settings.baseUrl : "未设置"}</dd></div>
         <div><dt>模型</dt><dd>{settings?.model && settings.model.trim() ? settings.model : "未设置"}</dd></div>
       </dl>

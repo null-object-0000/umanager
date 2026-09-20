@@ -13,6 +13,17 @@ const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const SECTION_SUMMARY: &str = "summary";
 const SECTION_TRANSLATION: &str = "translation";
 
+/// 更新日志 AI 入口的模式，由前端按日志语言决定（前端只负责判定语言，不决定提示词）。
+///
+/// - `Translate`：英文日志 → 译文 + 3–6 条「更新重点」（两个并行流式请求）。
+/// - `Summarize`：中文等日志 → 只有「更新重点」，不发翻译请求、也不覆盖原文。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TranslationMode {
+    Translate,
+    Summarize,
+}
+
 const SYSTEM_PROMPT: &str = "你是一名软件更新日志翻译助手。把用户提供的英文 Markdown 更新日志翻译成简体中文。\
 要求：1) 完整保留 Markdown 结构（标题、列表、代码块、行内代码、链接、表格）；\
 2) 只翻译正文文字，不要翻译 URL、代码、命令、版本号、分支名、技术专有名词；\
@@ -36,12 +47,14 @@ pub struct LlmTranslateDelta {
     pub section: String,
 }
 
-/// 一次「翻译 + 归纳」的最终结果，也是前端缓存展示所需的全部信息。
+/// 一次「翻译 / 归纳」的最终结果，也是前端缓存展示所需的全部信息。
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangelogTranslation {
-    /// 归纳出的更新重点（Markdown 列表）。总结请求失败时为 `None`，不影响译文。
+    /// 归纳出的更新重点（Markdown 列表）。翻译模式下总结请求失败时为 `None`，不影响
+    /// 译文；归纳模式下必然有值（拿不到总结就是整次请求失败）。
     pub summary: Option<String>,
+    /// 完整译文；归纳模式下为空字符串（没有译文可展示）。
     pub translation: String,
     /// 是否直接来自本地缓存（未发起 LLM 请求）。
     pub cached: bool,
@@ -81,6 +94,10 @@ fn settings_lock() -> &'static Mutex<LlmSettings> {
 
 /// 缓存格式（提示词 + 落盘字段）的版本。任一提示词或字段语义变化时必须递增，
 /// 旧条目会因为版本不匹配被忽略，而不是展示已经过期的结果。
+///
+/// 新增 `TranslationMode::Summarize`（中文等日志只归纳）时**没有**递增：归纳条目只是
+/// 把 `translation` 留空，旧条目（必有译文）的语义完全没变，而旧版本本来就不会为
+/// 非英文日志写缓存，因此不存在需要作废的条目。
 const CACHE_VERSION: u32 = 1;
 const CACHE_FILE_NAME: &str = "changelog-translations.json";
 /// 缓存条目上限，超出后按写入时间淘汰最旧的，避免文件随浏览过的更新日志无限增长。
@@ -150,11 +167,22 @@ fn read_cache(path: &Path) -> TranslationCache {
         .unwrap_or_default()
 }
 
-/// 查一条缓存。返回 `None` 表示没有命中（含版本过期、内容为空等失效情况）。
-fn lookup_cached(path: &Path, text: &str) -> Option<CachedTranslation> {
+/// 查一条缓存。`mode` 决定什么叫「命中」：翻译模式要求有译文，归纳模式要求有
+/// 「更新重点」—— 只有对应的那部分存在时才可用，避免把半份结果当成完整结果。
+/// 返回 `None` 表示没有命中（含版本过期、对应内容为空等失效情况）。
+fn lookup_cached(path: &Path, text: &str, mode: TranslationMode) -> Option<CachedTranslation> {
     let _guard = cache_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let entry = read_cache(path).entries.remove(&cache_key(text))?;
-    let usable = entry.version == CACHE_VERSION && !entry.translation.trim().is_empty();
+    if entry.version != CACHE_VERSION {
+        return None;
+    }
+    let usable = match mode {
+        TranslationMode::Translate => !entry.translation.trim().is_empty(),
+        TranslationMode::Summarize => entry
+            .summary
+            .as_deref()
+            .is_some_and(|summary| !summary.trim().is_empty()),
+    };
     usable.then_some(entry)
 }
 
@@ -257,13 +285,13 @@ pub async fn test_connection(settings: Option<LlmSettings>) -> Result<String, St
 }
 
 /// 只读缓存查询：不发任何 LLM 请求。前端在渲染更新日志时先问一次，命中就直接
-/// 展示上次的译文与更新重点。
-pub fn cached(text: &str) -> Option<ChangelogTranslation> {
-    cached_at(&cache_path()?, text)
+/// 展示上次的译文 / 更新重点。
+pub fn cached(text: &str, mode: TranslationMode) -> Option<ChangelogTranslation> {
+    cached_at(&cache_path()?, text, mode)
 }
 
-fn cached_at(path: &Path, text: &str) -> Option<ChangelogTranslation> {
-    lookup_cached(path, text).map(|entry| ChangelogTranslation {
+fn cached_at(path: &Path, text: &str, mode: TranslationMode) -> Option<ChangelogTranslation> {
+    lookup_cached(path, text, mode).map(|entry| ChangelogTranslation {
         summary: entry.summary,
         translation: entry.translation,
         cached: true,
@@ -276,16 +304,19 @@ fn cached_at(path: &Path, text: &str) -> Option<ChangelogTranslation> {
 /// 注入一个收集器 + 本地假的 LLM 服务。
 type Emit = std::sync::Arc<dyn Fn(LlmTranslateDelta) + Send + Sync>;
 
-/// 翻译一份更新日志并同时归纳更新重点：译文以流式事件回传，总结与翻译并行请求
-/// （总结短，通常先于译文完成），两者一起落盘复用。
+/// 翻译 / 归纳一份更新日志。
+///
+/// `Translate`：译文以流式事件回传，总结与翻译并行请求（总结短，通常先于译文完成），
+/// 两者一起落盘复用；总结请求失败不算整体失败 —— 译文照常返回，只是没有「更新重点」。
+/// `Summarize`：只发起总结请求，返回的 `translation` 为空。
 ///
 /// `force` = false 时先查本地缓存：命中则完全不请求 LLM，直接返回上次结果。
-/// 总结请求失败不算整体失败 —— 译文照常返回，只是没有「更新重点」。
 pub async fn translate_streaming(
     app: &AppHandle,
     request_id: &str,
     text: &str,
     force: bool,
+    mode: TranslationMode,
 ) -> Result<ChangelogTranslation, String> {
     let emit: Emit = {
         let app = app.clone();
@@ -294,7 +325,16 @@ pub async fn translate_streaming(
         })
     };
     let settings = current();
-    translate_and_store(&settings, cache_path().as_deref(), request_id, text, force, &emit).await
+    translate_and_store(
+        &settings,
+        cache_path().as_deref(),
+        request_id,
+        text,
+        force,
+        mode,
+        &emit,
+    )
+    .await
 }
 
 async fn translate_and_store(
@@ -303,47 +343,68 @@ async fn translate_and_store(
     request_id: &str,
     text: &str,
     force: bool,
+    mode: TranslationMode,
     emit: &Emit,
 ) -> Result<ChangelogTranslation, String> {
     // 先校验配置，配置有问题时不要在缓存里留下任何东西。
     validated_endpoint(settings)?;
     if !force
-        && let Some(hit) = cache.and_then(|path| cached_at(path, text))
+        && let Some(hit) = cache.and_then(|path| cached_at(path, text, mode))
     {
         return Ok(hit);
     }
 
-    let summary_task = {
-        let settings = settings.clone();
-        let emit = emit.clone();
-        let request_id = request_id.to_owned();
-        let text = text.to_owned();
-        tauri::async_runtime::spawn(async move {
-            stream_completion(&settings, &emit, &request_id, SUMMARY_PROMPT, &text, SECTION_SUMMARY)
-                .await
-        })
-    };
-
-    let translation = match stream_completion(
-        settings,
-        emit,
-        request_id,
-        SYSTEM_PROMPT,
-        text,
-        SECTION_TRANSLATION,
-    )
-    .await
-    {
-        Ok(value) => value,
-        Err(error) => {
-            // 译文失败就没有结果可展示，别让总结请求白跑（它的 delta 已无人接收）。
-            summary_task.abort();
-            return Err(error);
+    let (summary, translation) = match mode {
+        // 归纳模式：中文等日志只需要「更新重点」，不发翻译请求，也没有译文可展示。
+        // 拿不到总结就是整次请求失败（不像翻译模式那样有译文兜底）。
+        TranslationMode::Summarize => {
+            let summary =
+                stream_completion(settings, emit, request_id, SUMMARY_PROMPT, text, SECTION_SUMMARY)
+                    .await?;
+            (Some(summary), String::new())
         }
-    };
-    let summary = match summary_task.await {
-        Ok(Ok(value)) => Some(value).filter(|value| !value.trim().is_empty()),
-        _ => None,
+        TranslationMode::Translate => {
+            let summary_task = {
+                let settings = settings.clone();
+                let emit = emit.clone();
+                let request_id = request_id.to_owned();
+                let text = text.to_owned();
+                tauri::async_runtime::spawn(async move {
+                    stream_completion(
+                        &settings,
+                        &emit,
+                        &request_id,
+                        SUMMARY_PROMPT,
+                        &text,
+                        SECTION_SUMMARY,
+                    )
+                    .await
+                })
+            };
+
+            let translation = match stream_completion(
+                settings,
+                emit,
+                request_id,
+                SYSTEM_PROMPT,
+                text,
+                SECTION_TRANSLATION,
+            )
+            .await
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    // 译文失败就没有结果可展示，别让总结请求白跑（它的 delta 已无人接收）。
+                    summary_task.abort();
+                    return Err(error);
+                }
+            };
+            let summary = match summary_task.await {
+                Ok(Ok(value)) => Some(value).filter(|value| !value.trim().is_empty()),
+                _ => None,
+            };
+            (summary, translation)
+        }
     };
 
     let result = ChangelogTranslation {
@@ -439,11 +500,11 @@ fn sse_delta(line: &str) -> Option<String> {
 
 fn validated_endpoint(settings: &LlmSettings) -> Result<String, String> {
     if !settings.enabled {
-        return Err("尚未启用 LLM 翻译，请先到“设置 → LLM 翻译”配置服务".to_owned());
+        return Err("尚未启用 LLM 翻译与归纳，请先到“设置 → LLM 翻译与归纳”配置服务".to_owned());
     }
     let base = settings.base_url.trim();
     if base.is_empty() || settings.model.trim().is_empty() {
-        return Err("LLM 翻译配置不完整：请填写服务地址与模型名称".to_owned());
+        return Err("LLM 配置不完整：请填写服务地址与模型名称".to_owned());
     }
     chat_completions_url(base)
 }
@@ -597,10 +658,10 @@ fn sanitize(mut settings: LlmSettings) -> Result<LlmSettings, String> {
     settings.model = settings.model.trim().to_owned();
     if settings.enabled {
         if settings.base_url.is_empty() {
-            return Err("启用 LLM 翻译时必须填写服务地址".to_owned());
+            return Err("启用 LLM 翻译与归纳时必须填写服务地址".to_owned());
         }
         if settings.model.is_empty() {
-            return Err("启用 LLM 翻译时必须填写模型名称".to_owned());
+            return Err("启用 LLM 翻译与归纳时必须填写模型名称".to_owned());
         }
         // Validate early so a typo is caught at save time, not on first use.
         chat_completions_url(&settings.base_url)?;
@@ -713,15 +774,15 @@ mod tests {
     fn cached_translation_round_trips_through_the_file() {
         let path = temp_cache_path();
         let text = "## v1.2.0\n- fix crash on startup";
-        assert!(lookup_cached(&path, text).is_none());
+        assert!(lookup_cached(&path, text, TranslationMode::Translate).is_none());
 
         store_cached(&path, text, entry("## v1.2.0\n- 修复启动崩溃", 1_700_000_000)).unwrap();
 
-        let hit = lookup_cached(&path, text).expect("cache hit");
+        let hit = lookup_cached(&path, text, TranslationMode::Translate).expect("cache hit");
         assert_eq!(hit.translation, "## v1.2.0\n- 修复启动崩溃");
         assert_eq!(hit.summary.as_deref(), Some("- 更新重点"));
         assert_eq!(hit.created_at_unix_seconds, 1_700_000_000);
-        assert!(lookup_cached(&path, "别的更新日志").is_none());
+        assert!(lookup_cached(&path, "别的更新日志", TranslationMode::Translate).is_none());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -733,7 +794,7 @@ mod tests {
         let stale = CachedTranslation { version: CACHE_VERSION + 1, ..entry("旧译文", 1) };
         store_cached(&path, text, stale).unwrap();
 
-        assert!(lookup_cached(&path, text).is_none());
+        assert!(lookup_cached(&path, text, TranslationMode::Translate).is_none());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -743,11 +804,11 @@ mod tests {
         let path = temp_cache_path();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"{ this is not json").unwrap();
-        assert!(lookup_cached(&path, "## v1.2.0").is_none());
+        assert!(lookup_cached(&path, "## v1.2.0", TranslationMode::Translate).is_none());
 
         // 损坏文件不应阻止后续写入。
         store_cached(&path, "## v1.2.0", entry("译文", 2)).unwrap();
-        assert!(lookup_cached(&path, "## v1.2.0").is_some());
+        assert!(lookup_cached(&path, "## v1.2.0", TranslationMode::Translate).is_some());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -762,9 +823,9 @@ mod tests {
         let stored = read_cache(&path);
         assert_eq!(stored.entries.len(), MAX_CACHE_ENTRIES);
         // 最旧的 5 条被淘汰，最新的一条仍在。
-        assert!(lookup_cached(&path, "changelog #0").is_none());
-        assert!(lookup_cached(&path, "changelog #4").is_none());
-        assert!(lookup_cached(&path, &format!("changelog #{}", MAX_CACHE_ENTRIES + 4)).is_some());
+        assert!(lookup_cached(&path, "changelog #0", TranslationMode::Translate).is_none());
+        assert!(lookup_cached(&path, "changelog #4", TranslationMode::Translate).is_none());
+        assert!(lookup_cached(&path, &format!("changelog #{}", MAX_CACHE_ENTRIES + 4), TranslationMode::Translate).is_some());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -781,7 +842,7 @@ mod tests {
         let stored = read_cache(&path);
         assert_eq!(stored.entries.len(), 1, "只保留能装下的最新一条");
         assert!(entries_bytes(&stored) <= MAX_CACHE_BYTES);
-        assert!(lookup_cached(&path, "changelog #5").is_some());
+        assert!(lookup_cached(&path, "changelog #5", TranslationMode::Translate).is_some());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -933,6 +994,7 @@ mod tests {
             "req-1",
             "release notes",
             false,
+            TranslationMode::Translate,
             &emit,
         ))
         .expect("translation succeeds");
@@ -960,6 +1022,7 @@ mod tests {
             "req-2",
             "release notes",
             false,
+            TranslationMode::Translate,
             &emit,
         ))
         .expect("cache hit");
@@ -975,6 +1038,7 @@ mod tests {
             "req-3",
             "release notes",
             true,
+            TranslationMode::Translate,
             &emit,
         ))
         .expect("forced translation");
@@ -999,6 +1063,7 @@ mod tests {
             "req-1",
             "release notes",
             false,
+            TranslationMode::Translate,
             &emit,
         ))
         .expect("translation succeeds without a summary");
@@ -1012,6 +1077,7 @@ mod tests {
             "req-2",
             "release notes",
             false,
+            TranslationMode::Translate,
             &emit,
         ))
         .expect("cache hit");
@@ -1023,6 +1089,142 @@ mod tests {
             2,
             "只有第一次的两个请求"
         );
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    // ---------------------------------------------------------------------
+    // 归纳模式（中文等更新日志）：只发总结请求，不翻译、不覆盖原文。
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn translation_mode_deserializes_from_the_frontend_strings() {
+        assert_eq!(
+            serde_json::from_str::<TranslationMode>("\"translate\"").unwrap(),
+            TranslationMode::Translate
+        );
+        assert_eq!(
+            serde_json::from_str::<TranslationMode>("\"summarize\"").unwrap(),
+            TranslationMode::Summarize
+        );
+        // 前端多传别的值时必须直接报错，而不是悄悄退化成某种模式。
+        assert!(serde_json::from_str::<TranslationMode>("\"auto\"").is_err());
+    }
+
+    #[test]
+    fn cache_hits_depend_on_the_requested_mode() {
+        let path = temp_cache_path();
+        let text = "## 1.2.0";
+
+        // 只有译文、没有「更新重点」的条目（例如总结请求失败过）：翻译模式可用，
+        // 归纳模式必须当成未命中，否则会展示一块空的「更新重点」。
+        store_cached(&path, text, CachedTranslation { summary: None, ..entry("译文", 1) }).unwrap();
+        assert!(lookup_cached(&path, text, TranslationMode::Translate).is_some());
+        assert!(lookup_cached(&path, text, TranslationMode::Summarize).is_none());
+
+        // 只有「更新重点」的归纳条目：归纳模式可用，翻译模式必须当成未命中，
+        // 否则会展示空译文。
+        store_cached(&path, text, CachedTranslation { translation: String::new(), ..entry("", 2) })
+            .unwrap();
+        assert!(lookup_cached(&path, text, TranslationMode::Summarize).is_some());
+        assert!(lookup_cached(&path, text, TranslationMode::Translate).is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn summarize_mode_requests_only_the_summary_and_reuses_the_cache() {
+        use std::sync::atomic::Ordering;
+        use std::sync::Arc;
+
+        let path = temp_cache_path();
+        let (base_url, hits) = spawn_mock_llm(false);
+        let settings = mock_settings(base_url);
+        let emitted = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let emit: Emit = {
+            let sink = emitted.clone();
+            Arc::new(move |delta: LlmTranslateDelta| {
+                sink.lock().unwrap().push((delta.section, delta.delta));
+            })
+        };
+
+        let first = tauri::async_runtime::block_on(translate_and_store(
+            &settings,
+            Some(&path),
+            "req-1",
+            "## 1.2.0\n- 修复启动崩溃",
+            false,
+            TranslationMode::Summarize,
+            &emit,
+        ))
+        .expect("summary succeeds");
+        assert_eq!(first.summary.as_deref(), Some("- 修复启动崩溃"));
+        assert_eq!(first.translation, "", "归纳模式没有译文");
+        assert!(!first.cached);
+        assert_eq!(hits.load(Ordering::SeqCst), 1, "归纳模式只发一个总结请求");
+
+        let sections: Vec<String> = emitted
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(section, _)| section.clone())
+            .collect();
+        assert_eq!(sections, vec![SECTION_SUMMARY.to_owned(), SECTION_SUMMARY.to_owned()]);
+
+        // 第二次打开同一份更新日志：命中缓存，不再产生请求。
+        let second = tauri::async_runtime::block_on(translate_and_store(
+            &settings,
+            Some(&path),
+            "req-2",
+            "## 1.2.0\n- 修复启动崩溃",
+            false,
+            TranslationMode::Summarize,
+            &emit,
+        ))
+        .expect("cache hit");
+        assert!(second.cached);
+        assert_eq!(second.summary, first.summary);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        // 「重新归纳」绕过缓存。
+        let third = tauri::async_runtime::block_on(translate_and_store(
+            &settings,
+            Some(&path),
+            "req-3",
+            "## 1.2.0\n- 修复启动崩溃",
+            true,
+            TranslationMode::Summarize,
+            &emit,
+        ))
+        .expect("forced summary");
+        assert!(!third.cached);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn summarize_mode_fails_when_the_summary_fails() {
+        use std::sync::Arc;
+
+        let path = temp_cache_path();
+        let (base_url, _hits) = spawn_mock_llm(true);
+        let settings = mock_settings(base_url);
+        let emit: Emit = Arc::new(|_: LlmTranslateDelta| {});
+
+        let error = tauri::async_runtime::block_on(translate_and_store(
+            &settings,
+            Some(&path),
+            "req-1",
+            "## 1.2.0",
+            false,
+            TranslationMode::Summarize,
+            &emit,
+        ))
+        .expect_err("归纳模式下总结失败就是整次请求失败");
+        assert!(error.contains("summary down"), "错误信息应来自 LLM 服务：{error}");
+        // 失败不落盘：下次点「归纳总结」应当重新请求。
+        assert!(lookup_cached(&path, "## 1.2.0", TranslationMode::Summarize).is_none());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }

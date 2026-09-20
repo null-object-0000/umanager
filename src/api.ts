@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogAiMode, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadPlan, DownloadProgress, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -33,8 +33,8 @@ const mockPlans: Record<string, DownloadPlan> = {
 };
 
 // 更新日志的示例数据：vscode 走应用详情「新内容」、codex 走 CLI 工具「版本更新记录」。
-// 这两条特意放英文更新日志，方便在 dev 模式下直接验证「翻译 + 更新重点」的交互
-// （中文更新日志不会出现翻译入口）。
+// vscode / codex 特意放英文更新日志，方便在 dev 模式下直接验证「翻译并总结」；
+// flclash 是中文更新日志，用来验证「归纳总结」这条只归纳、不翻译的路径。
 const mockReleaseNotes: Record<string, { notes: string; url: string }> = {
   vscode: {
     notes: [
@@ -144,7 +144,7 @@ export function setNetworkSettings(settings: NetworkSettings): Promise<NetworkSe
 }
 
 export function getLlmSettings(): Promise<LlmSettings> {
-  // dev mock 里假装已经配好 LLM：这样英文更新日志的「翻译并总结」入口可以点，
+  // dev mock 里假装已经配好 LLM：这样更新日志的「翻译并总结 / 归纳总结」入口可以点，
   // 走的也是 mock 的固定译文与更新重点（不发真实请求）。
   if (isMock()) return Promise.resolve({ enabled: true, baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-mock", model: "mock-chat" });
   return invoke<LlmSettings>("get_llm_settings");
@@ -155,22 +155,26 @@ export function setLlmSettings(settings: LlmSettings): Promise<LlmSettings> {
   return invoke<LlmSettings>("set_llm_settings", { settings });
 }
 
-/// 翻译一份更新日志并同时归纳更新重点。`onDelta` 会收到带段落标签的增量：
-/// `summary` 投递到「更新重点」，`translation` 投递到译文正文。
-/// `force` 为 true 时绕过本地缓存重新请求 LLM（对应 UI 的「重新翻译」）。
+/// 翻译 / 归纳一份更新日志并返回结果。`mode` 由调用方按日志语言决定：`translate`
+/// 用于英文日志（译文 + 更新重点），`summarize` 用于中文等日志（只归纳更新重点）。
+/// `onDelta` 会收到带段落标签的增量：`summary` 投递到「更新重点」，`translation`
+/// 投递到译文正文（归纳模式不会收到这一路）。
+/// `force` 为 true 时绕过本地缓存重新请求 LLM（对应 UI 的「重新翻译 / 重新归纳」）。
 export async function translateChangelog(
   text: string,
   requestId: string,
+  mode: ChangelogAiMode,
   onDelta: (delta: string, section: TranslationSection) => void,
   options?: { force?: boolean },
 ): Promise<ChangelogTranslation> {
   if (isMock()) {
     // In dev mock there is no Tauri backend; emit the whole text as one delta and
     // return a canned summary so the「更新重点」layout is visible without an LLM.
-    onDelta(text, "translation");
+    const summary = "- 演示数据：这里会显示 LLM 归纳出的本次更新重点\n- 真实环境下结果会缓存在本机，下次打开直接展示";
+    onDelta(mode === "translate" ? text : summary, mode === "translate" ? "translation" : "summary");
     return {
-      summary: "- 演示数据：这里会显示 LLM 归纳出的本次更新重点\n- 真实环境下译文与重点会缓存在本机，下次打开直接展示",
-      translation: text,
+      summary,
+      translation: mode === "translate" ? text : "",
       cached: false,
       model: "mock",
       createdAtUnixSeconds: Math.floor(Date.now() / 1000),
@@ -180,17 +184,18 @@ export async function translateChangelog(
     if (payload.requestId === requestId) onDelta(payload.delta, payload.section);
   });
   try {
-    return await invoke<ChangelogTranslation>("translate_changelog", { text, requestId, force: options?.force ?? false });
+    return await invoke<ChangelogTranslation>("translate_changelog", { text, requestId, mode, force: options?.force ?? false });
   } finally {
     unlisten();
   }
 }
 
-/// 只读本地缓存：打开更新日志时先问一次，命中就直接展示上次的译文与更新重点，
-/// 不消耗 token。返回 null 表示这份更新日志还没翻译过。
-export function getCachedChangelogTranslation(text: string): Promise<ChangelogTranslation | null> {
+/// 只读本地缓存：打开更新日志时先问一次，命中就直接展示上次的译文 / 更新重点，
+/// 不消耗 token。`mode` 决定什么叫命中（翻译要有译文，归纳要有更新重点）。
+/// 返回 null 表示这份更新日志还没有对应的结果。
+export function getCachedChangelogTranslation(text: string, mode: ChangelogAiMode): Promise<ChangelogTranslation | null> {
   if (isMock()) return Promise.resolve(null);
-  return invoke<ChangelogTranslation | null>("get_changelog_translation", { text });
+  return invoke<ChangelogTranslation | null>("get_changelog_translation", { text, mode });
 }
 
 export function testLlmConnection(settings: LlmSettings): Promise<string> {

@@ -413,24 +413,28 @@ async fn set_llm_settings(
         .map_err(|error| format!("保存 LLM 设置任务异常结束：{error}"))?
 }
 
-/// 翻译一份更新日志并同时归纳更新重点。`force` 为真时忽略本地缓存重新请求 LLM，
-/// 否则命中缓存就直接返回上次结果（不消耗 token）。
+/// 翻译 / 归纳一份更新日志。`mode` 为 `translate`（英文日志：译文 + 更新重点）或
+/// `summarize`（中文等日志：只归纳更新重点）。`force` 为真时忽略本地缓存重新请求
+/// LLM，否则命中缓存就直接返回上次结果（不消耗 token）。
 #[tauri::command]
 async fn translate_changelog(
     app: tauri::AppHandle,
     text: String,
     request_id: String,
+    mode: translation::TranslationMode,
     force: Option<bool>,
 ) -> Result<translation::ChangelogTranslation, String> {
-    translation::translate_streaming(&app, &request_id, &text, force.unwrap_or(false)).await
+    translation::translate_streaming(&app, &request_id, &text, force.unwrap_or(false), mode).await
 }
 
-/// 只读本地缓存：用于打开更新日志时先展示上次的译文与更新重点，不发起 LLM 请求。
+/// 只读本地缓存：用于打开更新日志时先展示上次的译文 / 更新重点，不发起 LLM 请求。
+/// `mode` 决定什么叫命中（翻译要有译文，归纳要有更新重点）。
 #[tauri::command]
 async fn get_changelog_translation(
     text: String,
+    mode: translation::TranslationMode,
 ) -> Result<Option<translation::ChangelogTranslation>, String> {
-    tauri::async_runtime::spawn_blocking(move || translation::cached(&text))
+    tauri::async_runtime::spawn_blocking(move || translation::cached(&text, mode))
         .await
         .map_err(|error| format!("读取翻译缓存任务异常结束：{error}"))
 }
