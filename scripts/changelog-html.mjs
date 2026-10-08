@@ -62,13 +62,43 @@ export function htmlChangelogToMarkdown(items) {
 }
 
 /**
+ * Collect the version headings of one heading level: every `<hN>` whose text
+ * starts with a dotted version (`4.11.2 (2026-08-20)`). Headings that are not
+ * version headings (VitePress sidebar/nav entries such as「安装指南」) are
+ * skipped, which is what makes a level usable at all.
+ *
+ * @param {string} html
+ * @param {string} headingTag e.g. `"h3"`
+ * @returns {{index: number, version: string}[]}
+ */
+function collectVersionHeadings(html, headingTag) {
+  const headingPattern = new RegExp(`<${headingTag}\\b[^>]*>([\\s\\S]*?)</${headingTag}>`, "g");
+  const sections = [];
+  let match;
+  while ((match = headingPattern.exec(html)) !== null) {
+    const headingText = match[1].replace(/<[^>]*>/g, "").replace(/\u200b/g, "").trim();
+    const headingVersion = (headingText.match(/^\d+(?:\.\d+)+/) ?? [null])[0];
+    if (headingVersion) sections.push({ index: match.index, version: headingVersion });
+  }
+  return sections;
+}
+
+/**
  * Extract a single version's section from a VitePress-style release-notes page
- * (CodeBuddy: `<h3>4.11.2 (2026-08-20)</h3>` headings, each followed by
+ * (CodeBuddy IDE: `<h3>4.11.2 (2026-08-20)</h3>` headings, each followed by
  * `<p><strong>…</strong></p>` / `<ul><li>…</li></ul>` bodies).
  *
  * Returns the section as Markdown. The section whose heading version matches
- * `version` is used when found; otherwise the first `<h3>` section (the latest)
- * is used as a fallback.
+ * `version` is used when found; otherwise the first section (the latest) is
+ * used as a fallback.
+ *
+ * The heading level that carries the versions is a property of the page's own
+ * outline, not of the vendor: CodeBuddy IDE nests its version list under `<h2>`
+ * section headings (versions are `<h3>`), while WorkBuddy's changelog is a flat
+ * list whose versions are the `<h2>`s themselves. `<h3>` is scanned first — the
+ * level every existing page uses — and `<h2>` is only used as a fallback when
+ * the page carries no `<h3>` version heading at all, so the slicing boundaries
+ * on existing pages stay byte-identical.
  *
  * @param {unknown} html
  * @param {string} [version]
@@ -76,16 +106,8 @@ export function htmlChangelogToMarkdown(items) {
  */
 export function extractHtmlVersionSection(html, version) {
   if (typeof html !== "string") return "";
-  const headingPattern = /<h3\b[^>]*>([\s\S]*?)<\/h3>/g;
-  const sections = [];
-  let match;
-  while ((match = headingPattern.exec(html)) !== null) {
-    const headingText = match[1].replace(/<[^>]*>/g, "").replace(/\u200b/g, "").trim();
-    const headingVersion = (headingText.match(/^\d+(?:\.\d+)+/) ?? [null])[0];
-    // Only `<h3>` headings that are actually version headings (`X.Y.Z`) count;
-    // VitePress sidebar/nav `<h3>`s are skipped.
-    if (headingVersion) sections.push({ index: match.index, version: headingVersion });
-  }
+  const h3Sections = collectVersionHeadings(html, "h3");
+  const sections = h3Sections.length > 0 ? h3Sections : collectVersionHeadings(html, "h2");
   if (sections.length === 0) return "";
   let target = sections.findIndex((section) => version && section.version === version);
   if (target < 0) target = 0;

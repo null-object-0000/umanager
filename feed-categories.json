@@ -38,6 +38,7 @@
       "claude-desktop": "ai-tools",
       "cursor": "dev-tools",
       "docker-desktop": "dev-tools",
+      "workbuddy": "ai-tools",
       "flclash": "network",
       "localsend": "network",
       "bitwarden": "system",

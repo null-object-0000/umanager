@@ -68,6 +68,42 @@ describe("extractHtmlVersionSection", () => {
   it("returns empty string for non-strings", () => {
     expect(extractHtmlVersionSection(null, "1.0.0")).toBe("");
   });
+
+  // WorkBuddy's changelog page is a flat list of `<h2>` version headings inside
+  // the VitePress content, with no `<h3>` version heading anywhere.
+  const h2Page = [
+    '<h1 id="workbuddy-更新日志" tabindex="-1">WorkBuddy 更新日志</h1>',
+    '<h2 id="_5-6-0-版本发布" tabindex="-1">5.6.0 版本发布 🚀（2026-09-19） <a class="header-anchor" href="#_5-6-0-版本发布">​</a></h2>',
+    "<ul><li>新增定时任务</li></ul>",
+    '<h2 id="_5-5-6-版本发布" tabindex="-1">5.5.6 版本发布 🚀（2026-09-10） <a class="header-anchor" href="#_5-5-6-版本发布">​</a></h2>',
+    "<ul><li>支持导入本地文件</li></ul>",
+  ].join("");
+
+  it("falls back to h2 version headings when the page has no h3 version heading", () => {
+    const section = extractHtmlVersionSection(h2Page, "5.5.6");
+    expect(section).toContain("5.5.6 版本发布");
+    expect(section).toContain("- 支持导入本地文件");
+    expect(section).not.toContain("5.6.0");
+    expect(section).not.toContain("header-anchor");
+  });
+
+  it("still skips non-version h2 headings", () => {
+    const section = extractHtmlVersionSection(
+      '<h2 id="install">安装指南</h2><p>…</p><h2 id="_1-2-0">1.2.0 (2026-01-01)</h2><ul><li>首个版本</li></ul>',
+      "1.2.0",
+    );
+    expect(section).toContain("- 首个版本");
+    expect(section).not.toContain("安装指南");
+  });
+
+  it("prefers h3 version headings when the page has both levels", () => {
+    const both = [
+      "<h2 id=\"history\">历史版本</h2>",
+      '<h3 id="_2-0-0">2.0.0 (2026-02-02)</h3><ul><li>h3 内容</li></ul>',
+    ].join("");
+    const section = extractHtmlVersionSection(both, "2.0.0");
+    expect(section).toContain("- h3 内容");
+  });
 });
 
 describe("parseHtmlVersionList", () => {

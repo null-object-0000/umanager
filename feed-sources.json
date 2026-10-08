@@ -533,6 +533,35 @@
       }
     },
     {
+      "applicationId": "workbuddy",
+      "packageName": "workbuddy",
+      "displayName": "WorkBuddy",
+      "vendor": "腾讯",
+      "sourceGroup": "tencent",
+      "architecture": "amd64",
+      "description": "腾讯 CodeBuddy 团队推出的 AI Agent 桌面智能体工作台，自主规划并调用工具，把自然语言需求交付为 PPT、表格、报表、文案等可验收成果。",
+      "homepage": "https://www.workbuddy.cn/",
+      "icon": "workbuddy",
+      "accentColor": "#01c886",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://copilot.tencent.com/v2/update",
+        "versionEndpointHosts": ["copilot.tencent.com"],
+        "gatewayUrl": "https://umanager.nichangen.workers.dev",
+        "query": { "platform": "workbuddy-linux-x64-deb" },
+        "payloadKind": "json",
+        "versionField": "version",
+        "releaseTimeField": "timestamp",
+        "downloadUrlField": "url",
+        "downloadHosts": ["download.codebuddy.cn"]
+      },
+      "releaseNotes": {
+        "changelogHtmlUrl": "https://www.codebuddy.cn/docs/workbuddy/Changelog",
+        "versionField": "version"
+      }
+    },
+    {
       "applicationId": "wine",
       "packageName": "winehq-devel",
       "displayName": "Wine",
