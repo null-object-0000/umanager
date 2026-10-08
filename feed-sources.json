@@ -390,11 +390,38 @@
       "icon": "trae",
       "accentColor": "#2563eb",
       "removable": true,
+      "variantGroup": "trae",
+      "variantLabel": "国内版",
+      "variantDefault": true,
       "source": {
         "kind": "versionEndpoint",
         "versionEndpointUrl": "https://api.trae.cn/icube/api/v1/native/version/trae/cn/latest",
         "versionEndpointHosts": ["api.trae.cn"],
         "endpointHeaders": { "Referer": "https://www.trae.cn/" },
+        "payloadKind": "json",
+        "downloadUrlField": "data.manifest.linux.download.0[\"x64.deb\"]",
+        "downloadHosts": ["lf-cdn.trae.com.cn", "lf-cdn.trae.ai"],
+        "immutableDownloadUrl": true
+      }
+    },
+    {
+      "applicationId": "trae-ai",
+      "packageName": "trae",
+      "displayName": "Trae",
+      "vendor": "字节跳动",
+      "architecture": "amd64",
+      "description": "字节跳动出品的 AI 原生集成开发环境国际版，账号与模型服务走国际站 trae.ai，与国内版（trae-cn）是两个互相独立的安装包。",
+      "homepage": "https://www.trae.ai/download",
+      "icon": "trae-ai",
+      "accentColor": "#2563eb",
+      "removable": true,
+      "variantGroup": "trae",
+      "variantLabel": "国际版",
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://api.trae.ai/icube/api/v1/native/version/trae/latest",
+        "versionEndpointHosts": ["api.trae.ai"],
+        "endpointHeaders": { "Referer": "https://www.trae.ai/" },
         "payloadKind": "json",
         "downloadUrlField": "data.manifest.linux.download.0[\"x64.deb\"]",
         "downloadHosts": ["lf-cdn.trae.com.cn", "lf-cdn.trae.ai"],
@@ -606,6 +633,53 @@
         "pageId": "9IVmaf8DSXs4DrmXIliPDHI",
         "refererUrl": "https://docs.qq.com/aio/p/scqtn9829617css?p=9IVmaf8DSXs4DrmXIliPDHI&nlc=1",
         "releaseNotesUrl": "https://docs.qq.com/aio/p/scqtn9829617css?p=9IVmaf8DSXs4DrmXIliPDHI&nlc=1"
+      }
+    },
+    {
+      "applicationId": "qoder-cn",
+      "packageName": "qoder-cn",
+      "displayName": "Qoder",
+      "vendor": "阿里巴巴",
+      "architecture": "amd64",
+      "description": "阿里云面向国内市场的 AI 编程智能体（原通义灵码），支持 GLM、DeepSeek 等国内模型，全链路部署在国内云上。",
+      "homepage": "https://qoder.cn/download",
+      "icon": "qoder-cn",
+      "accentColor": "#8b5cf6",
+      "removable": true,
+      "variantGroup": "qoder",
+      "variantLabel": "国内版",
+      "variantDefault": true,
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://qoder.cn/download",
+        "officialPageHosts": ["qoder.cn"],
+        "downloadUrl": "https://qoder-app.oss-cn-beijing.aliyuncs.com/qoder-app/releases/latest/Qoder-CN-linux-amd64.deb",
+        "downloadHosts": ["qoder-app.oss-cn-beijing.aliyuncs.com"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "Qoder-CN-linux-amd64.deb"
+      }
+    },
+    {
+      "applicationId": "qoder",
+      "packageName": "qoder",
+      "displayName": "Qoder",
+      "vendor": "阿里巴巴",
+      "architecture": "amd64",
+      "description": "阿里云 Qoder 国际版 AI 编程智能体平台（qoder.com），账号、Credits、模型与部署区域均与国内版互相独立、不可互通。",
+      "homepage": "https://qoder.com/zh/download",
+      "icon": "qoder",
+      "accentColor": "#8b5cf6",
+      "removable": true,
+      "variantGroup": "qoder",
+      "variantLabel": "国际版",
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://qoder.com/zh/download",
+        "officialPageHosts": ["qoder.com"],
+        "downloadUrl": "https://download.qoder.com/qoder-app/releases/latest/Qoder-linux-amd64.deb",
+        "downloadHosts": ["download.qoder.com"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "Qoder-linux-amd64.deb"
       }
     }
   ],

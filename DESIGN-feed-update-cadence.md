@@ -80,6 +80,7 @@ feed 的更新频次决定「厂商发新版 → 用户在 UManager 里看到」
 |---|---|---|
 | obsidian | `immutableDownloadUrl` | `…/releases/download/v1.13.7/obsidian_1.13.7_amd64.deb` |
 | trae | `immutableDownloadUrl` | `…/releases/stable/2.3.83560/linux/…` |
+| trae-ai | `immutableDownloadUrl` | 同 trae（国际版）：`…/releases/stable/2.3.88407/linux/TraeCode-linux-x64.deb` |
 | qq-music | `immutableDownloadUrl` | 文件名含版本；若 `sign=` 参数轮换则自动退化为下载 |
 | feishu | `versionField: data.version_number` + `resolveAtDownload` | 动态签名 URL，只能靠厂商自报版本 |
 
