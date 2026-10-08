@@ -74,6 +74,11 @@ https://null-object-0000.github.io/umanager/feed.json.sig
 - `releaseApi`：需补 `releaseApiUrl` / `assetNamePattern` / `stripTagPrefix` / `assetDownloadHosts`；
 - `stableDownloadEndpoint`：需补 `officialPageUrl` / `downloadUrl` / `pageVersionMarker` / `downloadLinkFileName` / `pageVersionSegments`。
 
+同一个产品分市场发布的两份独立安装包（Qoder / Trae 的国内版与国际版）用可选字段
+`variantGroup` / `variantLabel` / `variantDefault` 标注：商店把它们**折叠成一张卡片**，
+详情页提供「版本」切换（与 dsh 版本线同款交互）。每个变体仍是完整、可独立授权的目录条目，
+下载 / 计划 / 特权 helper 链路完全不变（见 DESIGN-app-variants.md）。
+
 ## 5. 签名与信任边界
 
 - **私钥**：只存在 GitHub Actions secret `FEED_SIGNING_KEY`（Ed25519），绝不进入仓库、不随 App 发布。

@@ -20,6 +20,7 @@ import { debCategory, devToolCategory, orderedCategories, windowsCategory } from
 import { aptInstallCommand, aptPackageNames } from "./dependencyGap";
 import { readSortMode, sortModeLabels, sortSoftwareItems } from "./model";
 import type { SortMode } from "./model";
+import { foldVariantCandidates, groupVariants, isSwitchableGroup, variantLabelOf, variantSelectionKey } from "./variants";
 import { VersionDate } from "./VersionDate";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
@@ -59,6 +60,24 @@ function readStoredSortMode(): SortMode {
     return readSortMode(window.localStorage.getItem(SORT_MODE_STORAGE_KEY));
   } catch {
     return readSortMode(null);
+  }
+}
+
+// 变体（国内版 / 国际版）选择同样是本机 UI 偏好：只决定详情页默认展示哪个变体，
+// 不影响授权与安装 —— 安装对象永远由当前展示的变体决定。
+function readStoredVariant(groupId: string): string | null {
+  try {
+    return window.localStorage.getItem(variantSelectionKey(groupId));
+  } catch {
+    return null;
+  }
+}
+
+function storeVariant(groupId: string, applicationId: string) {
+  try {
+    window.localStorage.setItem(variantSelectionKey(groupId), applicationId);
+  } catch {
+    /* 忽略持久化失败 */
   }
 }
 
@@ -1005,7 +1024,28 @@ function DownloadCard({ plan }: { plan: DownloadPlan }) {
   return <div className="download-plan-card"><div className="download-file"><div><strong>{plan.fileName}</strong><span>{formatBytes(plan.expectedSize)} · {plan.architecture}</span></div><span className="apt-index-badge">{isWebsite ? "发布资产" : "APT 索引"}</span></div><dl><div><dt>版本</dt><dd>{plan.version}</dd></div><div><dt>SHA-256</dt><dd title={plan.expectedSha256 ?? undefined}>{plan.expectedSha256 ?? "下载后计算"}</dd></div><div><dt>缓存位置</dt><dd title={plan.targetPath}>{plan.targetPath}</dd></div></dl></div>;
 }
 
-function UpdateDrawer({ item, job, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch, onRemove }: { item: ManagedPackage; job: DownloadJob | undefined; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void; onRemove: () => void }) {
+/// 详情页顶部的变体切换（与「开发环境」里 dsh 的版本线切换同款交互）：同一款
+/// 软件的国内版 / 国际版是两份互相独立的安装包，切换后「获取 / 更新 / 卸载」都
+/// 作用于所选变体。只是选择安装对象，不改变任何授权或校验链路。
+function VariantPicker({ variants, selected, onSelect }: { variants: CatalogApplication[]; selected: string; onSelect: (applicationId: string) => void }) {
+  if (!isSwitchableGroup(variants)) return null;
+  return <div className="channel-picker">
+    <div className="channel-picker-head">
+      <span className="channel-picker-label">版本</span>
+      <div className="filter-tabs segmented channel-segments" role="tablist" aria-label="版本">
+        {variants.map((variant) => (
+          <button key={variant.applicationId} className={variant.applicationId === selected ? "active" : ""} role="tab"
+            aria-selected={variant.applicationId === selected}
+            title={`${variantLabelOf(variant)} · ${variant.packageName}`}
+            onClick={() => onSelect(variant.applicationId)}>{variantLabelOf(variant)}</button>
+        ))}
+      </div>
+    </div>
+    <p className="channel-hint">国内版与国际版是两份互相独立的安装包，可以同时安装；切换只决定当前要安装、更新或卸载哪一个。</p>
+  </div>;
+}
+
+function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch, onRemove }: { item: ManagedPackage; job: DownloadJob | undefined; variantPicker?: ReactNode; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void; onRemove: () => void }) {
   const applicationId = catalogByPackage[item.packageName]?.applicationId;
   const isSelfUpdate = item.packageName === "u-manager";
   const [details, setDetails] = useState<ApplicationDetails | null>(null);
@@ -1097,6 +1137,7 @@ function UpdateDrawer({ item, job, onEnqueue, onCancelDownload, onDismissDownloa
     canClose={!installRunning}
     onClose={onClose}
   >
+    {!installRunning && variantPicker}
     {loading && <div className="drawer-loading"><span className="loader"/><p>正在读取官方源与安装包元数据…</p></div>}
     {error && !details && <div className="message error"><strong>无法检查 {item.displayName} 更新</strong><span>{error}</span></div>}
     {details && <div className="drawer-content">
@@ -1161,6 +1202,11 @@ type SoftwareItem = {
   vendor: string;
   description: string | null;
   deb?: MergedSoftware;
+  /// 变体组（>1 个成员时商店只显示一张卡片，详情页提供国内版 / 国际版切换）；
+  /// `deb` 始终是「当前展示的那个变体」的合并结果。
+  variants?: CatalogApplication[];
+  variantGroupId?: string;
+  variantLabel?: string | null;
   tool?: DevTool;
   toolState?: DevToolState | null;
   windows?: { state: WindowsState };
@@ -1175,7 +1221,29 @@ function softwareItemUpdatedAt(item: SoftwareItem): number | null {
   return item.windows?.state.versionUpdatedAtUnixSeconds ?? null;
 }
 
-function SoftwareRow({ item, category, job, onOpen, onRemove, onLaunch }: { item: MergedSoftware; category: string; job: DownloadJob | undefined; onOpen: () => void; onRemove: () => void; onLaunch: () => void }) {
+/// 把共享 `variantGroup` 的 .deb 条目折叠成一张卡片：`deb` 换成「当前展示的变体」
+/// （已安装的优先，否则用户上次选择，再否则 feed 声明的默认变体），组内全部变体
+/// 放进 `variants` 供详情页切换。没有变体组的条目原样保留。
+function foldVariantItems(items: SoftwareItem[], catalog: Record<string, CatalogApplication>): SoftwareItem[] {
+  const { items: ordered, folded } = foldVariantCandidates(
+    items.map((item) => ({
+      item,
+      application: item.kind === "deb" ? catalog[item.deb!.packageName] ?? null : null,
+      installed: item.kind === "deb" ? item.deb!.installed : false,
+    })),
+    { selectedApplicationIdOf: readStoredVariant },
+  );
+  for (const [container, result] of folded) {
+    container.key = result.primary.key;
+    container.deb = result.primary.deb;
+    container.variants = result.variants;
+    container.variantGroupId = result.group;
+    container.variantLabel = variantLabelOf(result.primaryApplication);
+  }
+  return ordered;
+}
+
+function SoftwareRow({ item, category, variantLabel, job, onOpen, onRemove, onLaunch }: { item: MergedSoftware; category: string; variantLabel?: string | null; job: DownloadJob | undefined; onOpen: () => void; onRemove: () => void; onLaunch: () => void }) {
   const catalogApp = catalogByPackage[item.packageName];
   const autoInstallable = !!catalogApp && isAutoInstallable(item.packageName);
   const canOpen = item.installed ? autoInstallable : item.installAvailable;
@@ -1208,7 +1276,7 @@ function SoftwareRow({ item, category, job, onOpen, onRemove, onLaunch }: { item
     </div>
     <div className="app-card-body">
       <h3 className="app-card-name">{item.displayName}</h3>
-      <span className="app-card-sub">{category}</span>
+      <span className="app-card-sub">{variantLabel ? `${category} · ${variantLabel}` : category}</span>
       {item.description && <p className="app-card-desc">{item.description}</p>}
     </div>
     <div className="app-card-footer">
@@ -1219,7 +1287,7 @@ function SoftwareRow({ item, category, job, onOpen, onRemove, onLaunch }: { item
   </article>;
 }
 
-function InstallDrawer({ offer, job, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch }: { offer: InstallableApplication; job: DownloadJob | undefined; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void }) {
+function InstallDrawer({ offer, job, variantPicker, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch }: { offer: InstallableApplication; job: DownloadJob | undefined; variantPicker?: ReactNode; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void }) {
   const downloadPlan = offer.downloadPlan;
   const isWebsite = offer.sourceKind === "officialWebsite";
   const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
@@ -1286,6 +1354,7 @@ function InstallDrawer({ offer, job, onEnqueue, onCancelDownload, onDismissDownl
     canClose={!installRunning}
     onClose={onClose}
   >
+    {!installRunning && variantPicker}
     <div className="drawer-content">
       <div className="trust-banner trusted"><Icon name="shield"/><div><strong>来源验证通过 · {sourceText[offer.sourceKind] ?? offer.sourceKind}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
       {(downloading || queued) && <div className="message" role="status" aria-live="polite"><strong>下载在后台队列里进行</strong><span>可以点左上角「返回」继续浏览或安装别的软件；下载完成后到「下载」页或回到这里点「安装」。</span></div>}
@@ -2302,8 +2371,15 @@ export default function App() {
         windows: { state: windowsState },
       });
     }
-    return items.sort((a, b) => a.displayName.localeCompare(b.displayName, "zh-CN"));
-  }, [result, installableOffers, devTools, devToolStates, categoryCatalog, windowsState]);
+    return foldVariantItems(items, catalogByPackage).sort((a, b) => a.displayName.localeCompare(b.displayName, "zh-CN"));
+    // `catalog` 也是依赖：目录（含变体分组元数据）可能在扫描之后才到，折叠必须跟着重算。
+  }, [result, installableOffers, devTools, devToolStates, categoryCatalog, windowsState, catalog]);
+  // 变体组索引：目录里共享 variantGroup 的条目（如 Qoder 国内版 / 国际版）。
+  const catalogByApplicationId = useMemo(
+    () => Object.fromEntries((catalog ?? []).map((entry) => [entry.applicationId, entry])) as Record<string, CatalogApplication>,
+    [catalog],
+  );
+  const catalogVariantGroups = useMemo(() => groupVariants(catalog ?? []), [catalog]);
   const presentCategories = useMemo(() => {
     const set = new Set<string>();
     for (const item of softwareItems) set.add(item.category);
@@ -2315,7 +2391,9 @@ export default function App() {
   const updatableItems = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.kind === "devTool" ? item.toolState?.updateAvailable === true : item.windows?.state.updateAvailable === true), [softwareItems]);
   const visibleSoftware = useMemo(() => {
     const filtered = softwareItems.filter((item) => {
-      const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}${item.kind === "windows" ? " wine windows" : ""}`.toLowerCase();
+      // 变体标签也参与搜索：搜「国际版」应该能找到那张折叠后的卡片。
+      const variantText = item.variants?.map((variant) => variantLabelOf(variant)).join(" ") ?? "";
+      const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}${item.kind === "windows" ? " wine windows" : ""} ${variantText}`.toLowerCase();
       const textMatch = searchable.includes(query.toLowerCase());
       const categoryMatch = categoryFilter === "全部" || item.category === categoryFilter;
       const stateMatch = (() => {
@@ -2489,6 +2567,39 @@ export default function App() {
     if (!installationInfo && !installationInfoLoading) void refreshInstallationInfo();
   };
 
+  // 变体切换不需要额外状态：抽屉当前展示的是哪个 applicationId，切换控件就作用于
+  // 那一个。列表卡片已经按「已安装优先」挑好变体，所以打开详情时天然与卡片一致。
+  const openApplicationId = updatePackage
+    ? applicationIdOf(updatePackage.packageName) ?? null
+    : installOffer?.applicationId ?? null;
+  const openVariantGroupId = openApplicationId
+    ? catalogByApplicationId[openApplicationId]?.variantGroup?.trim() ?? null
+    : null;
+  const openVariantGroup = openVariantGroupId
+    ? catalogVariantGroups.get(openVariantGroupId) ?? null
+    : null;
+  const switchableVariants = openVariantGroup && isSwitchableGroup(openVariantGroup) ? openVariantGroup : null;
+  /// 在详情页切换国内版 / 国际版：换掉「当前操作的安装包」，其余链路（下载校验、
+  /// 不可变计划、特权 helper 复核）完全按所选变体走原有单条目逻辑。
+  const selectVariant = (applicationId: string) => {
+    const application = catalogByApplicationId[applicationId];
+    if (!application) return;
+    if (openVariantGroupId) storeVariant(openVariantGroupId, applicationId);
+    const managed = result?.packages.find((pkg) => pkg.packageName === application.packageName);
+    if (managed) {
+      if (isAutoInstallable(application.packageName)) { setInstallOffer(null); setUpdatePackage(managed); }
+      else setNotice(`${application.displayName}（${variantLabelOf(application)}）已在系统里，但软件源只支持识别与卸载。`);
+      return;
+    }
+    const offer = installableOffers?.find((entry) => entry.applicationId === applicationId)
+      ?? installableOffers?.find((entry) => entry.packageName === application.packageName);
+    if (offer) { setUpdatePackage(null); setInstallOffer(offer); return; }
+    setNotice(`软件源里暂时找不到 ${application.displayName}（${variantLabelOf(application)}）的可安装信息，请先刷新列表。`);
+  };
+  const variantPicker = switchableVariants && openApplicationId
+    ? <VariantPicker variants={switchableVariants} selected={openApplicationId} onSelect={selectVariant}/>
+    : null;
+
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark"><img src={umanagerLogo} alt=""/></span><strong>UManager</strong></div>
@@ -2541,7 +2652,7 @@ export default function App() {
         {!result && !installableOffers && !devTools && <div className="empty-state"><span className="loader"/><p>正在读取已安装与可安装软件…</p></div>}
         {result && visibleSoftware.length === 0 && <div className="empty-state"><p>没有符合条件的软件</p></div>}
         <div className="app-grid">{visibleSoftware.map((item) => item.kind === "deb"
-          ? <SoftwareRow item={item.deb!} category={item.category} job={jobOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
+          ? <SoftwareRow item={item.deb!} category={item.category} variantLabel={item.variantLabel} job={jobOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
           : item.kind === "devTool"
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
             : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
@@ -2561,17 +2672,17 @@ export default function App() {
         {!result && !installableOffers && !devTools && <div className="empty-state"><span className="loader"/><p>正在读取更新状态…</p></div>}
         {result && updatableItems.length === 0 && <div className="empty-state"><p>所有软件均为最新版本。</p></div>}
         <div className="app-grid">{updatableItems.map((item) => item.kind === "deb"
-          ? <SoftwareRow item={item.deb!} category={item.category} job={jobOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
+          ? <SoftwareRow item={item.deb!} category={item.category} variantLabel={item.variantLabel} job={jobOf(item.deb!.packageName)} onOpen={() => openSoftware(item)} onRemove={() => { if (item.deb!.managed) setRemovalPackage(item.deb!.managed); }} onLaunch={() => launchApp(item.deb!.packageName)} key={item.key}/>
           : item.kind === "devTool"
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
             : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
     </main> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
-    {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
+    {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
     {installOffer && (
-      <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
+      <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
     )}
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>

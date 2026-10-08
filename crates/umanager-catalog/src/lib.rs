@@ -203,6 +203,23 @@ pub struct Application {
     pub accent_color: Option<String>,
     #[serde(default = "default_true")]
     pub removable: bool,
+    /// Store-level variant grouping. Entries sharing a `variant_group` are the
+    /// same product shipped for different markets (e.g. Qoder 国内版 /
+    /// 国际版): the store shows **one** card for the group and the detail view
+    /// offers a switch between the variants.
+    ///
+    /// Each variant stays a complete, independently authorized catalog entry
+    /// (own `package_name` / download hosts / SHA-256), so the privileged
+    /// helper's authorization chain is untouched: it is still handed one
+    /// signed catalog record per plan, exactly as before.
+    #[serde(default)]
+    pub variant_group: Option<String>,
+    /// Label shown on the variant switch, e.g. `"国内版"` / `"国际版"`.
+    #[serde(default)]
+    pub variant_label: Option<String>,
+    /// Variant shown when none of the group's packages is installed.
+    #[serde(default)]
+    pub variant_default: bool,
     pub source: SourceSpec,
 }
 
@@ -483,6 +500,10 @@ impl SelfUpdateSource {
             icon_sha256: None,
             accent_color: Some("#0a84ff".to_owned()),
             removable: true,
+            // UManager itself is never part of a store variant group.
+            variant_group: None,
+            variant_label: None,
+            variant_default: false,
             source: SourceSpec::ReleaseApi {
                 release_api_url: self.release_api_url.clone(),
                 release_api_hosts: self.release_api_hosts.clone(),
@@ -752,5 +773,59 @@ mod tests {
             }
             _ => panic!("expected stableDownloadEndpoint"),
         }
+    }
+
+    #[test]
+    fn variant_metadata_is_optional_and_deserializes() {
+        // Backward compatibility: a catalog record written before variant
+        // grouping existed must still parse (the fields default to None/false).
+        let plain = r#"{
+            "applicationId": "trae",
+            "packageName": "trae-cn",
+            "displayName": "Trae",
+            "vendor": "字节跳动",
+            "architecture": "amd64",
+            "source": {
+                "kind": "versionEndpoint",
+                "versionEndpointUrl": "https://api.trae.cn/icube/api/v1/native/version/trae/cn/latest",
+                "versionEndpointHosts": ["api.trae.cn"],
+                "payloadKind": "json",
+                "downloadUrlField": "data.manifest.linux.download.0[\"x64.deb\"]",
+                "downloadHosts": ["lf-cdn.trae.com.cn"]
+            }
+        }"#;
+        let application: Application = serde_json::from_str(plain).unwrap();
+        assert!(application.variant_group.is_none());
+        assert!(application.variant_label.is_none());
+        assert!(!application.variant_default);
+
+        // The international edition of the same product carries the grouping
+        // metadata; serialization round-trips it back to the feed JSON shape.
+        let variant = r#"{
+            "applicationId": "trae-ai",
+            "packageName": "trae",
+            "displayName": "Trae",
+            "vendor": "字节跳动",
+            "architecture": "amd64",
+            "variantGroup": "trae",
+            "variantLabel": "国际版",
+            "variantDefault": false,
+            "source": {
+                "kind": "versionEndpoint",
+                "versionEndpointUrl": "https://api.trae.ai/icube/api/v1/native/version/trae/latest",
+                "versionEndpointHosts": ["api.trae.ai"],
+                "payloadKind": "json",
+                "downloadUrlField": "data.manifest.linux.download.0[\"x64.deb\"]",
+                "downloadHosts": ["lf-cdn.trae.ai"]
+            }
+        }"#;
+        let application: Application = serde_json::from_str(variant).unwrap();
+        assert_eq!(application.variant_group.as_deref(), Some("trae"));
+        assert_eq!(application.variant_label.as_deref(), Some("国际版"));
+        assert!(!application.variant_default);
+        let round_tripped = serde_json::to_value(&application).unwrap();
+        assert_eq!(round_tripped["variantGroup"], "trae");
+        assert_eq!(round_tripped["variantLabel"], "国际版");
+        assert_eq!(round_tripped["variantDefault"], false);
     }
 }

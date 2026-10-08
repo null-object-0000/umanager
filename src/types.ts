@@ -43,6 +43,14 @@ export interface CatalogApplication {
   iconSha256?: string | null;
   accentColor: string | null;
   removable: boolean;
+  /// 同一款软件的不同发行变体（如 Qoder 国内版 / 国际版）共享 `variantGroup`：
+  /// 商店把它们折叠成一张卡片，详情页提供变体切换。每个变体仍然是独立的目录
+  /// 条目（各自的包名、下载域名与 SHA-256），所以授权链与下载计划完全不变。
+  variantGroup?: string | null;
+  /// 切换控件上显示的短标签，如「国内版」「国际版」。
+  variantLabel?: string | null;
+  /// 组内没有任何变体被安装时，默认展示哪个变体。
+  variantDefault?: boolean;
   source: CatalogSource;
 }
 
