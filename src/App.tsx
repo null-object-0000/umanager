@@ -2144,11 +2144,24 @@ export default function App() {
   const [windowsProgress, setWindowsProgress] = useState<DownloadProgress | null>(null);
   const [windowsOpen, setWindowsOpen] = useState(false);
 
+  // 目录快照（图标、强调色、描述、可卸载）来自 get_software_catalog，feed 在后台
+  // 刷新后新增的软件不会出现在这份快照里 —— 只有「可安装列表」会立刻带上新软件，
+  // 于是新软件会出现「有卡片、没图标」（图标只能由快照里的 iconUrl/iconSha256 拉取）
+  // 的情况，直到重启 App 才恢复。因此在重读可安装列表时、以及窗口重新获得焦点时
+  // 一并重读快照，让后台 feed 刷新到的新软件立刻拿到图标与元数据。
+  const loadCatalog = () => getSoftwareCatalog().then((entries) => {
+    catalogByPackage = Object.fromEntries(entries.map((entry) => [entry.packageName, entry]));
+    setCatalog(entries);
+  }).catch(() => { setCatalog((previous) => previous ?? []); });
+
   useEffect(() => {
-    void getSoftwareCatalog().then((entries) => {
-      catalogByPackage = Object.fromEntries(entries.map((entry) => [entry.packageName, entry]));
-      setCatalog(entries);
-    }).catch(() => setCatalog([]));
+    void loadCatalog();
+  }, []);
+
+  useEffect(() => {
+    const onFocus = () => { void loadCatalog(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   const refresh = async () => {
@@ -2157,6 +2170,8 @@ export default function App() {
   };
   const refreshInstallable = async () => {
     setInstallableLoading(true); setInstallableError(null);
+    // 与可安装列表同时刷新目录快照，否则新软件有卡片但没有图标 / 强调色 / 可卸载标记。
+    void loadCatalog();
     try { setInstallableOffers(await getInstallableApplications()); } catch (reason) { setInstallableError(String(reason)); } finally { setInstallableLoading(false); }
   };
   const refreshInstallationInfo = async () => {
