@@ -116,4 +116,49 @@ describe("extractMarkdownVersionSection", () => {
     const changelog = "# Changelog\n\n## 2.1.258\n- fixed A\n";
     expect(extractMarkdownVersionSection(changelog, "v2.1.258")).toBe("## 2.1.258\n- fixed A");
   });
+
+  // Cursor IDE publishes one entry per minor line ("Each entry covers one minor
+  // version, including the patch releases that follow it") while the feed
+  // carries the Debian control version of a concrete build.
+  describe("minor-line headings", () => {
+    const cursor = [
+      "# Cursor IDE release notes",
+      "",
+      "Intro that is not part of any version.",
+      "",
+      "## 3.23",
+      "### Chat",
+      "- chat fix",
+      "",
+      "## 3.22",
+      "### Agent",
+      "- agent fix",
+      "",
+      "## Sitemap",
+      "- https://cursor.com/docs",
+    ].join("\n");
+
+    it("matches the minor line of a patch build", () => {
+      const section = extractMarkdownVersionSection(cursor, "3.23.4-1790000000");
+      expect(section).toBe("## 3.23\n### Chat\n- chat fix");
+    });
+
+    it("does not let a shorter minor swallow a longer one", () => {
+      // 3.2 must not match the 3.23 heading; with no 3.2 line the newest section
+      // is the documented fallback.
+      const section = extractMarkdownVersionSection(cursor, "3.2.0");
+      expect(section).toBe("## 3.23\n### Chat\n- chat fix");
+    });
+
+    it("falls back to the newest section for an unpublished minor line", () => {
+      const section = extractMarkdownVersionSection(cursor, "3.24.9-1791439478");
+      expect(section).toBe("## 3.23\n### Chat\n- chat fix");
+      expect(section).not.toContain("Sitemap");
+    });
+
+    it("prefers an exact patch heading over the minor line", () => {
+      const patchy = "## 3.24.9\n- exact\n\n## 3.24\n- minor\n";
+      expect(extractMarkdownVersionSection(patchy, "3.24.9-1791439478")).toBe("## 3.24.9\n- exact");
+    });
+  });
 });

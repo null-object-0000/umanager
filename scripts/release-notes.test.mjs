@@ -198,3 +198,69 @@ describe("selectToolRelease", () => {
     expect(selectToolRelease([], "v", "1.0.0")).toBeNull();
   });
 });
+
+describe("stripReleaseNotesBoilerplate (Wine ANNOUNCE.md)", () => {
+  // Trimmed mirror of the real wine-mirror/wine `wine-11.19` ANNOUNCE.md.
+  const devel = [
+    "The Wine development release 11.19 is now available.",
+    "",
+    "What's new in this release:",
+    "  - Support for vertical text in GDIPlus.",
+    "  - Unicode 18.0.0.",
+    "",
+    "The source is available at <https://dl.winehq.org/wine/source/11.x/wine-11.19.tar.xz>",
+    "",
+    "Binary packages for various distributions will be available",
+    "from the respective [download sites][1].",
+    "",
+    "[3]: https://gitlab.winehq.org/wine/wine/-/raw/wine-11.19/AUTHORS",
+    "",
+    "----------------------------------------------------------------",
+    "### Bugs fixed in 11.19 (total 23):",
+    "  - A bug",
+    "### Changes since 11.18:",
+    "```",
+    "Alexandre Julliard (13):",
+    "```",
+  ].join("\n");
+
+  it("keeps the What's new text and drops the mechanical block + bug/commit logs", () => {
+    const stripped = stripReleaseNotesBoilerplate(devel, "wine");
+    expect(stripped).toContain("What's new in this release:");
+    expect(stripped).toContain("  - Support for vertical text in GDIPlus.");
+    expect(stripped).not.toContain("The source is available at");
+    expect(stripped).not.toContain("download sites");
+    expect(stripped).not.toContain("Bugs fixed in 11.19");
+    expect(stripped).not.toContain("Changes since 11.18");
+    expect(stripped).not.toContain("Alexandre Julliard");
+  });
+
+  it("keeps the stable writeup that follows the mechanical block", () => {
+    const stable = [
+      "The Wine team is proud to announce that the stable release Wine 11.0",
+      "is now available.",
+      "",
+      "The source is available at <https://dl.winehq.org/wine/source/11.0/wine-11.0.tar.xz>",
+      "",
+      "Binary packages for various distributions will be available",
+      "from the respective [download sites][1].",
+      "",
+      "----------------------------------------------------------------",
+      "## What's new in Wine 11.0",
+      "### WoW64",
+      "- The new WoW64 mode is now the default.",
+      "### Bugs fixed in 11.0 (total 612):",
+      "  - A bug",
+    ].join("\n");
+    const stripped = stripReleaseNotesBoilerplate(stable, "wine-stable");
+    expect(stripped).toContain("## What's new in Wine 11.0");
+    expect(stripped).toContain("- The new WoW64 mode is now the default.");
+    expect(stripped).not.toContain("The source is available at");
+    expect(stripped).not.toContain("Bugs fixed in 11.0");
+  });
+
+  it("leaves bodies of other apps and non-strings untouched", () => {
+    expect(stripReleaseNotesBoilerplate(devel, "hexhub")).toBe(devel);
+    expect(stripReleaseNotesBoilerplate(null, "wine")).toBeNull();
+  });
+});

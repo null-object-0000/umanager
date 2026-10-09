@@ -356,6 +356,11 @@
         "versionField": "data.linux-amd64-deb.versionName",
         "downloadUrlField": "data.linux-amd64-deb.downloadUrl",
         "downloadHosts": ["oss.hexhub.cn"]
+      },
+      "releaseNotes": {
+        "changelogVersionHistoryUrl": "https://api.hexhub.cn/client/version/history-exact?size=100&offset=0",
+        "endpointHeaders": { "Referer": "https://www.hexhub.cn/history" },
+        "releaseNotesUrl": "https://www.hexhub.cn/history"
       }
     },
     {
@@ -507,6 +512,10 @@
         "downloadHosts": ["api2.cursor.sh", "downloads.cursor.com"],
         "pageVersionMarker": "",
         "downloadLinkFileName": "cursor_3.19.13_amd64.deb"
+      },
+      "releaseNotes": {
+        "versionedMarkdownUrl": "https://cursor.com/cn/docs/release-notes/ide.md",
+        "releaseNotesUrl": "https://cursor.com/cn/docs/release-notes?product=ide"
       }
     },
     {

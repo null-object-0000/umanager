@@ -13,6 +13,16 @@ export const MAX_RELEASE_NOTES_BYTES = 200_000;
 
 const TRUNCATION_SUFFIX = "\n\n…（内容过长，已截断，完整内容见发布页）";
 
+// Wine's release notes are the `ANNOUNCE.md` from the release tag — a release
+// *mail*: the "What's new …" text is the changelog, while the mechanical
+// "source is available / binary packages / documentation / AUTHORS" block, the
+// trailing "Bugs fixed in …" list and the "Changes since …" author/commit log
+// (tens of KB per release) are not. Both Wine entries share these rules.
+const WINE_ANNOUNCE_BOILERPLATE = [
+  /\nThe source is available at[\s\S]*?\n-{10,}\n/,
+  /\n#{2,3} (?:Bugs fixed in|Changes since)[\s\S]*$/,
+];
+
 // Fixed, vendor-specific boilerplate pinned to every release body. FlClash
 // appends a cross-OS download matrix and a "full changelog" link that are not
 // changelog content (and duplicate what the app already surfaces elsewhere), so
@@ -24,8 +34,10 @@ const TRUNCATION_SUFFIX = "\n\n…（内容过长，已截断，完整内容见�
 // tells the user in its detail/update view. Strip that prelude too, keeping only
 // the generated changelog; the public GitHub release body keeps it intact.
 const RELEASE_NOTES_BOILERPLATE = {
-  flclash: /\*{0,2}Download based on your OS:\*{0,2}[\s\S]*$/i,
-  selfUpdate: /^\s*UManager v\d+(?:\.\d+)*（amd64 Debian 包）。[\s\S]*?已安装 `\.deb` 版的用户也可以在 UManager「软件 \/ 更新」页内检查并安装更新。\s*/,
+  flclash: [/\*{0,2}Download based on your OS:\*{0,2}[\s\S]*$/i],
+  selfUpdate: [/^\s*UManager v\d+(?:\.\d+)*（amd64 Debian 包）。[\s\S]*?已安装 `\.deb` 版的用户也可以在 UManager「软件 \/ 更新」页内检查并安装更新。\s*/],
+  wine: WINE_ANNOUNCE_BOILERPLATE,
+  "wine-stable": WINE_ANNOUNCE_BOILERPLATE,
 };
 
 /**
@@ -37,8 +49,11 @@ const RELEASE_NOTES_BOILERPLATE = {
  */
 export function stripReleaseNotesBoilerplate(body, applicationId) {
   if (typeof body !== "string") return body;
-  const pattern = RELEASE_NOTES_BOILERPLATE[applicationId];
-  return pattern ? body.replace(pattern, "") : body;
+  const patterns = RELEASE_NOTES_BOILERPLATE[applicationId];
+  if (!patterns) return body;
+  let output = body;
+  for (const pattern of patterns) output = output.replace(pattern, "\n");
+  return output;
 }
 
 /**

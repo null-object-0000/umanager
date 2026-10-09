@@ -13,6 +13,7 @@ Qoder 与 Trae 都存在两个互相独立的发行版：
 | Qoder | `qoder-cn`（qoder.cn，北京 OSS） | `qoder`（qoder.com，GA 加速） |
 | Trae | `trae-cn`（trae.cn，`lf-cdn.trae.com.cn`） | `trae`（trae.ai，`lf-cdn.trae.ai`） |
 
+
 两者的账号、Credits、模型、部署区域互不相通（见[阿里云说明](https://developer.aliyun.com/article/1768159)），
 包名也不同（`Conflicts` 只与自身冲突），因此**可以同时安装**，也必须由用户显式选择要装哪一个。
 

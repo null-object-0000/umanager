@@ -51,10 +51,12 @@ import { atomChangelog } from "./changelog-atom.mjs";
 import { extractHtmlBlockToMarkdown, extractHtmlVersionSection, htmlChangelogToMarkdown, parseHtmlChangelog, parseHtmlVersionList } from "./changelog-html.mjs";
 import { jsonpEntryToMarkdown, parseJsonpChangelog, selectJsonpChangelogEntry } from "./changelog-jsonp.mjs";
 import { jsonListEntryToMarkdown, parseJsonListChangelog, selectJsonListChangelogEntry } from "./changelog-json-list.mjs";
+import { parseVersionHistoryJson, selectVersionHistoryEntry, versionHistoryEntryMatchesVersion, versionHistoryEntryToMarkdown, versionHistoryEntryToUnixSeconds } from "./changelog-version-history.mjs";
 import { parseSmartdocVersionSections, selectSmartdocSection, smartdocSectionToMarkdown, smartdocUpdateTimeToUnixSeconds } from "./changelog-smartdoc.mjs";
 import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./changelog-markdown.mjs";
 import { entryOrPrevious } from "./feed-fallback.mjs";
 import { applyVersionTime, mergeSourceFeeds, parseCatalogApplications, sourceGroupOf as sourceGroupOfApp, validateSourceGroups } from "./feed-merge.mjs";
+import { resolveVersionPlaceholders } from "./version-placeholders.mjs";
 import {
   decideDownloadSkip,
   digestProvesUnchanged,
@@ -557,25 +559,10 @@ async function fetchReleaseNotes(app, config, entry) {
   if (typeof config.changelogBlockHtmlUrl === "string") return fetchChangelogBlockHtmlReleaseNotes(app, config);
   if (typeof config.changelogJsonpUrl === "string") return fetchChangelogJsonpReleaseNotes(app, config, entry);
   if (typeof config.changelogJsonListUrl === "string") return fetchChangelogJsonListReleaseNotes(app, config, entry);
+  if (typeof config.changelogVersionHistoryUrl === "string") return fetchChangelogVersionHistoryReleaseNotes(app, config, entry);
   if (typeof config.tencentDocsSmartdocUrl === "string") return fetchTencentDocsSmartdocReleaseNotes(app, config, entry);
   if (typeof config.releaseApiUrl !== "string") return null;
   return fetchGitHubReleaseNotes(app, config);
-}
-
-// Resolve `{version}`, `{major}`, `{minor}`, `{patch}` placeholders in a URL
-// template from the resolved version (e.g. `1.135.0-1787669172` → major `1`,
-// minor `135`). Values are percent-encoded.
-function resolveVersionPlaceholders(template, version) {
-  if (typeof template !== "string") return template;
-  const parts = String(version).split(".");
-  const major = parts[0] ?? "";
-  const minor = parts[1] ?? "";
-  const patch = parts[2] ?? "";
-  return template
-    .replaceAll("{version}", encodeURIComponent(String(version)))
-    .replaceAll("{major}", encodeURIComponent(major))
-    .replaceAll("{minor}", encodeURIComponent(minor))
-    .replaceAll("{patch}", encodeURIComponent(patch));
 }
 
 async function fetchVersionedHtmlReleaseNotes(app, config, entry) {
@@ -599,6 +586,13 @@ async function fetchVersionedHtmlReleaseNotes(app, config, entry) {
   return { releaseNotes, releaseNotesUrl };
 }
 
+// Fetch release notes from a Markdown changelog, either a per-version file
+// (`versionedMarkdownUrl`, e.g. VS Code's `release-notes/v{major}_{minor}.md`) or
+// one fixed document holding every version (Cursor's per-product
+// `docs/release-notes/ide.md` — a template may carry no placeholder at all).
+// The section for the resolved version is extracted; a page that documents one
+// minor line per section (`## 3.23`) covers its patch builds (`3.24.9-…` would
+// not match it, `3.23.4-…` does).
 async function fetchVersionedMarkdownReleaseNotes(app, config, entry) {
   const version = config.versionField === "version"
     ? entry?.version
@@ -742,6 +736,45 @@ async function fetchChangelogJsonListReleaseNotes(app, config, entry) {
   const releaseNotesUrl = typeof notesUrl === "string" && /^https:\/\//.test(notesUrl) ? notesUrl : null;
   if (!releaseNotes && !releaseNotesUrl) return null;
   return { releaseNotes, releaseNotesUrl };
+}
+
+// Fetch release notes from a paged JSON version-history API (HexHub's update-log
+// page, https://www.hexhub.cn/history). `data.content` is a newest-first list of
+// `{ versionName, env, hotUpdate, created, description }` records; `description`
+// is an HTML fragment. Exact-version selection matters here: HexHub's download
+// endpoint serves the newest *full* installer while the newest history record is
+// usually a beta hot update, so "first entry" would be the wrong changelog. The
+// record's `created` is surfaced as the version-update time — the .deb's
+// Last-Modified is a legacy date, so this is the vendor's only official date.
+// The API answers 403 without a browser-ish Referer, hence `endpointHeaders`.
+async function fetchChangelogVersionHistoryReleaseNotes(app, config, entry) {
+  const version = config.versionField === "version"
+    ? entry?.version
+    : (entry?.websiteVersion ?? entry?.version);
+  if (!version) return null;
+  let text;
+  try {
+    text = await fetchText(config.changelogVersionHistoryUrl, config.endpointHeaders ?? {});
+  } catch (error) {
+    log(`  releaseNotes: ${app.applicationId} — ${error.message}`);
+    return null;
+  }
+  const selected = selectVersionHistoryEntry(parseVersionHistoryJson(text), version);
+  const releaseNotes = sanitizeReleaseNotes(
+    stripReleaseNotesBoilerplate(versionHistoryEntryToMarkdown(selected), app.applicationId),
+  );
+  const notesUrl = config.releaseNotesUrl;
+  const releaseNotesUrl = typeof notesUrl === "string" && /^https:\/\//.test(notesUrl) ? notesUrl : null;
+  // Only an exact-version record may claim a publish date: a fallback entry
+  // describes a different version, and "official" is always adopted by the
+  // version-time merge. Notes themselves stay best-effort.
+  const exact = versionHistoryEntryMatchesVersion(selected, version);
+  if (selected && !exact) {
+    log(`  releaseNotes: ${app.applicationId} — 历史记录里没有 ${version}，回退到 ${selected.versionName}（不采用其发布时间）`);
+  }
+  const updatedAtUnixSeconds = exact ? versionHistoryEntryToUnixSeconds(selected) : null;
+  if (!releaseNotes && !releaseNotesUrl) return null;
+  return { releaseNotes, releaseNotesUrl, updatedAtUnixSeconds };
 }
 
 // Tencent Docs publishes its Linux desktop changelog as a public smartdoc

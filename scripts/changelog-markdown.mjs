@@ -64,7 +64,10 @@ export function cleanReleaseNotesMarkdown(markdown) {
  * The file is split into `## <version>` sections. Headings may be bare
  * (`## 2.1.258`, claude-code) or bracketed with a date suffix
  * (`## [0.84.4] - 2026-08-28`, Pi). The section whose heading carries `version`
- * is returned; otherwise the first `##` section (the latest) is the fallback.
+ * is returned; if no heading matches exactly, the heading for the version's
+ * minor line is used (`## 3.24` documents `3.24.9-1791439478` — Cursor IDE
+ * states that each entry covers its following patch releases); otherwise the
+ * first `##` section (the latest) is the fallback.
  *
  * @param {unknown} markdown
  * @param {string} [version]
@@ -80,10 +83,21 @@ export function extractMarkdownVersionSection(markdown, version) {
     const numeric = text.match(/\d+(?:\.\d+)+(?:[-+][\w.-]+)?/);
     return numeric ? numeric[0] : text;
   };
+  // The vendor's release line without a build/patch suffix: `3.24.9-1791439478`
+  // → `3.24`. Compared component-wise (never a string prefix), so `3.2` can not
+  // swallow `3.24`.
+  const withoutBuild = (value) => value.replace(/^v/, "").split(/[-+]/)[0];
+  const versionLine = (value) => withoutBuild(value).split(".").slice(0, 2).join(".");
   let target = -1;
   if (version) {
     const expected = String(version).replace(/^v/, "");
+    const upstream = withoutBuild(expected);
+    const minor = versionLine(expected);
     target = lines.findIndex((line) => headingVersion(line) === expected);
+    if (target < 0 && upstream !== expected) {
+      target = lines.findIndex((line) => headingVersion(line) === upstream);
+    }
+    if (target < 0 && minor) target = lines.findIndex((line) => headingVersion(line) === minor);
   }
   if (target < 0) {
     target = lines.findIndex((line) => /^##\s+\S/.test(line));
