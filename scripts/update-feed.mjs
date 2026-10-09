@@ -63,7 +63,7 @@ import {
   parseContentRangeTotal,
   summarizeSkipped,
 } from "./feed-download-reuse.mjs";
-import { sanitizeReleaseNotes, selectReleaseNotesRelease, selectToolRelease, stripReleaseNotesBoilerplate } from "./release-notes.mjs";
+import { collapseDuplicateChannelNotes, sanitizeReleaseNotes, selectReleaseNotesRelease, selectToolRelease, stripReleaseNotesBoilerplate } from "./release-notes.mjs";
 import { npmDistTagChannels, resolveNpmDistTagVersion } from "./tool-version.mjs";
 import { mergeVersionUpdatedAt, parseLastModified, parseUnixSeconds } from "./version-time.mjs";
 import { fileURLToPath } from "node:url";
@@ -87,6 +87,19 @@ const DEFAULT_SOURCE_GROUP = "common";
 // Central feed signing public key (raw Ed25519 hex). Must stay in sync with
 // src-tauri/src/feed.rs FEED_PUBLIC_KEY_HEX and crates/umanager-helper.
 const CENTRAL_PUBLIC_KEY_HEX = "57d369d3e46b3243073b4535673ffa784dc760e0f14d6d25fb04940b69b0c8f9";
+
+// The desktop client refuses a feed larger than this (see `MAX_FEED_BYTES` in
+// src-tauri/src/feed.rs: "元数据源响应大小异常") and keeps serving its cached
+// copy. An oversized feed is therefore an **outage for every installed app**,
+// including the self-update path — 2026-10-09 the central feed reached 1.09 MB
+// because Codex's 51 platform dist-tags each carried an identical 19.8 KB
+// changelog, and no app could fetch metadata any more.
+//
+// So never publish one: stop the run with a loud error instead. Clients keep
+// the last good feed, and the workflow turns red. The ceiling must stay at the
+// *oldest client's* limit (1 MiB), not a future app's raised one.
+const CLIENT_MAX_FEED_BYTES = 1024 * 1024;
+const FEED_SIZE_WARN_BYTES = Math.floor(CLIENT_MAX_FEED_BYTES * 0.8);
 
 // Per-source signing key env name (FEED_SIGNING_KEY_TENCENT / _COMMON): the
 // v3 world signs each source feed with the source's own private key.
@@ -1765,9 +1778,26 @@ async function buildCatalogRecords({ extraApps, applications, previousFeed, icon
 // Output writers
 // ---------------------------------------------------------------------------
 
+// Refuse to publish a feed the desktop client would reject outright (see
+// `CLIENT_MAX_FEED_BYTES`). Throwing is deliberate: clients then keep the last
+// good feed instead of erroring on every refresh.
+function assertFeedFitsClient(bytes, label, breakdown = null) {
+  if (bytes.length > CLIENT_MAX_FEED_BYTES) {
+    const detail = breakdown ? `（${breakdown}）` : "";
+    throw new Error(
+      `${label} 为 ${bytes.length} 字节，超过客户端上限 ${CLIENT_MAX_FEED_BYTES} 字节${detail}；` +
+        "已中止发布 —— 客户端会以「元数据源响应大小异常」拒收整份 feed 并停留在旧缓存",
+    );
+  }
+  if (bytes.length > FEED_SIZE_WARN_BYTES) {
+    log(`  ⚠ ${label} ${bytes.length} 字节，已达客户端上限的 ${Math.round((bytes.length / CLIENT_MAX_FEED_BYTES) * 100)}%`);
+  }
+}
+
 function writeSignedOutput(OUT_PATH, feed) {
   mkdirSync(dirname(OUT_PATH), { recursive: true });
   const feedBytes = Buffer.from(JSON.stringify(feed, null, 2));
+  assertFeedFitsClient(feedBytes, `源 feed ${basename(OUT_PATH)}`);
   writeFileSync(OUT_PATH, feedBytes);
   log(`Wrote ${OUT_PATH}`);
 
@@ -1843,11 +1873,15 @@ async function scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEnt
     if (entry.channels) {
       const versions = [...new Set(Object.values(entry.channels))];
       const source = await toolNotesSource(notesConfig);
-      const channelReleaseNotes = {};
+      // Platform-suffixed dist-tags (Codex: 51 of them) resolve to the same
+      // release section, so collapse identical notes — see
+      // `collapseDuplicateChannelNotes` for why this is lossless and why an
+      // uncollapsed map once pushed the whole feed past the client's cap.
+      const resolved = [];
       for (const version of versions) {
-        const notes = releaseNotesFromSource(source, tool, notesConfig, version);
-        if (notes) channelReleaseNotes[version] = notes;
+        resolved.push([version, releaseNotesFromSource(source, tool, notesConfig, version)]);
       }
+      const channelReleaseNotes = collapseDuplicateChannelNotes(resolved);
       if (Object.keys(channelReleaseNotes).length > 0) {
         entry.channelReleaseNotes = channelReleaseNotes;
       }
@@ -2095,6 +2129,16 @@ async function writeV3World({ OUT_PATH, sourceFeeds, config, nowUnixSeconds, sel
   };
   const outPath = join(outDir, "feed.json");
   const bytes = Buffer.from(JSON.stringify(centralFeed, null, 2));
+  // Section sizes make an oversized central feed diagnosable from the job log
+  // alone (developmentTools/channelReleaseNotes is the usual suspect).
+  const breakdown = [
+    ["developmentTools", developmentTools],
+    ["selfUpdate", selfUpdate],
+    ["windowsApplications", windowsApplications],
+  ]
+    .map(([name, value]) => `${name}=${Buffer.byteLength(JSON.stringify(value ?? null), "utf8")}`)
+    .join(", ");
+  assertFeedFitsClient(bytes, "中央 feed.json", breakdown);
   writeFileSync(outPath, bytes);
   writeFileSync(`${outPath}.sig`, sign(null, bytes, process.env.FEED_SIGNING_KEY).toString("hex"));
   log(`  v3: 已签名瘦中央 feed（sources=${sources.length}）→ ${v3Base}/feed.json`);

@@ -144,3 +144,40 @@ export function selectToolRelease(payload, tagPrefix, version) {
     }) ?? null
   );
 }
+
+/**
+ * Collapse per-channel release notes that carry identical content.
+ *
+ * npm dist-tags proliferate platform-suffixed variants of the *same* release
+ * (Codex publishes `alpha`, `alpha-linux-x64`, `alpha-darwin-arm64`, … — 51
+ * tags), and every one of them resolves to the same release section. Storing
+ * that note once per version key grew the central feed to 1.09 MB and tripped
+ * the desktop client's 1 MiB `MAX_FEED_BYTES` cap, which makes every installed
+ * app reject the whole feed and keep serving its cached copy (2026-10-09).
+ *
+ * Content is not lost by collapsing: the app looks notes up by the selected
+ * version and falls back to the tool's own `releaseNotes` when the exact
+ * version has no entry, and the base version (kept here) carries the same text.
+ * The shortest version string in a group wins, so the tag users actually pick
+ * (`alpha`) keeps its entry instead of a platform shard.
+ *
+ * @param {Array<[string, {releaseNotes?: string|null, releaseNotesUrl?: string|null}|null]>} entries
+ *        `[version, notes]` pairs
+ * @returns {Record<string, object>} notes keyed by version, one per unique content
+ */
+export function collapseDuplicateChannelNotes(entries) {
+  const ordered = [...entries].sort(([left], [right]) => {
+    if (left.length !== right.length) return left.length - right.length;
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+  const seen = new Set();
+  const collapsed = {};
+  for (const [version, notes] of ordered) {
+    if (!notes) continue;
+    const signature = `${notes.releaseNotes ?? ""}\u0000${notes.releaseNotesUrl ?? ""}`;
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    collapsed[version] = notes;
+  }
+  return collapsed;
+}

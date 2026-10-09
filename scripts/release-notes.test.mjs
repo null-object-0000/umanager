@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_RELEASE_NOTES_BYTES,
+  collapseDuplicateChannelNotes,
   sanitizeReleaseNotes,
   selectReleaseNotesRelease,
   selectToolRelease,
@@ -262,5 +263,51 @@ describe("stripReleaseNotesBoilerplate (Wine ANNOUNCE.md)", () => {
   it("leaves bodies of other apps and non-strings untouched", () => {
     expect(stripReleaseNotesBoilerplate(devel, "hexhub")).toBe(devel);
     expect(stripReleaseNotesBoilerplate(null, "wine")).toBeNull();
+  });
+});
+
+describe("collapseDuplicateChannelNotes", () => {
+  const alpha = { releaseNotes: "同一份 alpha 日志", releaseNotesUrl: "https://example.com/r/alpha" };
+
+  it("keeps only one entry per unique content", () => {
+    // Codex 的真实形态：平台分片标签版本号各异、日志内容完全相同。
+    const collapsed = collapseDuplicateChannelNotes([
+      ["0.163.0-alpha.2-linux-x64", alpha],
+      ["0.163.0-alpha.2-darwin-arm64", { ...alpha }],
+      ["0.163.0-alpha.2-win32-x64", { ...alpha }],
+      ["0.163.0-alpha.2", { ...alpha }],
+      ["0.164.0-beta.1", { releaseNotes: "另一份 beta 日志", releaseNotesUrl: "https://example.com/r/beta" }],
+    ]);
+    expect(Object.keys(collapsed).sort()).toEqual(["0.163.0-alpha.2", "0.164.0-beta.1"]);
+  });
+
+  it("prefers the shortest (base) version so the tag users pick keeps its notes", () => {
+    const collapsed = collapseDuplicateChannelNotes([
+      ["1.0.0-alpha-linux-x64", alpha],
+      ["1.0.0-alpha", { ...alpha }],
+    ]);
+    expect(Object.keys(collapsed)).toEqual(["1.0.0-alpha"]);
+  });
+
+  it("keeps genuinely different notes apart, even for the same version", () => {
+    const collapsed = collapseDuplicateChannelNotes([
+      ["1.0.0", { releaseNotes: "A", releaseNotesUrl: "https://example.com/a" }],
+      ["1.0.1", { releaseNotes: "A", releaseNotesUrl: "https://example.com/b" }],
+      ["1.0.2", { releaseNotes: "A", releaseNotesUrl: "https://example.com/a" }],
+    ]);
+    expect(Object.keys(collapsed).sort()).toEqual(["1.0.0", "1.0.1"]);
+  });
+
+  it("drops empty entries and returns an empty map when nothing resolves", () => {
+    expect(collapseDuplicateChannelNotes([["1.0.0", null], ["1.0.1", undefined]])).toEqual({});
+    expect(collapseDuplicateChannelNotes([])).toEqual({});
+  });
+
+  it("shrink is the point: 51 identical 19.8 KB notes collapse to one", () => {
+    const notes = { releaseNotes: "x".repeat(19800), releaseNotesUrl: "https://example.com/r" };
+    const many = Array.from({ length: 51 }, (_, index) => [`0.163.0-alpha.2-shard-${index}`, { ...notes }]);
+    const collapsed = collapseDuplicateChannelNotes(many);
+    expect(Object.keys(collapsed)).toHaveLength(1);
+    expect(Buffer.byteLength(JSON.stringify(collapsed), "utf8")).toBeLessThan(21000);
   });
 });
