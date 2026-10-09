@@ -49,6 +49,22 @@ describe("feed-sources.json variant groups", () => {
     });
   }
 
+  // Wine's two editions are *mutually exclusive* (both `Provides: wine` and
+  // `Conflicts: wine`), so the store must offer an uninstall-then-install switch
+  // instead of a plain "install the other one" (see DESIGN-app-variants.md).
+  describe("product wine", () => {
+    it("offers the 稳定版 / 开发版 pair, defaulting to stable", () => {
+      expect(groups.has("wine")).toBe(true);
+      const members = groups.get("wine");
+      expect(members.map((member) => member.variantLabel).sort()).toEqual(["开发版", "稳定版"].sort());
+      expect(members.find((member) => member.variantDefault === true).packageName).toBe("winehq-stable");
+    });
+
+    it("declares every member exclusive", () => {
+      expect(groups.get("wine").every((member) => member.variantExclusive === true)).toBe(true);
+    });
+  });
+
   for (const [group, members] of groups) {
     describe(`group ${group}`, () => {
       it("has at least two members (a single member is not a switch)", () => {

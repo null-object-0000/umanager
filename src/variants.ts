@@ -49,6 +49,31 @@ export function isSwitchableGroup(variants: CatalogApplication[]): boolean {
   return variants.length > 1;
 }
 
+/// 组内变体是否**互斥**（不能同时安装）。要求组内每个成员都声明
+/// `variantExclusive`：feed 里漏标一个成员就按可共存处理（保守），不会误报
+/// 「需要先卸载」。
+export function isExclusiveGroup(variants: CatalogApplication[]): boolean {
+  return variants.length > 1 && variants.every((variant) => variant.variantExclusive === true);
+}
+
+/// 切到 `targetApplicationId` 时会与哪个**已安装的**兄弟变体冲突（必须先卸载
+/// 它）。只在互斥组、目标未安装、且有兄弟已安装时返回；国内版 / 国际版这种可
+/// 共存的组恒为 null，因此不会出现多余的卸载提示。
+export function conflictingVariant(
+  variants: CatalogApplication[],
+  targetApplicationId: string,
+  installedApplicationIds: Iterable<string>,
+): CatalogApplication | null {
+  if (!isExclusiveGroup(variants)) return null;
+  const installed = new Set(installedApplicationIds);
+  if (installed.has(targetApplicationId)) return null;
+  return (
+    variants.find(
+      (variant) => variant.applicationId !== targetApplicationId && installed.has(variant.applicationId),
+    ) ?? null
+  );
+}
+
 /// 卡片与详情页默认展示哪个变体。优先级：
 ///   1. 用户上次选择且该变体**已安装** —— 两个变体都装着时，尊重用户的选择；
 ///   2. 任一已安装的变体 —— 卡片必须反映本机真实状态，不能因为用户切过一次就

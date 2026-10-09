@@ -1,8 +1,10 @@
-# DESIGN-app-variants.md — 应用「国内版 / 国际版」变体切换
+# DESIGN-app-variants.md — 应用变体切换（国内版 / 国际版、稳定版 / 开发版）
 
-> 目标：同一款软件分市场发布的两份独立安装包（Qoder 国内版 / 国际版、Trae 国内版 /
-> 国际版）在商店里是**一张卡片**，并且能像「开发环境」里的 dsh 版本线一样，在**软件
-> 详情页**用分段控件切换，安装 / 更新 / 卸载都作用于所选变体。
+> 目标：同一款软件的多条版本线（Qoder / Trae / 飞书 / 滴答清单的国内版 / 国际版、
+> Wine 的稳定版 / 开发版）在商店里是**一张卡片**，并且能像「开发环境」里的 dsh 版本
+> 线一样，在**软件详情页**用分段控件切换，安装 / 更新 / 卸载都作用于所选变体。
+> 可共存的变体（国内版 / 国际版）点一下就换；**互斥**的变体（Wine 稳定版 / 开发版）
+> 走「先卸载、再安装」的替换流程，见 §7。
 
 ## 1. 背景
 
@@ -113,17 +115,71 @@ feed 顺序。
 
 ## 6. 限制（已知取舍）
 
-1. **变体必须有不同包名**。安装状态、更新检测都按 `packageName` 判定；同一包名的
-   stable / beta 双下载地址无法用本方案表达 —— 那种需求才需要真正的 feed 级 channels。
+1. **变体通常有不同包名**，且默认假设它们**可以共存**（国内版 / 国际版就是如此）。
+   包名相同、只是 stable / beta 双下载地址的需求仍然表达不了 —— 那种才需要真正的
+   feed 级 channels。**互斥**的两条版本线（如 Wine 稳定版 / 开发版）用
+   `variantExclusive` 表达，见 §7。
 2. **变体必须在同一个签名源里**（都来自 `feed-sources.json`），不能跨源分组。
 3. **单成员组不显示切换控件**（`isSwitchableGroup`）；组只有一个变体时按普通条目渲染。
 4. 折叠是展示层的，所以两个变体**可以同时安装**；卡片只代表「主变体」，另一个变体通过
-   详情页切换查看。
+   详情页切换查看。（互斥组例外：两者装不到一起，见 §7。）
 
-## 7. 测试覆盖
+## 7. 互斥变体：Wine 稳定版 / 开发版
+
+### 7.1 为什么不能照搬国内版 / 国际版
+
+WineHQ 仓库里 `winehq-stable` 与 `winehq-devel` 的元数据是：
+
+```
+Provides: wine, wine-amd64, wine-i386, …
+Conflicts: wine, wine-amd64, wine-i386
+```
+
+两个包都提供并冲突于 `wine`，dpkg 语义下**不能共存**（`wine-stable` /
+`wine-devel` 运行时包同理）。因此「切换」只能是**替换**：先卸载已安装的那一条版本线，
+再安装目标版本线。国内版 / 国际版的「点一下就换抽屉」在这里会直接撞上 dpkg 的
+Conflicts 报错。
+
+### 7.2 数据模型
+
+只新增一个可选字段（同样由 `feed-sources.json` → 签名 `catalogJson` → App 透传）：
+
+| 字段 | 含义 |
+|---|---|
+| `variantExclusive` | 组内变体互斥、不能共存；商店用「替换」而不是「另装一个」 |
+
+落点：`feed-sources.json`（`wine` / `wine-stable` 两条）→ `scripts/update-feed.mjs`
+（整对象透传）→ `crates/umanager-catalog/src/lib.rs`（`#[serde(default)] bool`）→
+`src/types.ts` / `src/variants.ts`（纯函数 `isExclusiveGroup` / `conflictingVariant`）。
+
+**判定宁可保守**：只有组内**每个**成员都声明 `variantExclusive` 才按互斥处理，漏标一个
+就退化成普通变体组（不会凭空出现「需要先卸载」的提示）。
+
+### 7.3 交互：一键替换，两次授权
+
+1. 详情页切到未安装的另一个版本线：抽屉里给出黄色提示「A 和 B 不能同时安装」，主操作
+   从「获取」变成「卸载 A」；
+2. 点它 → 打开**原有**的卸载对话框（不可变计划 → 特权复核 dry-run → 二次确认后
+   `dpkg --remove`）；
+3. 卸载成功后自动关闭该对话框，打开目标版本线的安装抽屉并**排队下载**；
+4. 下载完成后由用户点「安装」→ 原有的安装计划 → 特权复核 → 二次确认。
+
+也就是「一次点击发起替换」，但**没有任何特权操作被自动执行**：卸载与安装各自保留
+dry-run + Polkit 授权 + 二次确认，`helper` 仍然只按单条签名记录复核。
+
+### 7.4 已知限制
+
+- 卸载 / 安装的对象是 WineHQ 的**元包**（`winehq-stable` / `winehq-devel`，各约 1 KB），
+  真正的 `wine-stable` / `wine-devel` 运行时包由 apt 按依赖解析；替换后 dpkg 可能报
+  「依赖未满足」，helper 会按既有逻辑提示用 `sudo apt-get install -f` 让 apt 收尾
+  （apt 会顺带移除冲突的那条版本线）。这与 Wine 出现在 UManager 里的方式一致，不是本次
+  新增的行为。
+- 互斥组只有两条版本线时才算「切换」（staging 若日后加入，同样适用）。
+
+## 8. 测试覆盖
 
 | 位置 | 覆盖 |
 |---|---|
-| `src/variants.test.ts` | 分组、排序、主变体优先级、持久化键、折叠 |
-| `scripts/feed-variant-groups.test.mjs` | `feed-sources.json` 的变体元数据（成员数、标签唯一非空、恰好一个默认、包名唯一、`displayName` 一致） |
-| `crates/umanager-catalog/src/lib.rs` | 三个字段可选（老 catalog 可解析）+ 序列化回 camelCase |
+| `src/variants.test.ts` | 分组、排序、主变体优先级、持久化键、折叠、互斥组与冲突判定 |
+| `scripts/feed-variant-groups.test.mjs` | `feed-sources.json` 的变体元数据（成员数、标签唯一非空、恰好一个默认、包名唯一、`displayName` 一致、Wine 组互斥且默认稳定版） |
+| `crates/umanager-catalog/src/lib.rs` | 三个字段可选（老 catalog 可解析）+ 序列化回 camelCase + `variantExclusive` 缺省为 false |

@@ -20,7 +20,7 @@ import { debCategory, devToolCategory, orderedCategories, windowsCategory } from
 import { aptInstallCommand, aptPackageNames } from "./dependencyGap";
 import { readSortMode, sortModeLabels, sortSoftwareItems } from "./model";
 import type { SortMode } from "./model";
-import { foldVariantCandidates, groupVariants, isSwitchableGroup, variantLabelOf, variantSelectionKey } from "./variants";
+import { conflictingVariant, foldVariantCandidates, groupVariants, isSwitchableGroup, variantLabelOf, variantSelectionKey } from "./variants";
 import { VersionDate } from "./VersionDate";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
@@ -1287,7 +1287,11 @@ function SoftwareRow({ item, category, variantLabel, job, onOpen, onRemove, onLa
   </article>;
 }
 
-function InstallDrawer({ offer, job, variantPicker, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch }: { offer: InstallableApplication; job: DownloadJob | undefined; variantPicker?: ReactNode; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void }) {
+/// 「互斥变体」的替换入口：目标变体与已安装的同组变体不能共存时，抽屉里显示
+/// 说明，并把主操作换成「卸载 X」，卸载成功后由 App 接着打开目标变体的抽屉。
+type VariantSwitchPrompt = { label: string; targetLabel: string; onSwitch: () => void };
+
+function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch }: { offer: InstallableApplication; job: DownloadJob | undefined; variantPicker?: ReactNode; variantSwitch?: VariantSwitchPrompt | null; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void }) {
   const downloadPlan = offer.downloadPlan;
   const isWebsite = offer.sourceKind === "officialWebsite";
   const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
@@ -1338,6 +1342,15 @@ function InstallDrawer({ offer, job, variantPicker, onEnqueue, onCancelDownload,
   else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
   else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
   else { actionLabel = "获取"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
+  // 互斥变体：目标与已安装的同组变体不能共存，还没开始下载时把主操作换成
+  // 「卸载 X」，避免走到 dpkg 的 Conflicts 报错；已经下载/排队的情况保留原操作
+  // （抽屉里的提示仍可发起替换，卸载完成后那条下载正好可以安装）。
+  const conflictPending = variantSwitch !== null && variantSwitch !== undefined;
+  if (conflictPending && !done && !installRunning && !downloading && !queued && !ready && !downloadError) {
+    actionLabel = `卸载${variantSwitch.label}`;
+    actionDisabled = false;
+    onAction = variantSwitch.onSwitch;
+  }
   const heroAction = downloading && job?.progress
     ? <><HeroDownloadProgress progress={job.progress}/><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
     : queued
@@ -1358,6 +1371,11 @@ function InstallDrawer({ offer, job, variantPicker, onEnqueue, onCancelDownload,
     <div className="drawer-content">
       <div className="trust-banner trusted"><Icon name="shield"/><div><strong>来源验证通过 · {sourceText[offer.sourceKind] ?? offer.sourceKind}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
       {(downloading || queued) && <div className="message" role="status" aria-live="polite"><strong>下载在后台队列里进行</strong><span>可以点左上角「返回」继续浏览或安装别的软件；下载完成后到「下载」页或回到这里点「安装」。</span></div>}
+      {!installRunning && variantSwitch && <div className="dependency-warning" role="status">
+        <strong>「{variantSwitch.label}」和「{variantSwitch.targetLabel}」不能同时安装</strong>
+        <span>这两个安装包互相冲突（提供同一个系统包）。替换会先卸载已安装的「{variantSwitch.label}」，卸载完成后自动开始下载「{variantSwitch.targetLabel}」；实际安装仍由你确认并授权。</span>
+        <button className="secondary-button" onClick={variantSwitch.onSwitch}>先卸载{variantSwitch.label}</button>
+      </div>}
       <WhatsNew version={offer.candidateVersion ?? null} seconds={offer.versionUpdatedAtUnixSeconds} notes={offer.releaseNotes} url={offer.releaseNotesUrl}/>
       {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
       {downloadError && <div className="inline-error">{downloadError}</div>}
@@ -2189,6 +2207,8 @@ export default function App() {
   const [installableLoading, setInstallableLoading] = useState(false);
   const [installableError, setInstallableError] = useState<string | null>(null);
   const [installOffer, setInstallOffer] = useState<InstallableApplication | null>(null);
+  /// 互斥变体替换：正在卸载的兄弟变体卸载成功后，要继续安装哪个 applicationId。
+  const [variantSwitchTarget, setVariantSwitchTarget] = useState<string | null>(null);
   const [installationInfo, setInstallationInfo] = useState<InstallationInfo | null>(null);
   const [installationInfoLoading, setInstallationInfoLoading] = useState(false);
   const [installationInfoError, setInstallationInfoError] = useState<string | null>(null);
@@ -2600,6 +2620,54 @@ export default function App() {
     ? <VariantPicker variants={switchableVariants} selected={openApplicationId} onSelect={selectVariant}/>
     : null;
 
+  /// 当前抽屉展示的变体是否与「同组另一个已安装的变体」互斥（Wine 稳定版 /
+  /// 开发版）。互斥组才可能命中，国内版 / 国际版恒为 null。
+  const installedVariantIds = new Set(
+    (result?.packages ?? [])
+      .map((pkg) => applicationIdOf(pkg.packageName))
+      .filter((id): id is string => Boolean(id)),
+  );
+  const blockingVariant = switchableVariants && openApplicationId
+    ? conflictingVariant(switchableVariants, openApplicationId, installedVariantIds)
+    : null;
+  const blockingManaged = blockingVariant
+    ? result?.packages.find((pkg) => pkg.packageName === blockingVariant.packageName) ?? null
+    : null;
+  const openApplication = openApplicationId ? catalogByApplicationId[openApplicationId] : undefined;
+  /// 「替换」入口：先卸载已安装的那个变体（走原有不可变计划 + 特权复核 + 二次
+  /// 确认），卸载成功后再打开目标变体的安装抽屉并排队下载。安装仍然要用户自己
+  /// 点「安装」并二次确认，helper 的授权链一行都不用改。
+  const variantSwitch = blockingVariant && blockingManaged && openApplication
+    ? {
+        label: variantLabelOf(blockingVariant),
+        targetLabel: variantLabelOf(openApplication),
+        onSwitch: () => {
+          setInstallOffer(null); setUpdatePackage(null);
+          setVariantSwitchTarget(openApplicationId);
+          setRemovalPackage(blockingManaged);
+        },
+      }
+    : null;
+  /// 卸载成功后接着安装目标变体：关闭卸载对话框 -> 打开安装抽屉 -> 排队下载。
+  const finishVariantSwitch = () => {
+    const target = variantSwitchTarget;
+    setVariantSwitchTarget(null);
+    setRemovalPackage(null);
+    if (!target) return;
+    const application = catalogByApplicationId[target];
+    if (!application) return;
+    const offer = installableOffers?.find((entry) => entry.applicationId === target)
+      ?? installableOffers?.find((entry) => entry.packageName === application.packageName);
+    if (!offer) {
+      setNotice(`软件源里暂时找不到 ${application.displayName}（${variantLabelOf(application)}）的可安装信息，请先刷新列表。`);
+      return;
+    }
+    setUpdatePackage(null);
+    setInstallOffer(offer);
+    enqueuePackage(offer.packageName, offer.applicationId, offer.candidateVersion);
+    setNotice(`已卸载原版本，正在下载 ${application.displayName}（${variantLabelOf(application)}），下载完成后确认安装。`);
+  };
+
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark"><img src={umanagerLogo} alt=""/></span><strong>UManager</strong></div>
@@ -2680,9 +2748,9 @@ export default function App() {
     </main> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
-    {removalPackage && <RemovalDialog item={removalPackage} onClose={() => setRemovalPackage(null)} onRemoved={() => void refresh()}/>}
+    {removalPackage && <RemovalDialog item={removalPackage} onClose={() => { setRemovalPackage(null); setVariantSwitchTarget(null); }} onRemoved={() => { void refresh(); if (variantSwitchTarget) finishVariantSwitch(); }}/>}
     {installOffer && (
-      <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
+      <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} variantPicker={variantPicker} variantSwitch={variantSwitch} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
     )}
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>

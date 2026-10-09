@@ -220,6 +220,13 @@ pub struct Application {
     /// Variant shown when none of the group's packages is installed.
     #[serde(default)]
     pub variant_default: bool,
+    /// The group's members **cannot be installed side by side** (Wine's
+    /// `winehq-stable` / `winehq-devel` both provide and conflict with `wine`).
+    /// The store then offers an uninstall-then-install switch instead of a plain
+    /// "install the other variant". Optional and defaulted, so older catalogs
+    /// and older apps keep working either way.
+    #[serde(default)]
+    pub variant_exclusive: bool,
     pub source: SourceSpec,
 }
 
@@ -504,6 +511,7 @@ impl SelfUpdateSource {
             variant_group: None,
             variant_label: None,
             variant_default: false,
+            variant_exclusive: false,
             source: SourceSpec::ReleaseApi {
                 release_api_url: self.release_api_url.clone(),
                 release_api_hosts: self.release_api_hosts.clone(),
@@ -798,6 +806,7 @@ mod tests {
         assert!(application.variant_group.is_none());
         assert!(application.variant_label.is_none());
         assert!(!application.variant_default);
+        assert!(!application.variant_exclusive);
 
         // The international edition of the same product carries the grouping
         // metadata; serialization round-trips it back to the feed JSON shape.
@@ -823,9 +832,43 @@ mod tests {
         assert_eq!(application.variant_group.as_deref(), Some("trae"));
         assert_eq!(application.variant_label.as_deref(), Some("国际版"));
         assert!(!application.variant_default);
+        assert!(!application.variant_exclusive);
         let round_tripped = serde_json::to_value(&application).unwrap();
         assert_eq!(round_tripped["variantGroup"], "trae");
         assert_eq!(round_tripped["variantLabel"], "国际版");
         assert_eq!(round_tripped["variantDefault"], false);
+        assert_eq!(round_tripped["variantExclusive"], false);
+    }
+
+    #[test]
+    fn variant_exclusive_round_trips_and_defaults_to_false() {
+        // Wine's mutually exclusive pair declares the flag; it must survive the
+        // catalog round-trip so the store can offer the replace flow.
+        let exclusive = r#"{
+            "applicationId": "wine-stable",
+            "packageName": "winehq-stable",
+            "displayName": "Wine",
+            "vendor": "WineHQ",
+            "architecture": "amd64",
+            "variantGroup": "wine",
+            "variantLabel": "稳定版",
+            "variantDefault": true,
+            "variantExclusive": true,
+            "source": {
+                "kind": "aptRepository",
+                "repositoryUrl": "https://dl.winehq.org/wine-builds/ubuntu",
+                "repositoryHosts": ["dl.winehq.org"],
+                "packagesIndexUrl": "https://dl.winehq.org/wine-builds/ubuntu/dists/resolute/main/binary-amd64/Packages.gz"
+            }
+        }"#;
+        let application: Application = serde_json::from_str(exclusive).unwrap();
+        assert!(application.variant_exclusive);
+        let round_tripped = serde_json::to_value(&application).unwrap();
+        assert_eq!(round_tripped["variantExclusive"], true);
+
+        // A catalog entry that predates the field parses with it off.
+        let legacy = exclusive.replace("            \"variantExclusive\": true,\n", "");
+        let legacy: Application = serde_json::from_str(&legacy).unwrap();
+        assert!(!legacy.variant_exclusive);
     }
 }

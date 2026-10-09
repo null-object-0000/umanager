@@ -51,6 +51,10 @@ export interface CatalogApplication {
   variantLabel?: string | null;
   /// 组内没有任何变体被安装时，默认展示哪个变体。
   variantDefault?: boolean;
+  /// 组内变体**互斥**（如 Wine 的稳定版 / 开发版：两个包都 `Provides: wine`
+  /// 且 `Conflicts: wine`），不能同时安装。商店会提示「先卸载当前版本」并在
+  /// 卸载成功后接着安装目标变体；国内版 / 国际版这类可共存的组不设此字段。
+  variantExclusive?: boolean;
   source: CatalogSource;
 }
 

@@ -603,16 +603,49 @@
       "displayName": "Wine",
       "vendor": "WineHQ",
       "architecture": "amd64",
-      "description": "开源 Windows 兼容层，在 Linux 上直接运行 Windows 程序，无需虚拟机。由 WineHQ 官方 apt 仓库按 Ubuntu 版本分发。",
+      "description": "开源 Windows 兼容层，在 Linux 上直接运行 Windows 程序，无需虚拟机。开发版每两周发布一次，跟进上游最新改动；由 WineHQ 官方 apt 仓库按 Ubuntu 版本分发。",
       "homepage": "https://www.winehq.org/",
       "icon": "wine",
       "accentColor": "#722f37",
       "removable": true,
+      "variantGroup": "wine",
+      "variantLabel": "开发版",
+      "variantExclusive": true,
       "source": {
         "kind": "aptRepository",
         "repositoryUrl": "https://dl.winehq.org/wine-builds/ubuntu",
         "repositoryHosts": ["dl.winehq.org"],
         "packagesIndexUrl": "https://dl.winehq.org/wine-builds/ubuntu/dists/resolute/main/binary-amd64/Packages.gz"
+      },
+      "releaseNotes": {
+        "versionedMarkdownUrl": "https://raw.githubusercontent.com/wine-mirror/wine/wine-{upstream}/ANNOUNCE.md",
+        "releaseNotesUrl": "https://gitlab.winehq.org/wine/wine/-/releases/wine-{upstream}"
+      }
+    },
+    {
+      "applicationId": "wine-stable",
+      "packageName": "winehq-stable",
+      "displayName": "Wine",
+      "vendor": "WineHQ",
+      "architecture": "amd64",
+      "description": "开源 Windows 兼容层，在 Linux 上直接运行 Windows 程序，无需虚拟机。稳定版每年发布一次、只做修复；由 WineHQ 官方 apt 仓库按 Ubuntu 版本分发。",
+      "homepage": "https://www.winehq.org/",
+      "icon": "wine",
+      "accentColor": "#722f37",
+      "removable": true,
+      "variantGroup": "wine",
+      "variantLabel": "稳定版",
+      "variantDefault": true,
+      "variantExclusive": true,
+      "source": {
+        "kind": "aptRepository",
+        "repositoryUrl": "https://dl.winehq.org/wine-builds/ubuntu",
+        "repositoryHosts": ["dl.winehq.org"],
+        "packagesIndexUrl": "https://dl.winehq.org/wine-builds/ubuntu/dists/resolute/main/binary-amd64/Packages.gz"
+      },
+      "releaseNotes": {
+        "versionedMarkdownUrl": "https://raw.githubusercontent.com/wine-mirror/wine/wine-{upstream}/ANNOUNCE.md",
+        "releaseNotesUrl": "https://gitlab.winehq.org/wine/wine/-/releases/wine-{upstream}"
       }
     },
     {

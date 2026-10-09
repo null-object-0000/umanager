@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  conflictingVariant,
   foldVariantCandidates,
   foldVariantGroup,
   groupVariants,
+  isExclusiveGroup,
   isSwitchableGroup,
   orderVariants,
   pickVariant,
@@ -171,5 +173,32 @@ describe("variant selection persistence", () => {
     expect(readVariantSelection("qoder", [cn])).toBeNull();
     expect(readVariantSelection("qoder", [cn, intl])).toBe("qoder");
     expect(readVariantSelection(null, [cn, intl])).toBeNull();
+  });
+});
+
+describe("mutually exclusive variant groups (Wine 稳定版 / 开发版)", () => {
+  const devel = app({ applicationId: "wine", packageName: "winehq-devel", displayName: "Wine", variantGroup: "wine", variantLabel: "开发版", variantExclusive: true });
+  const stable = app({ applicationId: "wine-stable", packageName: "winehq-stable", displayName: "Wine", variantGroup: "wine", variantLabel: "稳定版", variantDefault: true, variantExclusive: true });
+  const group = [stable, devel];
+
+  it("treats a group as exclusive only when every member declares it", () => {
+    expect(isExclusiveGroup(group)).toBe(true);
+    expect(isExclusiveGroup([stable, { ...devel, variantExclusive: undefined }])).toBe(false);
+    expect(isExclusiveGroup([stable])).toBe(false);
+    // 国内版 / 国际版可以共存：没有互斥标记，不提示卸载。
+    expect(isExclusiveGroup([cn, intl])).toBe(false);
+  });
+
+  it("finds the installed sibling that blocks installing the target", () => {
+    expect(conflictingVariant(group, "wine-stable", ["wine"])?.applicationId).toBe("wine");
+    expect(conflictingVariant(group, "wine", ["wine-stable"])?.applicationId).toBe("wine-stable");
+  });
+
+  it("reports no conflict when the target is already installed or nothing is installed", () => {
+    expect(conflictingVariant(group, "wine", ["wine"])).toBeNull();
+    expect(conflictingVariant(group, "wine-stable", [])).toBeNull();
+    expect(conflictingVariant(group, "wine-stable", ["cursor"])).toBeNull();
+    // 可共存的组永远不会因为兄弟已安装而要求先卸载。
+    expect(conflictingVariant([cn, intl], "qoder", ["qoder-cn"])).toBeNull();
   });
 });

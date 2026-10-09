@@ -47,7 +47,8 @@
       "bitwarden": "system",
       "umanager": "system",
       "qq-music": "media",
-      "wine": "dev-tools"
+      "wine": "dev-tools",
+      "wine-stable": "dev-tools"
     },
     "developmentTools": {
       "claude-code": "ai-tools",

@@ -1275,6 +1275,8 @@ nav { display: grid; gap: 2px; }
 .dependency-warning p { margin: 2px 0 0; color: var(--yellow-text); font-size: var(--fs-sm); line-height: 1.5; }
 /* 这些依赖不在任何已配置的 apt 源里，apt 无法补装；用红色与「可补装」区分开。 */
 .dependency-warning li.dependency-warning-unavailable code { color: var(--red-text); }
+/* 互斥变体的「先卸载 X」按钮：警告框是纵向 flex，按钮不要拉满整行。 */
+.dependency-warning .secondary-button { align-self: flex-start; margin-top: 3px; }
 .dependency-warning p strong { color: var(--red-text); }
 
 /* =============================================================================
