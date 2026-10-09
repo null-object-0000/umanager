@@ -180,6 +180,9 @@
       "icon": "feishu",
       "accentColor": "#2863f5",
       "removable": true,
+      "variantGroup": "feishu",
+      "variantLabel": "国内版",
+      "variantDefault": true,
       "source": {
         "kind": "versionEndpoint",
         "versionEndpointUrl": "https://www.feishu.cn/api/package_info",
@@ -263,6 +266,9 @@
       "icon": "dida",
       "accentColor": "#ec4b45",
       "removable": true,
+      "variantGroup": "dida",
+      "variantLabel": "国内版",
+      "variantDefault": true,
       "source": {
         "kind": "stableDownloadEndpoint",
         "officialPageUrl": "https://dida365.com/download",
@@ -722,6 +728,54 @@
         "downloadHosts": ["download.qoder.com"],
         "pageVersionMarker": "",
         "downloadLinkFileName": "Qoder-linux-amd64.deb"
+      }
+    },
+    {
+      "applicationId": "lark",
+      "packageName": "bytedance-lark-stable",
+      "displayName": "Lark",
+      "vendor": "字节跳动",
+      "architecture": "amd64",
+      "description": "字节跳动出品的国际化一站式协作平台，整合即时沟通、日历、云文档、音视频会议与工作台，与飞书是两个互相独立的安装包。",
+      "homepage": "https://www.larksuite.com/download",
+      "icon": "lark",
+      "accentColor": "#2863f5",
+      "removable": true,
+      "variantGroup": "feishu",
+      "variantLabel": "国际版",
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://www.larksuite.com/api/package_info",
+        "versionEndpointHosts": ["www.larksuite.com"],
+        "query": { "platform": 10 },
+        "payloadKind": "json",
+        "versionField": "data.version_number",
+        "downloadUrlField": "data.download_link",
+        "downloadHosts": ["*.larksuitecdn.com"],
+        "resolveAtDownload": true
+      }
+    },
+    {
+      "applicationId": "ticktick",
+      "packageName": "ticktick",
+      "displayName": "TickTick",
+      "vendor": "滴答清单（TickTick）",
+      "architecture": "amd64",
+      "description": "跨平台待办事项与任务管理应用国际版，支持清单、日历、番茄钟与习惯打卡，多端实时同步；与滴答清单国内版互相独立。",
+      "homepage": "https://ticktick.com/download",
+      "icon": "ticktick",
+      "accentColor": "#ec4b45",
+      "removable": true,
+      "variantGroup": "dida",
+      "variantLabel": "国际版",
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://ticktick.com/download",
+        "officialPageHosts": ["ticktick.com"],
+        "downloadUrl": "https://ticktick.com/static/getApp/download?type=linux_deb_x64",
+        "downloadHosts": ["ticktick.com", "download.ticktick.app"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "ticktick-8.0.20-amd64.deb"
       }
     }
   ],

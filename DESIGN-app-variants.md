@@ -8,19 +8,22 @@
 
 ## 1. 背景
 
-Qoder 与 Trae 都存在两个互相独立的发行版：
+Qoder、Trae、飞书、滴答清单都存在两个互相独立的发行版：
 
 | 产品 | 国内版（包名） | 国际版（包名） |
 |---|---|---|
 | Qoder | `qoder-cn`（qoder.cn，北京 OSS） | `qoder`（qoder.com，GA 加速） |
 | Trae | `trae-cn`（trae.cn，`lf-cdn.trae.com.cn`） | `trae`（trae.ai，`lf-cdn.trae.ai`） |
+| 飞书 / Lark | `bytedance-feishu-stable`（feishu.cn，`*.feishucdn.com`） | `bytedance-lark-stable`（larksuite.com，`*.larksuitecdn.com`） |
+| 滴答清单 / TickTick | `dida`（dida365.com，`cdn.dida365.cn`） | `ticktick`（ticktick.com → `download.ticktick.app`） |
 
+四组的账号 / 数据 / 更新通道互不相通，包名也不同（`Conflicts` 只与自身或自己的
+alpha/beta 通道冲突），因此**可以同时安装**，也必须由用户显式选择要装哪一个。
+注意后两组在国际市场上用的是**另一个产品名**（Lark、TickTick），所以卡片标题会跟着
+主变体变（见 §4.1）；前两组两个市场共用同一个名字。
 
-两者的账号、Credits、模型、部署区域互不相通（见[阿里云说明](https://developer.aliyun.com/article/1768159)），
-包名也不同（`Conflicts` 只与自身冲突），因此**可以同时安装**，也必须由用户显式选择要装哪一个。
-
-把它们做成两条独立目录条目（本设计之前的状态）在功能上已经可用，但商店里会出现两张
-同名卡片，用户看不出「这两个是同一款软件的两个版本」。
+把每组做成两条独立目录条目（本设计之前的状态）在功能上已经可用，但商店里会出现两张
+卡片，用户看不出「这两个是同一款软件的两个版本」。
 
 ## 2. 方案选择：展示层折叠，而不是 feed 级 channels
 
@@ -106,7 +109,8 @@ feed 顺序。
 | 2 `vendors.json` 编译期事实来源 | 否，未改动 |
 | 3 新增受管软件只改 `feed-sources.json` | 是同一路径；本次只加字段 |
 | 4 helper 只信任内置公钥 + 计划内已签名 `catalogJson` | 否。计划仍携带**单条**记录，helper 复核逻辑未改 |
-| 5 下载域名精确白名单 | 否。每个变体各自的 `downloadHosts` 不变，切换只是换一条已签名记录 |
+| 5 下载域名精确白名单 | 否。每个变体各自的 `downloadHosts` 不变，切换只是换一条已签名记录。新增的 Lark 走 `*.larksuitecdn.com`：与飞书的 `*.feishucdn.com` 属**同一类**窄例外（ByteDance 的 CDN 分片主机名会漂移，实测飞书在两次调用间就从 `lf3-…` 变到 `lf16-…`），helper 与生成器共用同一套 `host_matches` / `hostAllowedInList` 语义 |
+| （§7）互斥变体的替换编排 | 否。替换 = 依次执行两条**既有**计划（卸载计划 + 安装计划），每条都保留 dry-run、Polkit 授权与二次确认；计划仍只携带单条签名记录 |
 | 6 下载只经后台队列 | 否，未改动 |
 | 7 固定 argv、不经 shell | 否，未改动 |
 | 8 计划不可变、15 分钟有效期 | 否，未改动 |

@@ -32,9 +32,10 @@ describe("feed-sources.json variant groups", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  // 这两个产品是「国内版 / 国际版」需求的来源；默认变体必须是国内版（面向国内
-  // 用户，且国内版包名以 `-cn` 结尾）。
-  for (const group of ["qoder", "trae"]) {
+  // 这几个产品是「国内版 / 国际版」需求的来源；每组都必须恰好是这两条版本线，
+  // 且默认变体是面向国内用户的那一个。
+  const PRODUCT_GROUPS = ["qoder", "trae", "feishu", "dida"];
+  for (const group of PRODUCT_GROUPS) {
     describe(`product ${group}`, () => {
       it("offers exactly the 国内版 / 国际版 pair", () => {
         expect(groups.has(group)).toBe(true);
@@ -44,7 +45,7 @@ describe("feed-sources.json variant groups", () => {
       it("defaults to the China-market build", () => {
         const fallback = groups.get(group).find((member) => member.variantDefault === true);
         expect(fallback).toBeDefined();
-        expect(fallback.packageName.endsWith("-cn")).toBe(true);
+        expect(fallback.variantLabel).toBe("国内版");
       });
     });
   }
@@ -89,8 +90,16 @@ describe("feed-sources.json variant groups", () => {
         expect(new Set(packages).size).toBe(members.length);
       });
 
-      it("shares one displayName so the card shows the product, not the market", () => {
-        expect(new Set(members.map((member) => member.displayName)).size).toBe(1);
+      it("names every variant, and the China-market default carries a CN package name", () => {
+        for (const member of members) {
+          expect(typeof member.displayName).toBe("string");
+          expect(member.displayName.trim().length).toBeGreaterThan(0);
+        }
+        const fallback = members.find((member) => member.variantDefault === true);
+        expect(fallback).toBeDefined();
+        // 默认变体一律是国内版：包名以 `-cn` 结尾，或就是国内条目自己的包名。
+        const chinaPackageNames = members.map((member) => member.packageName).filter((name) => String(name).endsWith("-cn"));
+        expect(chinaPackageNames.length === 0 || chinaPackageNames.includes(fallback.packageName)).toBe(true);
       });
     });
   }

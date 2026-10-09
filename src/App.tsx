@@ -1239,6 +1239,11 @@ function foldVariantItems(items: SoftwareItem[], catalog: Record<string, Catalog
     container.variants = result.variants;
     container.variantGroupId = result.group;
     container.variantLabel = variantLabelOf(result.primaryApplication);
+    // 名称 / 厂商 / 描述跟着「当前展示的变体」走：Lark 与飞书、TickTick 与滴答清单
+    // 在国际市场上是不同的产品名，卡片必须显示所选变体的那一套文案。
+    container.displayName = result.primaryApplication.displayName;
+    container.vendor = result.primaryApplication.vendor;
+    container.description = result.primaryApplication.description ?? result.primary.description ?? null;
   }
   return ordered;
 }
@@ -2411,8 +2416,8 @@ export default function App() {
   const updatableItems = useMemo(() => softwareItems.filter((item) => item.kind === "deb" ? item.deb!.updateState === "updateAvailable" : item.kind === "devTool" ? item.toolState?.updateAvailable === true : item.windows?.state.updateAvailable === true), [softwareItems]);
   const visibleSoftware = useMemo(() => {
     const filtered = softwareItems.filter((item) => {
-      // 变体标签也参与搜索：搜「国际版」应该能找到那张折叠后的卡片。
-      const variantText = item.variants?.map((variant) => variantLabelOf(variant)).join(" ") ?? "";
+      // 变体标签与各变体的产品名都参与搜索：搜「国际版」或「Lark」都能找到那张卡片。
+      const variantText = item.variants?.map((variant) => `${variant.displayName} ${variantLabelOf(variant)}`).join(" ") ?? "";
       const searchable = `${item.displayName} ${item.vendor}${item.kind === "deb" ? ` ${item.deb!.packageName}` : ""}${item.kind === "windows" ? " wine windows" : ""} ${variantText}`.toLowerCase();
       const textMatch = searchable.includes(query.toLowerCase());
       const categoryMatch = categoryFilter === "全部" || item.category === categoryFilter;
