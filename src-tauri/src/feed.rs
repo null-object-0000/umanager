@@ -16,6 +16,11 @@ const FEED_TTL: Duration = Duration::from_secs(10 * 60);
 /// Roughly twice per CI publish, so a new vendor version reaches a running
 /// client within ~15 minutes instead of ~30.
 const FEED_REFRESH_INTERVAL: Duration = Duration::from_secs(15 * 60);
+/// Minimum spacing between two background refreshes spawned from the *read* path.
+/// `entry_for` runs once per application, so an update check over N apps must not
+/// queue N network fetches; this also throttles the retry that recovers a feed
+/// whose source feeds are still missing.
+const BACKGROUND_REFRESH_BACKOFF: Duration = Duration::from_secs(30);
 const FEED_SCHEMA_VERSION: u32 = 2;
 /// Path (relative to the app cache dir) of the persisted, signature-verified feed.
 const FEED_CACHE_FILE: &str = "feed/feed-cache.json";
@@ -228,6 +233,10 @@ struct CachedFeed {
 #[derive(Clone)]
 struct CachedSourceFeed {
     feed: Feed,
+    /// The registry public key this copy was verified against. Kept so a central
+    /// refresh can tell whether the copy is still valid for the new registry:
+    /// a rotated key invalidates it even when the source id is unchanged.
+    public_key_hex: String,
 }
 
 /// Per-source status surfaced to the 「软件源」 UI.
@@ -257,6 +266,10 @@ struct FeedState {
     catalog_json: Option<String>,
     catalog_signature: Option<String>,
     extra_applications: Vec<Application>,
+    /// When the read path last spawned a background refresh; throttles the
+    /// per-application calls of one update check into a single network fetch
+    /// (see `BACKGROUND_REFRESH_BACKOFF`).
+    last_background_refresh_unix_seconds: Option<u64>,
 }
 
 fn initial_status(catalog: &Catalog) -> FeedStatus {
@@ -299,6 +312,7 @@ fn state_lock() -> &'static Mutex<FeedState> {
             catalog_json: None,
             catalog_signature: None,
             extra_applications: Vec::new(),
+            last_background_refresh_unix_seconds: None,
         })
     })
 }
@@ -425,7 +439,18 @@ pub async fn refresh_once(force: bool) -> Result<Feed, String> {
         if let Some(entry) = guard.cache.get(&feed_config.url)
             && cached_feed_is_fresh(entry)
         {
-            return Ok(entry.feed.clone());
+            // Always hand back the *effective* (merged) feed: the bare central
+            // entry is thin on v3 and would look like "no applications at all".
+            let merged = merged_feed(&entry.feed, &guard.sources);
+            // …and a fresh central whose enabled source feeds never arrived in
+            // memory cannot answer for any feed-provided app either. That state
+            // still has real work left, so fall through instead of serving an
+            // empty feed for the rest of the TTL.
+            if merged_feed_is_usable(&merged)
+                && missing_registered_sources(&guard, &entry.feed) == 0
+            {
+                return Ok(merged);
+            }
         }
     }
     fetch_and_store(feed_config).await
@@ -443,14 +468,35 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
     // as-is (stale-while-revalidate) and let a background refresh update it.
     {
         let state = state_lock();
-        let guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
+        let mut guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
         if let Some(entry) = guard.cache.get(&feed_url) {
             let stale = !cached_feed_is_fresh(entry);
             let feed = merged_feed(&entry.feed, &guard.sources);
+            let central = entry.feed.clone();
+            // Enabled sources still absent from memory mean this feed cannot
+            // answer for their apps even though the central copy is fresh.
+            let missing_sources = missing_registered_sources(&guard, &central);
+            // Throttle: this runs once per application, so one update check must
+            // queue at most one background fetch (it would otherwise also retry
+            // the network once per app while a fetch is failing).
+            let now = unix_timestamp_now();
+            let may_spawn = guard
+                .last_background_refresh_unix_seconds
+                .is_none_or(|last| now.saturating_sub(last) >= BACKGROUND_REFRESH_BACKOFF.as_secs());
+            let spawn = (stale || missing_sources > 0) && may_spawn;
+            if spawn {
+                guard.last_background_refresh_unix_seconds = Some(now);
+            }
             drop(guard);
-            if stale {
+            if spawn {
                 tauri::async_runtime::spawn(async move {
-                    let _ = refresh_once(false).await;
+                    if stale {
+                        let _ = refresh_once(false).await;
+                    } else {
+                        // Only the source feeds are missing, so skip re-downloading
+                        // the central feed the TTL still considers fresh.
+                        recover_source_feeds(central).await;
+                    }
                 });
             }
             return Ok(feed);
@@ -502,7 +548,7 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
         // A v3 central whose source feeds are not yet cached (first run after
         // upgrade, before any source-<id>.json exists) cannot serve applications
         // from disk — fall through so the network path fetches them now.
-        if !merged.applications.is_empty() || merged.sources.is_empty() {
+        if merged_feed_is_usable(&merged) {
             return Ok(merged);
         }
     }
@@ -510,10 +556,18 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
     // 3. Network — serialized so concurrent startup requests don't double-fetch.
     let _guard = fetch_lock().lock().await;
     {
+        // A concurrent caller may have finished a full fetch while we waited for
+        // the lock. Serve *its merged result*, never the raw central entry: on a
+        // v3 central that entry has no applications, so returning it would make
+        // every feed-provided app report 「元数据源中缺少 …」 even though the
+        // source feeds are already in memory.
         let state = state_lock();
         let guard = state.lock().map_err(|_| "元数据缓存锁失效".to_owned())?;
         if let Some(entry) = guard.cache.get(&feed_url) {
-            return Ok(entry.feed.clone());
+            let merged = merged_feed(&entry.feed, &guard.sources);
+            if merged_feed_is_usable(&merged) {
+                return Ok(merged);
+            }
         }
     }
     fetch_and_store(feed_config).await
@@ -555,9 +609,11 @@ async fn fetch_and_store(feed_config: &MetadataFeed) -> Result<Feed, String> {
                         feed: fetched.feed.clone(),
                     },
                 );
-                // A new central may have changed the registry; drop stale sources.
-                guard.sources.clear();
-                guard.source_status.clear();
+                // A new central may have changed the registry: drop only the
+                // sources it no longer vouches for, and keep the rest so the
+                // merged feed never goes empty while the source feeds are
+                // re-fetched below (see `retain_registered_sources`).
+                retain_registered_sources(&mut guard, &fetched.feed);
             }
             // v3: fetch + verify each enabled source feed (network, no lock held).
             if !fetched.feed.sources.is_empty() {
@@ -676,7 +732,10 @@ fn load_disk_source_feeds(cache_dir: &Path, central: &Feed, guard: &mut FeedStat
         }
         guard.sources.insert(
             source.id.clone(),
-            CachedSourceFeed { feed: feed.clone() },
+            CachedSourceFeed {
+                feed: feed.clone(),
+                public_key_hex: source.public_key_hex.trim().to_owned(),
+            },
         );
         guard.source_status.insert(
             source.id.clone(),
@@ -785,6 +844,85 @@ pub fn source_statuses() -> Vec<FeedSourceStatus> {
         .collect()
 }
 
+/// Drop the cached source feeds the (possibly new) central registry no longer
+/// vouches for: a source that disappeared, one whose registry public key changed
+/// (its cached copy was verified under the old key), or one the registry keeps
+/// disabled — those are exactly the sources this refresh does *not* re-fetch.
+///
+/// Sources that are still registered, still under the same key and still enabled
+/// are deliberately kept. `refresh_v3_sources` re-fetches them over the network
+/// only *after* this point, and clearing them here used to leave the merged feed
+/// with **zero** applications for the whole duration of that fetch (seconds, or
+/// up to the HTTP timeout). Since a v3 central is thin, every feed-provided app
+/// then failed its update check with 「元数据源中缺少 … 的最新版本信息」 until the
+/// fetch finished — the retry that "just works" seconds later. Keeping the
+/// last-known-good copy makes a refresh monotonic: it can replace or add source
+/// data, never blank it out.
+fn retain_registered_sources(guard: &mut FeedState, central: &Feed) {
+    let registry: HashMap<&str, (&str, bool)> = central
+        .sources
+        .iter()
+        .map(|source| {
+            (
+                source.id.as_str(),
+                (source.public_key_hex.trim(), source.default_enabled),
+            )
+        })
+        .collect();
+    guard.sources.retain(|id, cached| {
+        registry
+            .get(id.as_str())
+            .is_some_and(|(key, enabled)| *enabled && *key == cached.public_key_hex)
+    });
+    guard
+        .source_status
+        .retain(|id, _| registry.contains_key(id.as_str()));
+}
+
+/// Whether a merged feed can actually answer `entry_for` for the apps the store
+/// manages. A v3 central carries no applications of its own, so an empty
+/// `applications` map means the source feeds are not available (yet) and the
+/// caller must not serve it — it has to go to the network instead. A v2 central
+/// has no registry at all, so its own map is authoritative even when empty.
+fn merged_feed_is_usable(merged: &Feed) -> bool {
+    !merged.applications.is_empty() || merged.sources.is_empty()
+}
+
+/// Enabled sources in the central registry that have no verified feed in memory —
+/// i.e. the work a refresh still has left. Non-zero means the merged feed cannot
+/// answer for those sources' applications, so a "fresh enough" central is *not*
+/// a reason to skip the refresh.
+fn missing_registered_sources(guard: &FeedState, central: &Feed) -> usize {
+    central
+        .sources
+        .iter()
+        .filter(|source| source.default_enabled && !guard.sources.contains_key(&source.id))
+        .count()
+}
+
+/// Re-fetch the registry's source feeds without re-downloading the (still fresh)
+/// central feed. Used when the in-memory source feeds are missing or incomplete,
+/// e.g. because every source fetch failed: without this, the fresh central entry
+/// would make `refresh_once(false)` return early and every feed-provided app
+/// would keep reporting 「元数据源中缺少 … 的最新版本信息」 for the rest of the TTL.
+async fn recover_source_feeds(central: Feed) {
+    if central.sources.is_empty() {
+        return;
+    }
+    let _guard = fetch_lock().lock().await;
+    // Another refresh may have filled the sources in while we waited for the lock.
+    let still_missing = {
+        let state = state_lock();
+        match state.lock() {
+            Ok(guard) => missing_registered_sources(&guard, &central) > 0,
+            Err(_) => true,
+        }
+    };
+    if still_missing {
+        refresh_v3_sources(&central, unix_timestamp_now()).await;
+    }
+}
+
 /// The feed the app actually reads: for a v2 central this is the central feed
 /// itself; for a v3 central (thin, no applications) it is the union of the
 /// verified source feeds' applications, with selfUpdate / tools / categories /
@@ -800,6 +938,12 @@ fn merged_feed(central: &Feed, sources: &HashMap<String, CachedSourceFeed>) -> F
                 applications.entry(id.clone()).or_insert_with(|| entry.clone());
             }
         }
+    }
+    // A central that carries applications of its own (a v2-style fat central that
+    // also publishes a registry) must not have them dropped: source entries win
+    // for the ids they define, and the central fills the rest.
+    for (id, entry) in &central.applications {
+        applications.entry(id.clone()).or_insert_with(|| entry.clone());
     }
     Feed {
         windows_applications: central.windows_applications.clone(),
@@ -854,6 +998,7 @@ async fn refresh_v3_sources(central: &Feed, now: u64) {
                     source.id.clone(),
                     CachedSourceFeed {
                         feed: fetched.feed.clone(),
+                        public_key_hex: source.public_key_hex.trim().to_owned(),
                     },
                 );
                 guard.source_status.insert(
@@ -1560,6 +1705,7 @@ mod tests {
         sources.insert(
             "tencent".to_owned(),
             CachedSourceFeed {
+                public_key_hex: "67ccb44779ca8123b844dccf62b42d8e4a9139eeefd8d7f3cbd11e9940dd25b5".to_owned(),
                 feed: Feed {
                     windows_applications: HashMap::new(),
                     schema_version: 3,
@@ -1575,6 +1721,7 @@ mod tests {
         sources.insert(
             "common".to_owned(),
             CachedSourceFeed {
+                public_key_hex: "35a2e5a3961d01d952ea45da7e7fd3238dedda2d431c26bbc3bf07f12929ffee".to_owned(),
                 feed: Feed {
                     windows_applications: HashMap::new(),
                     schema_version: 3,
@@ -1713,6 +1860,7 @@ mod tests {
         sources.insert(
             "tencent".to_owned(),
             CachedSourceFeed {
+                public_key_hex: TEN_CENT_KEY_HEX.to_owned(),
                 feed: Feed {
                     windows_applications: HashMap::new(),
                     schema_version: 3,
@@ -1735,6 +1883,7 @@ mod tests {
         sources.insert(
             "common".to_owned(),
             CachedSourceFeed {
+                public_key_hex: COMMON_KEY_HEX.to_owned(),
                 feed: Feed {
                     windows_applications: HashMap::new(),
                     schema_version: 3,
@@ -1773,10 +1922,262 @@ mod tests {
             catalog_json: None,
             catalog_signature: None,
             extra_applications: Vec::new(),
+            last_background_refresh_unix_seconds: None,
         };
         let apps = source_extra_applications(&guard);
         // Only the source with a valid source-signed catalog contributes.
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].application_id, "qq");
+    }
+
+    /// Real registry keys of the two published sources, so the tests below reason
+    /// about the same ids/keys as production.
+    const TENCENT_KEY: &str = "67ccb44779ca8123b844dccf62b42d8e4a9139eeefd8d7f3cbd11e9940dd25b5";
+    const COMMON_KEY: &str = "35a2e5a3961d01d952ea45da7e7fd3238dedda2d431c26bbc3bf07f12929ffee";
+
+    fn test_entry(version: &str) -> FeedApplicationEntry {
+        FeedApplicationEntry {
+            package_name: "pkg".to_owned(),
+            version: version.to_owned(),
+            architecture: "amd64".to_owned(),
+            size: 1,
+            sha256: "a".repeat(64),
+            download_url: "https://e.com/pkg.deb".to_owned(),
+            release_tag: None,
+            asset_name: None,
+            website_version: None,
+            version_updated_at_unix_seconds: None,
+            version_updated_at_source: None,
+            release_notes: None,
+            release_notes_url: None,
+        }
+    }
+
+    fn test_feed(applications: &[(&str, &str)]) -> Feed {
+        Feed {
+            windows_applications: HashMap::new(),
+            schema_version: 3,
+            generated_at_unix_seconds: 100,
+            applications: applications
+                .iter()
+                .map(|(id, version)| ((*id).to_owned(), test_entry(version)))
+                .collect(),
+            catalog_json: None,
+            catalog_signature: None,
+            self_update: None,
+            development_tools: HashMap::new(),
+            categories: Vec::new(),
+            category_assignments: FeedCategoryAssignments {
+                applications: HashMap::new(),
+                development_tools: HashMap::new(),
+            },
+            source: None,
+            sources: Vec::new(),
+        }
+    }
+
+    fn test_source_info(id: &str, public_key_hex: &str) -> FeedSourceInfo {
+        FeedSourceInfo {
+            id: id.to_owned(),
+            name: None,
+            role: None,
+            url: format!("https://e.com/v3/feed.{id}.json"),
+            hosts: vec!["e.com".to_owned()],
+            public_key_hex: public_key_hex.to_owned(),
+            default_enabled: true,
+            endorsement: None,
+        }
+    }
+
+    fn cached_source(public_key_hex: &str, applications: &[(&str, &str)]) -> CachedSourceFeed {
+        CachedSourceFeed {
+            feed: test_feed(applications),
+            public_key_hex: public_key_hex.to_owned(),
+        }
+    }
+
+    fn test_state(sources: Vec<(&str, CachedSourceFeed)>) -> FeedState {
+        FeedState {
+            cache: HashMap::new(),
+            sources: sources
+                .into_iter()
+                .map(|(id, cached)| (id.to_owned(), cached))
+                .collect(),
+            status: FeedStatus {
+                configured: true,
+                url: None,
+                signature_enforced: true,
+                signature_verified: false,
+                last_success_at_unix_seconds: None,
+                generated_at_unix_seconds: None,
+                applications: 0,
+                development_tools: 0,
+                last_error: None,
+                serving_from_cache: false,
+            },
+            source_status: HashMap::new(),
+            catalog_json: None,
+            catalog_signature: None,
+            extra_applications: Vec::new(),
+            last_background_refresh_unix_seconds: None,
+        }
+    }
+
+    /// Regression for the reported incident: 「Visual Studio Code / Google Chrome /
+    /// ChatGPT Desktop / FlClash / 微信 / 腾讯会议 更新检查失败：元数据源中缺少 … 的
+    /// 最新版本信息」, intermittently, on all six at once, fixed by retrying.
+    ///
+    /// The six apps live in *two different* v3 source feeds (common + tencent), so
+    /// all six failing together means the merged feed had no source applications
+    /// at all. `fetch_and_store` cleared every cached source right after storing
+    /// the new central and only then re-fetched the sources over the network, so
+    /// during that window `merged_feed` produced a thin central with zero
+    /// applications. A refresh must be monotonic: pruning the registry must keep
+    /// every source the new central still vouches for.
+    #[test]
+    fn central_refresh_never_blanks_registered_sources() {
+        let mut central = test_feed(&[]);
+        central.sources = vec![
+            test_source_info("tencent", TENCENT_KEY),
+            test_source_info("common", COMMON_KEY),
+        ];
+        let mut guard = test_state(vec![
+            ("tencent", cached_source(TENCENT_KEY, &[("wechat", "4.0"), ("wemeet", "3.19")])),
+            (
+                "common",
+                cached_source(
+                    COMMON_KEY,
+                    &[
+                        ("vscode", "1.95.0"),
+                        ("google-chrome", "131.0"),
+                        ("chatgpt", "1.2024"),
+                        ("flclash", "0.8.70"),
+                    ],
+                ),
+            ),
+        ]);
+
+        retain_registered_sources(&mut guard, &central);
+
+        // Both sources survive the refresh, so the merged feed keeps answering
+        // every feed-provided app instead of blanking out mid-refresh.
+        assert_eq!(guard.sources.len(), 2);
+        let merged = merged_feed(&central, &guard.sources);
+        assert!(merged_feed_is_usable(&merged));
+        assert_eq!(merged.applications.len(), 6);
+        for id in ["vscode", "google-chrome", "chatgpt", "flclash", "wechat", "wemeet"] {
+            assert!(merged.applications.contains_key(id), "{id} vanished from the merged feed");
+        }
+        assert_eq!(merged.applications["wechat"].version, "4.0");
+    }
+
+    /// Registry changes must still take effect: a source the new central no longer
+    /// lists is dropped, and so is one whose registry public key rotated (its
+    /// cached copy was verified under the old key).
+    #[test]
+    fn central_refresh_drops_sources_the_registry_no_longer_vouches_for() {
+        const ROTATED_TENCENT_KEY: &str =
+            "521de8076ad5777a3f715168e9a5a164f7f0478a132b7bf7e3829ac41e4e74a2";
+        let mut central = test_feed(&[]);
+        central.sources = vec![test_source_info("tencent", ROTATED_TENCENT_KEY)];
+        let mut guard = test_state(vec![
+            ("tencent", cached_source(TENCENT_KEY, &[("wechat", "4.0")])),
+            ("common", cached_source(COMMON_KEY, &[("vscode", "1.95.0")])),
+        ]);
+
+        retain_registered_sources(&mut guard, &central);
+
+        assert!(guard.sources.is_empty());
+    }
+
+    /// A source the registry keeps disabled is not re-fetched, so its cached copy
+    /// must still be dropped — the fixed refresh only preserves the sources it is
+    /// about to refresh.
+    #[test]
+    fn central_refresh_drops_a_disabled_source() {
+        let mut central = test_feed(&[]);
+        let mut source = test_source_info("common", COMMON_KEY);
+        source.default_enabled = false;
+        central.sources = vec![source];
+        let mut guard = test_state(vec![(
+            "common",
+            cached_source(COMMON_KEY, &[("vscode", "1.95.0")]),
+        )]);
+
+        retain_registered_sources(&mut guard, &central);
+
+        assert!(guard.sources.is_empty());
+    }
+
+    /// A *fresh* central is not a reason to skip the refresh when an enabled
+    /// source feed never made it into memory: counting that work is what makes
+    /// `load()`/`refresh_once` self-heal instead of serving a feed that cannot
+    /// answer for the source's applications for a whole TTL.
+    #[test]
+    fn missing_registered_sources_counts_enabled_sources_without_a_cached_feed() {
+        let mut central = test_feed(&[]);
+        let mut disabled = test_source_info("legacy", COMMON_KEY);
+        disabled.default_enabled = false;
+        central.sources = vec![
+            test_source_info("tencent", TENCENT_KEY),
+            test_source_info("common", COMMON_KEY),
+            disabled,
+        ];
+
+        // Nothing cached yet: both enabled sources are outstanding work.
+        let guard = test_state(Vec::new());
+        assert_eq!(missing_registered_sources(&guard, &central), 2);
+
+        // A partially refreshed registry still reports the remaining source, so a
+        // half-empty feed (retry fails for those apps) also self-heals.
+        let guard = test_state(vec![("common", cached_source(COMMON_KEY, &[("vscode", "1.95.0")]))]);
+        assert_eq!(missing_registered_sources(&guard, &central), 1);
+
+        // Fully cached: the refresh has no work left.
+        let guard = test_state(vec![
+            ("tencent", cached_source(TENCENT_KEY, &[("wechat", "4.0")])),
+            ("common", cached_source(COMMON_KEY, &[("vscode", "1.95.0")])),
+        ]);
+        assert_eq!(missing_registered_sources(&guard, &central), 0);
+
+        // A v2 central has no registry, so it never asks for a source refresh.
+        assert_eq!(missing_registered_sources(&test_state(Vec::new()), &test_feed(&[])), 0);
+    }
+
+    /// A v3 central carries no applications of its own, so an empty merged map
+    /// means "the source feeds are not available (yet)" — the caller must go to
+    /// the network rather than serve it and report every app as missing.
+    #[test]
+    fn merged_feed_without_sources_is_only_usable_for_a_registry_less_central() {
+        // v3 thin central, sources registered but nothing cached yet.
+        let mut thin = test_feed(&[]);
+        thin.sources = vec![test_source_info("common", COMMON_KEY)];
+        assert!(!merged_feed_is_usable(&merged_feed(&thin, &HashMap::new())));
+
+        // …and it becomes usable once the source feed is in memory.
+        let mut cached = HashMap::new();
+        cached.insert("common".to_owned(), cached_source(COMMON_KEY, &[("vscode", "1.95.0")]));
+        assert!(merged_feed_is_usable(&merged_feed(&thin, &cached)));
+
+        // A v2 central (no registry) is authoritative on its own, even when empty.
+        let v2 = test_feed(&[]);
+        assert!(merged_feed_is_usable(&merged_feed(&v2, &HashMap::new())));
+    }
+
+    /// A central that also carries applications of its own must not have them
+    /// dropped by the merge: source entries win for the ids they define, and the
+    /// central fills the remaining ids.
+    #[test]
+    fn merged_feed_keeps_a_fat_centrals_own_applications() {
+        let mut central = test_feed(&[("vscode", "1.0.0"), ("umanager-only", "9.9")]);
+        central.sources = vec![test_source_info("common", COMMON_KEY)];
+        let mut cached = HashMap::new();
+        cached.insert("common".to_owned(), cached_source(COMMON_KEY, &[("vscode", "2.0.0")]));
+
+        let merged = merged_feed(&central, &cached);
+
+        assert_eq!(merged.applications.len(), 2);
+        assert_eq!(merged.applications["vscode"].version, "2.0.0");
+        assert_eq!(merged.applications["umanager-only"].version, "9.9");
     }
 }
