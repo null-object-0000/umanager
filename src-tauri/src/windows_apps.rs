@@ -711,8 +711,9 @@ fn execute_prepared(p: &Prepared, report: impl Fn(&str)) -> Result<String, Strin
                 .arg(p.installer.as_ref().ok_or("安装包缺失")?)
                 .arg(r"/D=C:\Program Files (x86)\WXWork");
             run(command, &log, Duration::from_secs(1800))?;
-            report("等待安装向导及其子进程退出；若企业微信已自动启动，请从托盘退出。");
-            wait_for_wine(&p.paths, &p.plan.settings, &log)?;
+            report("安装向导已退出，正在确认安装结果…");
+            let mut probe = VersionProbe::new(&p.paths.prefix, p.plan.target_version.as_deref());
+            wait_for_wine(&p.paths, &p.plan.settings, &log, || probe.landed())?;
             let actual = installed_version(&p.paths.prefix);
             if actual != p.plan.target_version {
                 return Err(format!(
@@ -732,7 +733,11 @@ fn execute_prepared(p: &Prepared, report: impl Fn(&str)) -> Result<String, Strin
             let mut cmd = wine_command(&p.paths, &p.plan.settings);
             cmd.arg(path);
             run(cmd, &log, Duration::from_secs(1800))?;
-            wait_for_wine(&p.paths, &p.plan.settings, &log)?;
+            // The uninstaller is done as soon as the program is gone — the same
+            // criterion checked below — so a lingering Wine session must not keep
+            // the dialog waiting.
+            let exe = p.paths.prefix.join(EXE);
+            wait_for_wine(&p.paths, &p.plan.settings, &log, || !exe.exists())?;
             if p.paths.prefix.join(EXE).exists() {
                 return Err("卸载未完成或已取消，企业微信程序仍然存在".into());
             }
@@ -759,12 +764,93 @@ fn wineserver_path(settings: &WineSettings) -> Result<PathBuf, String> {
         .map_err(error)?;
     Ok(runner.parent().ok_or("Wine 路径无效")?.join("wineserver"))
 }
-fn wait_for_wine(paths: &Paths, settings: &WineSettings, log: &Path) -> Result<(), String> {
+/// `installed_version`, but only re-parsing the executable when it actually
+/// changed. The WeCom main binary is ~257 MB, so a plain 500 ms poll would
+/// re-read (and re-allocate) a quarter of a gigabyte every time. Starts without a
+/// stamp so the first poll always checks, even when the installer had already
+/// replaced the file before the wait started.
+struct VersionProbe<'a> {
+    prefix: &'a Path,
+    target: Option<&'a str>,
+    stamp: Option<(u64, Option<SystemTime>)>,
+    landed: bool,
+}
+impl<'a> VersionProbe<'a> {
+    fn new(prefix: &'a Path, target: Option<&'a str>) -> Self {
+        Self {
+            prefix,
+            target,
+            stamp: None,
+            landed: false,
+        }
+    }
+    /// Whether the target version is on disk now. Latches: once the installer has
+    /// been observed writing the target build, the wait is over even though the
+    /// file then stops changing.
+    fn landed(&mut self) -> bool {
+        if self.landed {
+            return true;
+        }
+        let current = fs::metadata(self.prefix.join(EXE))
+            .ok()
+            .map(|meta| (meta.len(), meta.modified().ok()));
+        if current == self.stamp {
+            return false;
+        }
+        self.stamp = current;
+        self.landed =
+            self.target.is_some() && installed_version(self.prefix).as_deref() == self.target;
+        self.landed
+    }
+}
+/// Wait for the Wine session to wind down, but stop as soon as `landed` reports
+/// that the operation has already completed.
+///
+/// `wineserver -w` returns only once *every* process in the prefix is gone. The
+/// WeCom installer auto-starts 企业微信, whose Wine/CEF processes outlive the
+/// installer, so waiting for the whole session left the dialog on 「执行中…」 for
+/// the full 30-minute timeout after a finished installation — the installer had
+/// already exited and the version check right after this would have passed.
+/// The Wine server is only a *waiter* here (it is a client of `wineserver`), so
+/// ending the wait early — or on timeout — kills that waiter, never the prefix.
+fn wait_for_wine(
+    paths: &Paths,
+    settings: &WineSettings,
+    log: &Path,
+    landed: impl FnMut() -> bool,
+) -> Result<(), String> {
     let mut cmd = Command::new(wineserver_path(settings)?);
     cmd.env("WINEPREFIX", &paths.prefix).arg("-w");
-    run(cmd, log, Duration::from_secs(1800))
+    let mut waiter = spawn_logged(cmd, log)?;
+    wait_for_settle(&mut waiter, Duration::from_secs(1800), landed)
 }
-fn run(mut command: Command, log: &Path, timeout: Duration) -> Result<(), String> {
+/// Poll until the waiter process exits, `landed` becomes true, or `timeout`
+/// elapses. Either way the waiter is killed and reaped, so no zombie is left.
+fn wait_for_settle(
+    waiter: &mut std::process::Child,
+    timeout: Duration,
+    mut landed: impl FnMut() -> bool,
+) -> Result<(), String> {
+    let start = std::time::Instant::now();
+    loop {
+        if waiter.try_wait().map_err(error)?.is_some() {
+            return Ok(());
+        }
+        if landed() {
+            let _ = waiter.kill();
+            let _ = waiter.wait();
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            let _ = waiter.kill();
+            let _ = waiter.wait();
+            return Err("操作等待超时，请检查仍打开的安装向导并完成或取消后重试".into());
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+/// Spawn a Wine command with its output appended to the operation log.
+fn spawn_logged(mut command: Command, log: &Path) -> Result<std::process::Child, String> {
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -775,7 +861,10 @@ fn run(mut command: Command, log: &Path, timeout: Duration) -> Result<(), String
         .stdin(Stdio::null())
         .stdout(file.try_clone().map_err(error)?)
         .stderr(file);
-    let mut child = command.spawn().map_err(error)?;
+    command.spawn().map_err(error)
+}
+fn run(command: Command, log: &Path, timeout: Duration) -> Result<(), String> {
+    let mut child = spawn_logged(command, log)?;
     let start = std::time::Instant::now();
     loop {
         if let Some(status) = child.try_wait().map_err(error)? {
@@ -1263,6 +1352,65 @@ mod tests {
         settings = WineSettings::default();
         settings.dpi = 0;
         assert!(settings.validate().is_err());
+    }
+    /// Minimal PE-shaped fixture whose `VS_FIXEDFILEINFO` carries
+    /// `major.minor.patch.build`, as `pe_version` reads it.
+    fn version_fixture(version: (u16, u16, u16, u16)) -> Vec<u8> {
+        let (major, minor, patch, build) = version;
+        let mut bytes = b"MZpadding".to_vec();
+        bytes.extend([0xbd, 4, 0xef, 0xfe, 0, 0, 1, 0]);
+        bytes.extend(((u32::from(major) << 16) | u32::from(minor)).to_le_bytes());
+        bytes.extend(((u32::from(patch) << 16) | u32::from(build)).to_le_bytes());
+        bytes
+    }
+    /// Regression for 「实际已经更新完成了，但会卡在这」: the WeCom installer
+    /// auto-starts 企业微信, so `wineserver -w` can stay blocked for the whole
+    /// 30-minute timeout *after* the installation has landed. The settle wait must
+    /// end as soon as its completion criterion holds, without waiting for the Wine
+    /// session to die.
+    #[test]
+    fn settle_wait_ends_when_the_operation_already_landed() {
+        let mut waiter = Command::new("sleep").arg("60").spawn().unwrap();
+        let start = std::time::Instant::now();
+        wait_for_settle(&mut waiter, Duration::from_secs(30), || true).unwrap();
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "the settle wait must not block on a surviving Wine session"
+        );
+        // The waiter is killed and reaped, not left as a zombie.
+        assert!(waiter.try_wait().unwrap().is_some());
+    }
+    /// The bounded wait still reports a timeout when the operation never lands,
+    /// instead of hanging forever on a Wine session that will not exit.
+    #[test]
+    fn settle_wait_still_times_out_when_nothing_landed() {
+        let mut waiter = Command::new("sleep").arg("60").spawn().unwrap();
+        let error = wait_for_settle(&mut waiter, Duration::from_millis(300), || false).unwrap_err();
+        assert!(error.contains("超时"), "{error}");
+        assert!(waiter.try_wait().unwrap().is_some());
+    }
+    /// The completion probe only reports success for the target version, and only
+    /// re-parses the (large) executable when its size or mtime changed.
+    #[test]
+    fn version_probe_lands_only_on_the_target_version() {
+        let f = Fixture::new();
+        let paths = Paths::at(f.0.clone()).unwrap();
+        let exe = paths.prefix.join(EXE);
+        fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        fs::write(&exe, version_fixture((5, 0, 12, 6013))).unwrap();
+        let mut probe = VersionProbe::new(&paths.prefix, Some("5.0.12.6018"));
+        // Old version installed: not landed, and an unchanged file is not re-read.
+        assert!(!probe.landed());
+        assert!(!probe.landed());
+        // The installer replaced the executable with the target build.
+        let mut updated = version_fixture((5, 0, 12, 6018));
+        updated.push(0); // a different size, so the change is detected on any fs
+        fs::write(&exe, updated).unwrap();
+        assert!(probe.landed());
+        // …and it stays landed on the following polls.
+        assert!(probe.landed());
+        let mut other = VersionProbe::new(&paths.prefix, Some("5.0.12.9999"));
+        assert!(!other.landed());
     }
     /// Run under Xvfb with WINEDLLOVERRIDES=winemenubuilder.exe=d. Uses a
     /// disposable prefix and synthetic PE installers, never the user's WeCom.

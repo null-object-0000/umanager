@@ -71,7 +71,7 @@ export function WindowsConfirmDialog({ plan, busy, message, running, onConfirm, 
     <p>{plan.settings.windowsVersion === "win10" ? "Windows 10" : "Windows 11"} · {plan.settings.dpi} DPI · {plan.settings.graphicsDriver}</p>
     {plan.sha256 && <><p>安装包已通过签名软件源的大小与 SHA-256 校验（{((plan.downloadSize ?? 0) / 1024 / 1024).toFixed(1)} MB）。</p><code className="windows-hash">{plan.sha256}</code></>}
     {running && <p className="windows-danger">企业微信正在运行：请先取消本对话框，在详情页点「强制停止」或从托盘退出后再确认，否则执行会被拒绝。安装包已下载校验完成，重试不会重新下载。</p>}
-    <p>{plan.action === "uninstall" ? "将打开官方卸载向导。请在向导中选择是否保留聊天记录；UManager 保留 Wine 环境目录。" : plan.action === "configure" ? "将修改企业微信环境的兼容设置，下次启动时生效。" : "将打开官方安装向导，请保持默认安装目录。完成后退出企业微信，UManager 会检查实际安装版本。"}</p>
+    <p>{plan.action === "uninstall" ? "将打开官方卸载向导。请在向导中选择是否保留聊天记录；UManager 保留 Wine 环境目录。" : plan.action === "configure" ? "将修改企业微信环境的兼容设置，下次启动时生效。" : "将打开官方安装向导，请保持默认安装目录；完成后 UManager 会检查实际安装版本。"}</p>
     <p className="windows-note">操作计划有效至 {new Date(plan.expiresAt * 1000).toLocaleTimeString("zh-CN")}，以当前用户执行。</p>
     {busy && <p role="status">{message || "操作进行中，请完成官方面导…"}</p>}
     <div className="windows-actions">
