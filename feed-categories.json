@@ -50,7 +50,8 @@
       "umanager": "system",
       "qq-music": "media",
       "wine": "dev-tools",
-      "wine-stable": "dev-tools"
+      "wine-stable": "dev-tools",
+      "figcraft": "office"
     },
     "developmentTools": {
       "claude-code": "ai-tools",

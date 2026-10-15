@@ -777,6 +777,27 @@
         "pageVersionMarker": "",
         "downloadLinkFileName": "ticktick-8.0.20-amd64.deb"
       }
+    },
+    {
+      "applicationId": "figcraft",
+      "packageName": "figcraft",
+      "displayName": "FigCraft",
+      "vendor": "ArtCraft",
+      "architecture": "amd64",
+      "description": "开源界面设计与原型工具，用纯 Rust 重写：自动布局、组件与变体、矢量网络、样式与变量、原型交互与 Dev Mode 代码交付，本地离线运行、无需账号。",
+      "homepage": "https://getartcraft.com/apps/figcraft",
+      "icon": "figcraft",
+      "accentColor": "#02da96",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/storytold/figcraft/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "figcraft-{tagVersion}-linux-x86_64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
     }
   ],
   "releaseNotesOverrides": {
