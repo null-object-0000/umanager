@@ -316,7 +316,7 @@ function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose
     ? <HeroDownloadProgress progress={progress}/>
     : <>
       <button className="hero-button" disabled={working} onClick={() => onAction(!state.installed ? "install" : state.updateAvailable ? "update" : "launch")}>{working ? "处理中…" : !state.installed ? "安装" : state.updateAvailable ? "更新" : "打开"}</button>
-      {state.running && <button className="ghost-link windows-danger" disabled={working} onClick={() => onAction("stop")} title="结束企业微信在当前 Wine 环境中的所有进程">强制停止</button>}
+      {state.sessionActive && <button className="ghost-link windows-danger" disabled={working} onClick={() => onAction("stop")} title="结束该 Wine 环境里的全部进程（含升级后残留的 wineserver），不影响其它 Wine 环境">{state.running ? "强制停止" : "清理残留会话"}</button>}
       {state.installed && <button className="ghost-link" disabled={working} onClick={() => onAction("uninstall")}>卸载</button>}
     </>;
   return <DetailShell
@@ -333,6 +333,8 @@ function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose
       {working && !downloading && <div className="message" role="status" aria-live="polite"><strong>正在处理</strong><span>{message || "正在复核环境与操作，请稍候…"}</span></div>}
       {!state.wineVersion && <div className="message"><strong>需要先安装 Wine</strong><span>企业微信通过 Wine 运行。可在「软件」页搜索 wine 安装运行器后，再安装企业微信。</span></div>}
       {state.running && <div className="message"><strong>企业微信正在运行</strong><span>现在仍可下载并校验更新包，下载期间可以继续使用；真正安装、卸载或应用配置前需要先退出企业微信，可点右上角「强制停止」，或从托盘退出。强制停止可能丢失未发送的输入。</span></div>}
+      {state.sessionActive && !state.running && <div className="message"><strong>该 Wine 环境仍有残留后台进程</strong><span>升级 Wine 后残留的旧 wineserver 会让新的 Wine 客户端报「版本不一致」，点「打开」会直接失败。这类残留不算「企业微信在运行」，所以单独给出入口：点右上角「清理残留会话」结束它，再重新打开即可。清理只作用于本环境，不影响其它 Wine 环境。</span></div>}
+      {!state.chineseLocaleAvailable && <div className="message"><strong>系统缺少中文语言包</strong><span>没有生成 zh_CN.UTF-8 时，Wine 会按英文区域启动，企业微信界面会变英文、中文可能显示为方框。请先安装中文语言包（sudo apt install language-pack-zh-hans），或执行 sudo locale-gen zh_CN.UTF-8。</span></div>}
       {state.feedError && <div className="message"><strong>无法获取官方安装包信息</strong><span>{state.feedError}。已有安装仍可启动、配置和卸载。</span></div>}
       <div className="windows-facts">
         <div><dt>当前版本</dt><dd>{state.installedVersion ?? (state.installed ? "无法识别" : "未安装")}</dd></div>
@@ -342,7 +344,7 @@ function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose
       </div>
       <section className="windows-card">
         <h2>Wine 配置</h2>
-        <p className="windows-note">默认采用现有企业微信环境的兼容设置：Windows 10、192 DPI、X11 / XWayland、中文字体替换和标题栏修复。配置仅作用于企业微信环境。</p>
+        <p className="windows-note">默认采用现有企业微信环境的兼容设置：Windows 10、192 DPI、X11 / XWayland、中文字体链接与替换（写到 Wine 真正读取的 HKLM 路径）、中文区域与界面语言（zh-CN）和标题栏修复。配置仅作用于企业微信环境；应用配置前需要先退出企业微信，否则会被拒绝。</p>
         <fieldset disabled={locked} className="windows-settings">
           <label>Wine 运行器<select value={settings.wineBinary} onChange={e => setSettings({ ...settings, wineBinary: e.target.value })}>{["/usr/bin/wine", "/opt/wine-devel/bin/wine", "/opt/wine-stable/bin/wine", "/opt/wine-staging/bin/wine"].map(p => <option key={p}>{p}</option>)}</select></label>
           <label>Windows 版本<select value={settings.windowsVersion} onChange={e => setSettings({ ...settings, windowsVersion: e.target.value })}><option value="win10">Windows 10（默认）</option><option value="win11">Windows 11</option></select></label>

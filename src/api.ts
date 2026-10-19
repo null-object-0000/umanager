@@ -294,6 +294,8 @@ const mockWindowsState: WindowsState = {
   wineVersion: "wine-11.17",
   settings: { wineBinary: "/usr/bin/wine", windowsVersion: "win10", dpi: 192, graphicsDriver: "x11", chineseFont: "Noto Sans CJK SC", titlebarFix: true, fontAntialiasing: "default", fontHinting: "default", fontLink: true, virtualDesktop: "off", colorDepth: 32 },
   running: false,
+  sessionActive: false,
+  chineseLocaleAvailable: true,
   fontAvailable: true,
   feedError: "浏览器预览：安装包信息需要连接桌面端签名软件源",
   busy: false,

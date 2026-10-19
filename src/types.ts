@@ -564,6 +564,11 @@ export interface WindowsState {
   wineVersion: string | null;
   settings: WindowsSettings;
   running: boolean;
+  /// 该 Wine 环境里是否还有进程（wineserver / 辅助进程 / 企业微信）。升级 Wine 后残留的
+  /// 旧 wineserver 会让每次启动都失败；此时 running 为 false，但仍要给出清理入口。
+  sessionActive: boolean;
+  /// 宿主是否生成了 zh_CN.UTF-8。缺失时无法强制中文区域与界面语言，需要提示装语言包。
+  chineseLocaleAvailable: boolean;
   fontAvailable: boolean;
   feedError: string | null;
   busy: boolean;
