@@ -50,5 +50,8 @@ Desktop.ini
 *.tmp
 *.temp
 
+# 本地验证/实验目录（可能包含一次性 Wine prefix：dosdevices/z: 指向 /，会让 vitest 扫全盘）
+/.scratch/
+
 # 本地构建产物（release 由 CI 构建）
 *.deb
