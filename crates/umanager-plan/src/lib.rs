@@ -1,3 +1,4 @@
+pub mod cleanup;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -103,6 +104,9 @@ pub struct RemovalPlanPayload {
     pub source_catalog_json: Option<String>,
     #[serde(default)]
     pub source_catalog_signature: Option<String>,
+    /// Optional, hashed cleanup extension. Old helpers reject its plan hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<cleanup::CleanupSelection>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -285,6 +289,31 @@ fn validate_removal_payload_shape(payload: &RemovalPlanPayload) -> Result<(), St
     if !valid_package_name(&payload.package_name) {
         return Err("removal plan package name is invalid".to_owned());
     }
+    if let Some(cleanup) = &payload.cleanup {
+        if payload.schema_version != 3
+            || cleanup.packages.len() > 512
+            || cleanup.user_entries.len() > 512
+            || cleanup.system_entries.len() > 16
+        {
+            return Err("invalid cleanup extension".to_owned());
+        }
+        if cleanup.packages.iter().any(|p| {
+            p.name == payload.package_name
+                || p.name.len() > 160
+                || p.name.starts_with('-')
+                || p.version.is_empty()
+                || p.version.len() > 256
+        }) {
+            return Err("invalid cleanup package".to_owned());
+        }
+        if cleanup
+            .user_entries
+            .iter()
+            .any(|e| e.path.len() > 4096 || e.path.contains('\0'))
+        {
+            return Err("invalid cleanup path".to_owned());
+        }
+    }
     validate_catalog_auth(
         payload.catalog_json.as_deref(),
         payload.catalog_signature.as_deref(),
@@ -396,6 +425,7 @@ mod tests {
     #[test]
     fn removal_plan_detects_mutation_and_rejects_option_like_packages() {
         let payload = RemovalPlanPayload {
+            cleanup: None,
             schema_version: PLAN_SCHEMA_VERSION,
             action: RemovalAction::RemoveManagedPackage,
             application_id: "wechat".to_owned(),
@@ -416,6 +446,37 @@ mod tests {
         assert!(plan.validate_time(1_500).is_ok());
         plan.payload.package_name = "other".to_owned();
         assert!(plan.verify_integrity().is_err());
+
+        let encoded = serde_json::to_string(&payload).unwrap();
+        assert!(
+            !encoded.contains("cleanup"),
+            "ordinary plans preserve old serialized bytes"
+        );
+        let mut clean = payload.clone();
+        clean.cleanup = Some(cleanup::CleanupSelection::default());
+        let clean_plan = RemovalPlan::new(clean).unwrap();
+        assert_ne!(
+            clean_plan.plan_id,
+            RemovalPlan::new(payload.clone()).unwrap().plan_id
+        );
+        let mut changed = clean_plan.clone();
+        changed
+            .payload
+            .cleanup
+            .as_mut()
+            .unwrap()
+            .packages
+            .push(cleanup::CleanupPackage {
+                name: "other".into(),
+                version: "1".into(),
+            });
+        assert!(changed.verify_integrity().is_err());
+        let mut old_helper = clean_plan;
+        old_helper.payload.cleanup = None;
+        assert!(
+            old_helper.verify_integrity().is_err(),
+            "ignoring cleanup must fail closed"
+        );
 
         let mut invalid = payload;
         invalid.package_name = "--force-all".to_owned();
@@ -449,6 +510,7 @@ mod tests {
         assert!(OperationPlan::new(bad_url).is_err(), "http feedUrl rejected");
 
         let mut removal = RemovalPlanPayload {
+            cleanup: None,
             schema_version: PLAN_SCHEMA_VERSION,
             action: RemovalAction::RemoveManagedPackage,
             application_id: "qq".to_owned(),

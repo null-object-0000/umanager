@@ -1798,3 +1798,12 @@ nav { display: grid; gap: 2px; }
 .status-badge.canceled { color: var(--text-3); background: rgba(0, 0, 0, 0.05); }
 
 .download-concurrency { width: fit-content; margin: 4px 0 10px; }
+
+.cleanup-section { margin: 16px 0; padding: 14px; border: 1px solid var(--hairline-strong); border-radius: var(--radius-md); }
+.cleanup-section p { font-size: var(--fs-base); line-height: 1.6; }
+.cleanup-checklist { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; max-height: 340px; overflow-y: auto; }
+.cleanup-checklist > strong { margin-top: 8px; }
+.cleanup-checklist label { display: flex; align-items: flex-start; gap: 10px; padding: 8px; border-radius: var(--radius-sm); background: var(--bg); }
+.cleanup-checklist label span { min-width: 0; overflow-wrap: anywhere; }
+.cleanup-checklist small { display: block; margin-top: 4px; color: var(--text-2); }
+.cleanup-warning { color: var(--text-2); }

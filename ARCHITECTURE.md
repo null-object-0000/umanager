@@ -145,7 +145,7 @@ npm run update-feed
 3. 新增受管软件只改 `feed-sources.json`；不要把手写条目塞进 feed 而绕过签名。
 4. helper 只通过「内置公钥 + 计划内已签名 `catalogJson`」授权 feed 新增软件；不信任未签名字段。
 5. 所有下载域名都是精确白名单，禁止通配/前缀匹配。唯一例外：`*.<domain>`（如飞书 `*.feishucdn.com`、腾讯文档 `*.docs.qq.com`）允许该域名及其子域，仅限 CDN 分片主机名会漂移的厂商，实现与语义见 AGENTS.md。
-6. 系统命令一律固定 argv（`dpkg-query`/`dpkg-deb`/`dpkg --compare-versions`/`dpkg --install`/`dpkg --remove`），不经过 shell，不拼接用户输入。
+6. 系统命令一律固定 argv（`dpkg-query`/`dpkg-deb`/`dpkg --compare-versions`/`dpkg --install`/`dpkg --remove`/`dpkg --purge`），不经过 shell，不拼接用户输入。
 7. 计划不可变：payload SHA-256 作为 plan_id，15 分钟有效期，只读、归属当前用户。
 8. 私钥只存在于 `FEED_SIGNING_KEY` secret；任何提交都不应包含私钥。
 9. feed schema 与 plan schema 当前都是 v2；升级时主程序、helper、generator 三处要同步。
@@ -216,7 +216,13 @@ npm run update-feed
 
 **本地 `.deb` 安装**：Linux 会把 `.deb` 关联到 UManager。应用先无特权读取包名/版本/架构并计算大小与 SHA-256，标记为“用户提供，来源未验证”，拒绝同版本重装、降级和不兼容架构；以不覆盖方式复制到 `imports` 缓存并重新校验；用户确认后生成 15 分钟有效的不可变计划，经 helper dry-run 复核，再次确认后以固定 `/usr/bin/dpkg --install <root-owned-staged-deb>` 执行。
 
-**安装 / 卸载**：下载后复核 HTTPS 精确域名、重定向、大小、SHA-256 与 `.deb` 包元数据；helper 在 dry-run 与真正执行前都会再次核对安装状态、系统架构、计划与官方源记录。卸载走独立不可变计划，仅执行白名单中固定的 `dpkg --remove`，不 `purge`、不自动移除依赖、不删除用户主目录数据。UManager 自身卸载也不再是“设置”里的独立入口：`selfUpdate` 源渲染的 `u-manager` 应用 `removable: true`，因此作为受管软件出现在“软件 / 更新”页，与其他软件共用同一个 `RemovalDialog` 与同一套 `create_removal_operation_plan` / `run_removal_dry_run` / `remove_managed_package` 命令；`create_removal_operation_plan` 对 `u-manager` 分发到 `create_self_removal_plan`，`resolve_removal_action` 再按计划里的 `removeUmanager` 动作路由到 helper 的 `remove-umanager`。
+**安装 / 卸载**：下载后复核 HTTPS 精确域名、重定向、大小、SHA-256 与 `.deb` 包元数据；helper 在 dry-run 与真正执行前都会再次核对安装状态、系统架构、计划与官方源记录。普通卸载走独立不可变计划，仅执行白名单中固定的 `dpkg --remove`，保留配置、依赖和个人数据。可选「彻底清理」使用 removal payload 的 `cleanup` 扩展，包含逐项确认的软件包（名称与版本）、个人路径（设备 / inode / mtime / 占用）及编译期允许的系统文件（SHA-256）。未启用时不序列化此字段，保留普通计划的哈希；旧 helper 会因不能还原清理计划的哈希而拒绝执行。该扩展保持现有 v3 schema 与 feed 协议不变。
+
+清理实现集中在 `crates/umanager-plan/src/cleanup.rs`，主程序扫描与 helper 独立复核共用规则。依赖候选取「目标的已安装 Depends / Pre-Depends / Recommends 闭包 ∩ apt-mark showauto ∩ apt-get -s --autoremove purge」交集，排除 Essential / Protected。针对用户最终勾选的固定列表再次预演，拒绝新增安装及额外移除；真正执行固定 argv 的 `dpkg --purge -- <target> <selected...>`，不执行 autoremove 或放宽为任意计划包名授权。helper 先验证目标的内置 / 已签名目录授权、安装状态和不可变计划，再重新推导依赖与软件源独占条件。
+
+个人路径规则编译进程序，不接受 feed 指定的任意删除路径。用户目录清理由主程序在 helper 成功后以普通用户执行；持有目录 fd 并在逐级打开时使用 O_NOFOLLOW，扫描不跟随符号链接，核对挂载身份（含同设备 bind mount），拒绝挂载点及超量 / 过深目录。系统文件只允许精确列举的 Docker 软件源 / 密钥，要求普通 root 所有文件与内容摘要一致，且未保留相关 Docker 组件。数据项失败单独报告，不能将部分失败显示为完整清理成功。
+
+UManager 自身卸载也不再是“设置”里的独立入口：`selfUpdate` 源渲染的 `u-manager` 应用 `removable: true`，因此作为受管软件出现在“软件 / 更新”页，与其他软件共用同一个 `RemovalDialog` 与同一套 `create_removal_operation_plan` / `run_removal_dry_run` / `remove_managed_package` 命令；`create_removal_operation_plan` 对 `u-manager` 分发到 `create_self_removal_plan`，`resolve_removal_action` 再按计划里的 `removeUmanager` 动作路由到 helper 的 `remove-umanager`。
 
 **下载队列（第一阶段）**：`enqueue_download` 只解析应用身份（`require_application`）并入队，实际下载由常驻调度器按并发额度（设置项 1–3，默认串行，落盘 `downloads.json`）取出队首任务执行；同一个应用已有「排队中 / 下载中 / 待安装」任务时复用，失败或已取消的任务会被新的入队替换（即「重试」）。状态（`queued` / `downloading` / `verifying` / `ready` / `error` / `canceled`）通过 `download-queue-changed` 推送整份快照，前端挂载时用 `list_downloads` 先拉一次。**取消**是协作式的：排队中的直接出队；下载 / 校验中的置取消位，`source_engine` 在每个网络块与文件块前检查，命中即返回统一错误并走既有错误路径删除 `.tmp`，因此不会留下半个包；已下完的文件留在内容寻址的缓存里，重新入队会直接命中缓存。队列只调用 `source_engine::download_and_verify`（域名白名单、HTTPS、大小 / SHA-256 / `.deb` 元数据校验照旧），不做任何特权操作；`ready` 只是「缓存里有通过校验的安装包」，安装仍要用户点「安装 / 更新」走第二阶段的不可变计划 + helper 复核。队列状态在内存里，重启后不恢复；但缓存里的 `.deb` 仍在，重新入队只花校验时间。
 

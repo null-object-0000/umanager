@@ -4528,7 +4528,7 @@ dependencies = [
 
 [[package]]
 name = "umanager"
-version = "0.13.14"
+version = "0.13.15"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -4563,6 +4563,7 @@ dependencies = [
 name = "umanager-plan"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "sha2",

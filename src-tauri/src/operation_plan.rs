@@ -173,6 +173,7 @@ pub fn create_removal_plan(
     catalog: &Catalog,
     cache_dir: &Path,
     package_name: &str,
+    cleanup: Option<umanager_plan::cleanup::CleanupSelection>,
 ) -> Result<RemovalPlanArtifact, String> {
     let application = catalog
         .by_package_name(package_name)
@@ -186,7 +187,20 @@ pub fn create_removal_plan(
         .ok_or_else(|| "软件包未安装或已不再由 UManager 管理".to_owned())?;
     let (catalog_json, catalog_signature, source_ref, source_endorsement, source_catalog_json, source_catalog_signature) = plan_catalog_auth(application)?;
     let created = unix_timestamp();
+    if let Some(selection) = &cleanup {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or("无法确定用户目录")?;
+        umanager_plan::cleanup::validate_user_entries(
+            &home,
+            package_name,
+            &selection.user_entries,
+        )?;
+        umanager_plan::cleanup::validate_packages(package_name, &selection.packages)?;
+        umanager_plan::cleanup::validate_system_entries(package_name, selection)?;
+    }
     let plan = RemovalPlan::new(RemovalPlanPayload {
+        cleanup,
         schema_version: PLAN_SCHEMA_VERSION,
         action: RemovalAction::RemoveManagedPackage,
         application_id: application.application_id.clone(),
@@ -222,6 +236,7 @@ pub fn create_self_removal_plan(cache_dir: &Path) -> Result<RemovalPlanArtifact,
         .ok_or_else(|| "无法确定已安装的 UManager 包架构".to_owned())?;
     let created = unix_timestamp();
     let plan = RemovalPlan::new(RemovalPlanPayload {
+        cleanup: None,
         schema_version: PLAN_SCHEMA_VERSION,
         action: RemovalAction::RemoveUmanager,
         application_id: installation::APPLICATION_ID.to_owned(),
@@ -477,9 +492,49 @@ fn run_removal_helper(
     if plan.payload.action != expected_action {
         return Err("卸载计划动作与请求不一致".to_owned());
     }
-    let output = run_privileged_helper(&plan.plan_id, helper_action, &plan_path, mode, progress)?;
-    serde_json::from_slice(&output)
-        .map_err(|error| format!("特权 helper 返回了无效卸载结果：{error}"))
+    plan.validate_time(unix_timestamp())?;
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or("无法确定用户目录")?;
+    if let Some(cleanup) = &plan.payload.cleanup {
+        umanager_plan::cleanup::validate_user_entries(
+            &home,
+            &plan.payload.package_name,
+            &cleanup.user_entries,
+        )?;
+    }
+    let output = run_privileged_helper(
+        &plan.plan_id,
+        helper_action,
+        &plan_path,
+        mode,
+        progress.clone(),
+    )?;
+    let mut report: serde_json::Value = serde_json::from_slice(&output)
+        .map_err(|error| format!("特权 helper 返回了无效卸载结果：{error}"))?;
+    if mode == "--execute" {
+        if let Some(cleanup) = &plan.payload.cleanup {
+            emit_progress(
+                &progress,
+                plan_id,
+                "phase",
+                "system",
+                "软件包已移除，正在以普通用户权限清理已确认的数据",
+            );
+            let mut failures: Vec<String> = report
+                .get("cleanupFailures")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default();
+            failures.extend(umanager_plan::cleanup::remove_user_entries(
+                &home,
+                &plan.payload.package_name,
+                &cleanup.user_entries,
+            ));
+            report["cleanupFailures"] = serde_json::json!(failures);
+        }
+    }
+    Ok(report)
 }
 
 fn run_privileged_helper(

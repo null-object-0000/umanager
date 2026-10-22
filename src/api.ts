@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogAiMode, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogAiMode, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -580,8 +580,12 @@ export function installLocalDeb(planId: string, onProgress?: (event: OperationPr
   return invokeWithOperationProgress<OperationExecutionReport>("install_local_deb", planId, onProgress);
 }
 
-export function createRemovalOperationPlan(packageName: string): Promise<RemovalPlanArtifact> {
-  return invoke<RemovalPlanArtifact>("create_removal_operation_plan", { packageName });
+export function scanRemovalCleanup(packageName: string): Promise<CleanupScan> {
+  return invoke<CleanupScan>("scan_removal_cleanup", { packageName });
+}
+
+export function createRemovalOperationPlan(packageName: string, cleanup?: CleanupSelection): Promise<RemovalPlanArtifact> {
+  return invoke<RemovalPlanArtifact>("create_removal_operation_plan", { packageName, cleanup: cleanup ?? null });
 }
 
 export function runRemovalDryRun(planId: string): Promise<RemovalExecutionReport> {

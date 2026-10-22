@@ -242,7 +242,21 @@ export interface OperationExecutionReport {
   systemModified: boolean;
 }
 
+export interface CleanupPackage { name: string; version: string }
+export interface CleanupUserEntry {
+  path: string;
+  bytes: number;
+  device: string;
+  inode: string;
+  modifiedSeconds: number;
+  modifiedNanos: number;
+}
+export interface CleanupSystemEntry { path: string; bytes: number; sha256: string }
+export interface CleanupSelection { packages: CleanupPackage[]; userEntries: CleanupUserEntry[]; systemEntries: CleanupSystemEntry[] }
+export interface CleanupScan { selection: CleanupSelection; warnings: string[] }
+
 export interface RemovalPlanPayload {
+  cleanup?: CleanupSelection;
   schemaVersion: number;
   action: "removeManagedPackage" | "removeUmanager";
   applicationId: string;
@@ -259,6 +273,7 @@ export interface RemovalPlanArtifact {
 }
 
 export interface RemovalExecutionReport {
+  cleanupFailures?: string[];
   dryRun: boolean;
   planId: string;
   action: "removeManagedPackage" | "removeUmanager";

@@ -625,9 +625,40 @@ async fn install_local_deb(
 }
 
 #[tauri::command]
+async fn scan_removal_cleanup(
+    package_name: String,
+) -> Result<umanager_plan::cleanup::CleanupScan, String> {
+    let catalog = feed::effective_catalog().await?;
+    let application = catalog
+        .by_package_name(&package_name)
+        .filter(|app| app.removable)
+        .ok_or("软件包不在卸载白名单中")?;
+    if application.package_name == installation::PACKAGE_NAME {
+        return Err("自卸载暂不支持清理自身数据".to_owned());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or("无法确定用户目录")?;
+        let mut scan = umanager_plan::cleanup::scan_user(&home, &package_name);
+        match umanager_plan::cleanup::scan_dependencies(&package_name) {
+            Ok(packages) => {
+                match umanager_plan::cleanup::scan_system(&package_name, &packages) {
+                    Ok(entries) => scan.selection.system_entries = entries,
+                    Err(error) => scan.warnings.push(format!("系统残留未纳入清单：{error}")),
+                }
+                scan.selection.packages = packages;
+            },
+            Err(error) => scan.warnings.push(format!("依赖扫描失败，暂不能生成彻底清理计划：{error}")),
+        }
+        scan.warnings.push("仅扫描已审核路径和该软件依赖链；除清单中的 Docker 软件源及密钥外，其他系统目录和软件源需另行检查。包自带的清理脚本也会运行。".to_owned());
+        Ok(scan)
+    }).await.map_err(|e| format!("残留扫描任务异常：{e}"))?
+}
+
+#[tauri::command]
 async fn create_removal_operation_plan(
     app: tauri::AppHandle,
     package_name: String,
+    cleanup: Option<umanager_plan::cleanup::CleanupSelection>,
 ) -> Result<operation_plan::RemovalPlanArtifact, String> {
     let cache_dir = app
         .path()
@@ -636,9 +667,12 @@ async fn create_removal_operation_plan(
     let catalog = feed::effective_catalog().await?;
     tauri::async_runtime::spawn_blocking(move || {
         if package_name == installation::PACKAGE_NAME {
+            if cleanup.is_some() {
+                return Err("UManager 自卸载暂不支持清理自身数据".to_owned());
+            }
             operation_plan::create_self_removal_plan(&cache_dir)
         } else {
-            operation_plan::create_removal_plan(&catalog, &cache_dir, &package_name)
+            operation_plan::create_removal_plan(&catalog, &cache_dir, &package_name, cleanup)
         }
     })
     .await
@@ -780,6 +814,7 @@ pub fn run() {
             create_local_deb_operation_plan,
             run_local_deb_dry_run,
             install_local_deb,
+            scan_removal_cleanup,
             create_removal_operation_plan,
             run_removal_dry_run,
             remove_managed_package,

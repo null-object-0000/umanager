@@ -118,6 +118,7 @@ enum ExecutionMode {
 #[derive(Debug)]
 struct Caller {
     uid: u32,
+    username: String,
     home: PathBuf,
 }
 
@@ -165,6 +166,7 @@ struct RemovalReport {
     verified: bool,
     system_modified: bool,
     planned_command: PlannedCommand,
+    cleanup_failures: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -299,14 +301,47 @@ fn run_removal(
         "system",
         "特权 helper 已完成卸载计划与当前安装状态复核",
     );
-    let planned_command = fixed_remove_command(&application.package_name);
+    if let Some(cleanup) = &plan.payload.cleanup {
+        if plan.payload.action == RemovalAction::RemoveUmanager {
+            return Err("self-removal cleanup is not supported".to_owned());
+        }
+        umanager_plan::cleanup::validate_packages(&application.package_name, &cleanup.packages)?;
+        umanager_plan::cleanup::validate_system_entries(&application.package_name, cleanup)?;
+    }
+    let planned_command = match &plan.payload.cleanup {
+        Some(cleanup) => fixed_purge_command(&application.package_name, &cleanup.packages),
+        None => fixed_remove_command(&application.package_name),
+    };
     let system_modified = if invocation.mode == ExecutionMode::Execute {
-        execute_fixed_remove(&application.package_name)?;
+        if plan.payload.cleanup.is_some() {
+            let mut command = clean_command(DPKG_BIN);
+            command
+                .args(&planned_command.arguments)
+                // Some vendor postrm scripts expect SUDO_USER even under Polkit.
+                // The passwd username comes from resolve_caller, never the plan.
+                .env("SUDO_USER", &caller.username)
+                .env("SUDO_UID", caller.uid.to_string());
+            execute_streaming(command, "dpkg purge")?;
+        } else {
+            execute_fixed_remove(&application.package_name)?;
+        }
         true
     } else {
         false
     };
+    let cleanup_failures = if invocation.mode == ExecutionMode::Execute {
+        plan.payload
+            .cleanup
+            .as_ref()
+            .map(|cleanup| {
+                umanager_plan::cleanup::remove_system_entries(&application.package_name, cleanup)
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     Ok(RemovalReport {
+        cleanup_failures,
         dry_run: invocation.mode == ExecutionMode::DryRun,
         plan_id: plan.plan_id,
         action: plan.payload.action,
@@ -417,19 +452,19 @@ fn resolve_caller() -> Result<Caller, String> {
     }
     let passwd = fs::read_to_string("/etc/passwd")
         .map_err(|error| format!("cannot read /etc/passwd: {error}"))?;
-    let home = passwd
+    let (username, home) = passwd
         .lines()
         .filter_map(|line| {
             let fields: Vec<_> = line.split(':').collect();
             (fields.len() >= 7 && fields[2].parse::<u32>().ok() == Some(uid))
-                .then(|| PathBuf::from(fields[5]))
+                .then(|| (fields[0].to_owned(), PathBuf::from(fields[5])))
         })
         .next()
         .ok_or_else(|| "requesting user does not have a passwd entry".to_owned())?;
     if !home.is_absolute() {
         return Err("requesting user's home directory is invalid".to_owned());
     }
-    Ok(Caller { uid, home })
+    Ok(Caller { uid, username, home })
 }
 
 fn load_and_validate_plan(
@@ -1233,6 +1268,22 @@ fn fixed_remove_command(package_name: &str) -> PlannedCommand {
     }
 }
 
+fn fixed_purge_command(
+    package_name: &str,
+    dependencies: &[umanager_plan::cleanup::CleanupPackage],
+) -> PlannedCommand {
+    let mut arguments = vec![
+        "--purge".to_owned(),
+        "--".to_owned(),
+        package_name.to_owned(),
+    ];
+    arguments.extend(dependencies.iter().map(|package| package.name.clone()));
+    PlannedCommand {
+        executable: DPKG_BIN,
+        arguments,
+    }
+}
+
 fn execute_fixed_remove(package_name: &str) -> Result<(), String> {
     let mut command = clean_command(DPKG_BIN);
     command.arg("--remove").arg(package_name);
@@ -2011,8 +2062,29 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_executes_only_the_fixed_confirmed_purge_list() {
+        let dependencies = vec![umanager_plan::cleanup::CleanupPackage {
+            name: "libexample:amd64".into(),
+            version: "1".into(),
+        }];
+        let command = fixed_purge_command("docker-desktop", &dependencies);
+        assert_eq!(command.executable, "/usr/bin/dpkg");
+        assert_eq!(
+            command.arguments,
+            ["--purge", "--", "docker-desktop", "libexample:amd64"]
+        );
+        assert!(
+            !command
+                .arguments
+                .iter()
+                .any(|arg| arg.contains("autoremove") || arg.contains("force"))
+        );
+    }
+
+    #[test]
     fn validates_only_allowlisted_removal_actions() {
         let payload = umanager_plan::RemovalPlanPayload {
+            cleanup: None,
             schema_version: umanager_plan::PLAN_SCHEMA_VERSION,
             action: RemovalAction::RemoveManagedPackage,
             application_id: "vscode".to_owned(),
@@ -2054,6 +2126,7 @@ mod tests {
     #[test]
     fn self_removal_targets_only_the_exact_umanager_package() {
         let payload = umanager_plan::RemovalPlanPayload {
+            cleanup: None,
             schema_version: umanager_plan::PLAN_SCHEMA_VERSION,
             action: RemovalAction::RemoveUmanager,
             application_id: UMANAGER_APPLICATION_ID.to_owned(),
