@@ -148,12 +148,14 @@ pub async fn install(
     // Install the exact version the signed feed advertises for the selected
     // version line, so the installed version always matches what the UI shows.
     let persisted_channel = selected_channel(&tool.tool_id);
-    let target_version =
-        target_version_for(feed_tool_entry(&tool).await.as_ref(), persisted_channel.as_deref());
+    let feed_entry = feed_tool_entry(&tool).await;
+    let target_version = target_version_for(feed_entry.as_ref(), persisted_channel.as_deref());
     tauri::async_runtime::spawn_blocking(move || {
         let home = user_home()?;
         let mut command = install_command(&tool, &home, target_version.as_deref())?;
         let output = run_streaming(&mut command, &tool.tool_id, &format!("开始安装 {}（{}）", tool.display_name, installer_label(&tool)), Some(&progress))?;
+        verify_installed_version(&tool, &home, feed_entry.as_ref(), target_version.as_deref(), &progress)?;
+        operation_finished(&tool.tool_id, &progress, Ok(()));
         Ok(DevToolReport {
             tool_id: tool.tool_id.clone(),
             action: "install".to_owned(),
@@ -171,12 +173,14 @@ pub async fn update(
 ) -> Result<DevToolReport, String> {
     let tool = tool_by_id(&tool_id)?;
     let persisted_channel = selected_channel(&tool.tool_id);
-    let target_version =
-        target_version_for(feed_tool_entry(&tool).await.as_ref(), persisted_channel.as_deref());
+    let feed_entry = feed_tool_entry(&tool).await;
+    let target_version = target_version_for(feed_entry.as_ref(), persisted_channel.as_deref());
     tauri::async_runtime::spawn_blocking(move || {
         let home = user_home()?;
         let (mut command, label) = update_command(&tool, &home, target_version.as_deref())?;
         let output = run_streaming(&mut command, &tool.tool_id, &format!("开始更新 {}（{}）", tool.display_name, label), Some(&progress))?;
+        verify_installed_version(&tool, &home, feed_entry.as_ref(), target_version.as_deref(), &progress)?;
+        operation_finished(&tool.tool_id, &progress, Ok(()));
         Ok(DevToolReport {
             tool_id: tool.tool_id.clone(),
             action: "update".to_owned(),
@@ -201,6 +205,7 @@ pub async fn uninstall(
             .ok_or_else(|| format!("未检测到已安装的 {}", tool.display_name))?;
         let mut command = uninstall_command(&tool, &home, &install_kind)?;
         let output = run_streaming(&mut command, &tool.tool_id, &format!("开始卸载 {}（{}）", tool.display_name, installer_label(&tool)), Some(&progress))?;
+        operation_finished(&tool.tool_id, &progress, Ok(()));
         Ok(DevToolReport {
             tool_id: tool.tool_id.clone(),
             action: "uninstall".to_owned(),
@@ -282,7 +287,7 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
         .map(|path| classify_install_kind(tool, &home, path, npm_available));
     let version = binary
         .as_ref()
-        .and_then(|path| capture_version(path))
+        .and_then(|path| capture_tool_version(tool, path, feed_entry.as_ref()))
         .or_else(|| {
             if install_kind.as_deref() == Some("npmGlobal") && npm_available {
                 tool.npm_package
@@ -526,7 +531,11 @@ fn npm_installed_version(home: &Path, package: &str) -> Option<String> {
     })
 }
 
-fn capture_version(path: &Path) -> Option<String> {
+fn capture_tool_version(
+    tool: &DevelopmentTool,
+    path: &Path,
+    feed_entry: Option<&crate::feed::FeedToolEntry>,
+) -> Option<String> {
     let output = Command::new(path)
         .arg("--version")
         .env("LC_ALL", "C")
@@ -536,7 +545,31 @@ fn capture_version(path: &Path) -> Option<String> {
         return None;
     }
     let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    extract_version(&text).or_else(|| {
+    version_from_output(&tool.tool_id, &text, feed_entry)
+}
+
+fn version_from_output(
+    tool_id: &str,
+    text: &str,
+    feed_entry: Option<&crate::feed::FeedToolEntry>,
+) -> Option<String> {
+    // Hermes derives its display version from locally available tags. When
+    // fetching tags times out, an exact release checkout can retain an older
+    // version label. Match only the running CLI's commit against signed feed
+    // identity; never infer success from updater logs or another checkout.
+    if tool_id == "hermes"
+        && let Some(entry) = feed_entry
+        && let Some(expected) = entry.version_commit.as_deref()
+        && expected.len() == 40
+        && expected.bytes().all(|b| b.is_ascii_hexdigit())
+        && let Some((_, local)) = text.lines().next()?.rsplit_once(" · local ")
+        && (12..=40).contains(&local.len())
+        && local.bytes().all(|b| b.is_ascii_hexdigit())
+        && expected.starts_with(local)
+    {
+        return Some(entry.version.clone());
+    }
+    extract_version(text).or_else(|| {
         if text.is_empty() {
             None
         } else {
@@ -606,10 +639,24 @@ fn update_command(
 ) -> Result<(Command, &'static str), String> {
     match &tool.update {
         Some(DevToolUpdate::SelfCommand { args }) => {
-            Ok((binary_self_command(tool, home, args)?, "官方自更新命令"))
+            let args = self_update_args(tool, args, target_version);
+            Ok((binary_self_command(tool, home, &args)?, "官方自更新命令"))
         }
         None => Ok((install_command(tool, home, target_version)?, installer_label(tool))),
     }
+}
+
+fn self_update_args(tool: &DevelopmentTool, args: &[String], target_version: Option<&str>) -> Vec<String> {
+    let mut args = args.to_vec();
+    if tool.tool_id == "uv" {
+        if let Some(version) = target_version {
+            args.push(version.to_owned());
+        }
+    } else if tool.tool_id == "hermes" {
+        // stdin is closed in the GUI; use the supported non-interactive mode.
+        args.push("--yes".to_owned());
+    }
+    args
 }
 
 /// Run the already-installed tool binary with a fixed argument vector under a
@@ -918,22 +965,50 @@ fn run_streaming(
         .lock()
         .map_err(|_| "无法读取命令输出".to_owned())?
         .join("\n");
-    if let Some(progress) = progress {
-        progress(DevToolProgress {
-            tool_id: tool_id.to_owned(),
-            phase: "completed",
-            stream: "system".to_owned(),
-            message: if status.success() {
-                "操作已成功完成".to_owned()
-            } else {
-                "操作失败".to_owned()
-            },
-        });
-    }
     if !status.success() {
+        if let Some(progress) = progress {
+            operation_finished(tool_id, progress, Err("操作失败"));
+        }
         return Err(tail_summary(&output));
     }
     Ok(output)
+}
+
+fn operation_finished(tool_id: &str, progress: &DevToolProgressCallback, result: Result<(), &str>) {
+    progress(DevToolProgress {
+        tool_id: tool_id.to_owned(),
+        phase: if result.is_ok() { "completed" } else { "failed" },
+        stream: "system".to_owned(),
+        message: result.err().unwrap_or("操作已成功完成").to_owned(),
+    });
+}
+
+fn verify_version(installed: Option<&str>, target: &str, exact: bool) -> Result<(), String> {
+    match installed {
+        Some(version) if compare_versions(version, target) == Ordering::Equal
+            || (!exact && compare_versions(version, target) == Ordering::Greater) => Ok(()),
+        Some(version) => Err(format!("命令已结束，但当前版本仍为 {version}，未达到目标版本 {target}。官方更新源可能尚未同步，或更新了另一份安装；请查看详细日志。")),
+        None => Err(format!("命令已结束，但无法核验安装后的版本（目标 {target}），请查看详细日志。")),
+    }
+}
+
+fn verify_installed_version(
+    tool: &DevelopmentTool,
+    home: &Path,
+    feed_entry: Option<&crate::feed::FeedToolEntry>,
+    target: Option<&str>,
+    progress: &DevToolProgressCallback,
+) -> Result<(), String> {
+    let Some(target) = target else { return Ok(()) };
+    let installed = find_tool_binary(tool, home)
+        .and_then(|path| capture_tool_version(tool, &path, feed_entry));
+    // npm can intentionally switch to a lower version line; vendor updaters
+    // may already have advanced beyond the feed snapshot.
+    let result = verify_version(installed.as_deref(), target, matches!(tool.installer, DevToolInstaller::Npm) && tool.update.is_none());
+    if let Err(message) = &result {
+        operation_finished(&tool.tool_id, progress, Err(message));
+    }
+    result
 }
 
 fn forward_lines(
@@ -1214,6 +1289,42 @@ mod tests {
         assert!(catalog.by_tool_id("pnpm").is_some());
     }
 
+    #[test]
+    fn self_updates_use_feed_target_and_noninteractive_mode() {
+        let catalog = Catalog::load().unwrap();
+        let uv = catalog.by_tool_id("uv").unwrap();
+        assert_eq!(self_update_args(uv, &["self".into(), "update".into()], Some("0.13.5")), ["self", "update", "0.13.5"]);
+        assert_eq!(self_update_args(uv, &["self".into(), "update".into()], None), ["self", "update"]);
+        let hermes = catalog.by_tool_id("hermes").unwrap();
+        assert_eq!(self_update_args(hermes, &["update".into()], Some("0.22.4")), ["update", "--yes"]);
+    }
+
+    #[test]
+    fn hermes_release_identity_overrides_stale_local_tags_only_on_match() {
+        let mut entry = dsh_feed_entry(None);
+        entry.version = "0.22.4".into();
+        entry.version_commit = Some("4d04303818b61bf3aa09278af48356315515965b".into());
+        let output = "Hermes Agent v0.22.2+3030.g4d04303 (2026.9.24) · stable · local 4d04303818b6\nInstall directory: /tmp/hermes";
+        assert_eq!(version_from_output("hermes", output, Some(&entry)).as_deref(), Some("0.22.4"));
+        assert_eq!(version_from_output("hermes", output, None).as_deref(), Some("0.22.2"));
+        entry.version_commit = Some("a".repeat(40));
+        assert_eq!(version_from_output("hermes", output, Some(&entry)).as_deref(), Some("0.22.2"));
+        entry.version_commit = Some("4d04303818b6".into());
+        assert_eq!(version_from_output("hermes", output, Some(&entry)).as_deref(), Some("0.22.2"));
+        entry.version_commit = Some("4d04303818b61bf3aa09278af48356315515965b".into());
+        assert_eq!(version_from_output("hermes", &output.replace("local 4d04303818b6", "local 4d04"), Some(&entry)).as_deref(), Some("0.22.2"));
+    }
+
+    #[test]
+    fn successful_exit_requires_verified_version() {
+        assert!(verify_version(Some("0.13.4"), "0.13.5", false).unwrap_err().contains("未达到目标版本"));
+        assert!(verify_version(None, "0.13.5", false).is_err());
+        assert!(verify_version(Some("0.13.5"), "0.13.5", false).is_ok());
+        assert!(verify_version(Some("0.13.6"), "0.13.5", false).is_ok());
+        assert!(verify_version(Some("0.13.6"), "0.13.5", true).is_err());
+        assert!(verify_version(Some("0.13.5-rc.1"), "0.13.5", false).is_err());
+    }
+
     fn dsh_tool(dist_tag: Option<&str>) -> DevelopmentTool {
         DevelopmentTool {
             tool_id: "dsh".to_owned(),
@@ -1234,6 +1345,7 @@ mod tests {
 
     fn dsh_feed_entry(channels: Option<&[(&str, &str)]>) -> crate::feed::FeedToolEntry {
         crate::feed::FeedToolEntry {
+            version_commit: None,
             npm_package: Some("@deepseek-ai/dsh".to_owned()),
             version: "0.1.2-rc.1".to_owned(),
             channels: channels.map(|list| {

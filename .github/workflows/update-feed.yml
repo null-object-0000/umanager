@@ -48,6 +48,7 @@ on:
       - "src-tauri/resources/vendors.json"
       - "feed-sources.json"
       - "scripts/update-feed.mjs"
+      - "scripts/tool-version-source.mjs"
       - "scripts/feed-download-reuse.mjs"
       - "scripts/feed-fallback.mjs"
       - "scripts/feed-merge.mjs"

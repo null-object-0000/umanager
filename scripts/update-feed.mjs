@@ -52,6 +52,7 @@ import { extractHtmlBlockToMarkdown, extractHtmlVersionSection, htmlChangelogToM
 import { jsonpEntryToMarkdown, parseJsonpChangelog, selectJsonpChangelogEntry } from "./changelog-jsonp.mjs";
 import { jsonListEntryToMarkdown, parseJsonListChangelog, selectJsonListChangelogEntry } from "./changelog-json-list.mjs";
 import { parseVersionHistoryJson, selectVersionHistoryEntry, versionHistoryEntryMatchesVersion, versionHistoryEntryToMarkdown, versionHistoryEntryToUnixSeconds } from "./changelog-version-history.mjs";
+import { resolveUpdaterManifest, releaseCommit } from "./tool-version-source.mjs";
 import { parseSmartdocVersionSections, selectSmartdocSection, smartdocSectionToMarkdown, smartdocUpdateTimeToUnixSeconds } from "./changelog-smartdoc.mjs";
 import { cleanReleaseNotesMarkdown, extractMarkdownVersionSection } from "./changelog-markdown.mjs";
 import { entryOrPrevious } from "./feed-fallback.mjs";
@@ -1375,12 +1376,25 @@ async function toolEntry(tool, versionOverrides) {
   }
 
   let version;
+  let versionCommit;
   let publishTime = null;
   // Every npm dist-tag channel of the package (tag -> version), shipped so the
   // app can offer a per-tool version-line switch. npm tools only; the resolved
   // `version` below stays the configured channel's version (the default line).
   let channels = null;
-  if (versionOverride) {
+  if (versionOverride?.updaterManifestUrl) {
+    try {
+      const release = resolveUpdaterManifest(
+        await fetchText(versionOverride.updaterManifestUrl),
+        versionOverride.platforms,
+      );
+      version = release.version;
+      publishTime = parseUnixSeconds(release.date);
+    } catch (error) {
+      fail(tool.toolId, `读取官方更新索引失败：${error.message}`);
+      return null;
+    }
+  } else if (versionOverride) {
     // Non-npm tools (e.g. git/Python installers like Hermes Agent): resolve the
     // latest version from the vendor's GitHub releases, parsing it out of the
     // newest release title (e.g. "Hermes Agent v0.21.0 (v2026.8.31)" -> 0.21.0).
@@ -1406,6 +1420,18 @@ async function toolEntry(tool, versionOverrides) {
       return null;
     }
     version = match[1];
+    if (versionOverride.commitApiUrl) {
+      try {
+        versionCommit = releaseCommit(JSON.parse(await fetchText(
+          `${versionOverride.commitApiUrl}/${encodeURIComponent(release.tag_name)}`,
+          githubApiHeaders(),
+        )));
+      } catch (error) {
+        // Keep version discovery useful even when the optional identity lookup
+        // is unavailable. Never reuse another release's commit.
+        console.warn(`[${tool.toolId}] 无法解析发布提交：${error.message}`);
+      }
+    }
     publishTime = parseUnixSeconds(release.published_at);
   } else {
     const pkg = tool.npmPackage;
@@ -1431,6 +1457,7 @@ async function toolEntry(tool, versionOverrides) {
   const entry = {
     version: String(version),
   };
+  if (versionCommit) entry.versionCommit = versionCommit;
   // Ship every dist-tag channel for npm tools so the app can offer a version
   // line switch (e.g. dsh: latest / alpha / next). Non-npm tools (GitHub
   // release based) have no channels and omit the field entirely.

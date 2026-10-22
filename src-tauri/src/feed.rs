@@ -145,6 +145,10 @@ pub struct FeedChannelReleaseNotes {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeedToolEntry {
+    /// Exact release commit resolved by CI, covered by the feed signature.
+    /// Optional extension of v2; older feeds and apps remain compatible.
+    #[serde(default)]
+    pub version_commit: Option<String>,
     /// npm package this tool entry belongs to, for cross-checking at detection
     /// time. `None` for tools distributed outside npm (e.g. git/Python).
     #[serde(default)]

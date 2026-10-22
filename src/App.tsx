@@ -1603,14 +1603,15 @@ function DevToolRow({ tool, state, category, onOpen }: { tool: DevTool; state: D
 
 function DevToolLogPanel({ events, running }: { events: DevToolProgress[]; running: boolean }) {
   if (events.length === 0) return null;
+  const failed = events.some((event) => event.phase === "failed");
   const phases = events.filter((event) => event.phase !== "running");
   const logs = events.filter((event) => event.phase === "running");
   return <section className="operation-progress-panel" aria-live="polite">
-    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "正在执行 CLI 工具操作" : "CLI 工具操作已结束"}</strong><span>输出只读，不能输入或执行命令</span></div></div></header>
+    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : failed ? "!" : "✓"}</span><div><strong>{running ? "正在执行 CLI 工具操作" : "CLI 工具操作已结束"}</strong><span>输出只读，不能输入或执行命令</span></div></div></header>
     <div className="operation-phase-list">{phases.map((event, index) => <div className={event.phase} key={`${index}-${event.message}`}><span>{event.phase === "completed" ? "✓" : "•"}</span><p>{event.message}</p></div>)}</div>
     <details className="operation-log-details" open={running || undefined}>
       <summary>详细日志 <b>{logs.length}</b></summary>
-      <div className="operation-terminal" role="log">{logs.length === 0 ? <span className="terminal-placeholder">等待安装器输出…</span> : logs.map((event, index) => <div className={event.stream} key={`${index}-${event.message}`}><span>{event.stream === "stderr" ? "ERR" : "OUT"}</span><code>{event.message}</code></div>)}</div>
+      <div className="operation-terminal" role="log">{logs.length === 0 ? <span className="terminal-placeholder">等待安装器输出…</span> : logs.map((event, index) => <div className="cli-output" key={`${index}-${event.message}`}><span>{event.stream === "stderr" ? "LOG" : "OUT"}</span><code>{event.message}</code></div>)}</div>
     </details>
   </section>;
 }

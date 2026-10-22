@@ -520,7 +520,7 @@ export interface DevToolReport {
 
 export interface DevToolProgress {
   toolId: string;
-  phase: "phase" | "running" | "completed";
+  phase: "phase" | "running" | "completed" | "failed";
   stream: "system" | "stdout" | "stderr";
   message: string;
 }

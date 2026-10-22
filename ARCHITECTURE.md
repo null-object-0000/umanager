@@ -51,6 +51,10 @@ https://null-object-0000.github.io/umanager/feed.json.sig
 - `selfUpdate`：UManager 自更新来源。
 - `developmentTools`：CLI 开发工具（Claude Code / OpenCode / Pi / Codex / DSH / Hermes）的最新版本；`npmPackage` 可为空（非 npm 分发的工具，版本由 `feed-sources.json` 的 `toolVersionOverrides` 解析）。
 
+CLI 工具的更新结果会在命令退出后重新检测本机版本；低于签名 feed 的目标版本或无法检测时，不报告更新成功。npm 版本线切换要求精确匹配目标版本。uv 的版本覆盖源使用官方自更新索引（`astral-sh/versions` 的 `uv.ndjson`），只发布同时具备 x86_64 / aarch64 Linux 构件的正式版本，避免 GitHub Release 已出现而自更新索引尚未同步时反复提示更新。自更新命令同时传入 feed 的目标版本。
+
+Hermes 的本机版本标签依赖本地 git tag；拉取标签失败可能导致代码已更新而版本号仍旧。CI 在 `developmentTools.hermes` 中附带可选的 `versionCommit`（将发布 tag 解析成完整提交 SHA，随 feed 签名；这是 v2 的向后兼容可选字段）。App 仅当运行中的 Hermes CLI 报告的本机提交与该 SHA 匹配时，使用 feed 的发布版本作为已安装版本；旧 feed 或不匹配时保留 CLI 版本检测结果。GUI 使用 `hermes update --yes` 适配关闭的 stdin，不强制切换分支或丢弃本地改动。
+
 ## 3. 两层清单：静态契约 vs 动态数据
 
 | | 文件 | 谁消费 | 改了要不要更新 App |

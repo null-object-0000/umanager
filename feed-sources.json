@@ -853,11 +853,12 @@
   "toolVersionOverrides": {
     "hermes": {
       "releaseApiUrl": "https://api.github.com/repos/NousResearch/hermes-agent/releases?per_page=30",
+      "commitApiUrl": "https://api.github.com/repos/NousResearch/hermes-agent/commits",
       "versionTitleRegex": "^Hermes Agent v(\\d+\\.\\d+\\.\\d+)"
     },
     "uv": {
-      "releaseApiUrl": "https://api.github.com/repos/astral-sh/uv/releases/latest",
-      "versionTitleRegex": "^(\\d+\\.\\d+\\.\\d+)"
+      "updaterManifestUrl": "https://raw.githubusercontent.com/astral-sh/versions/main/v1/uv.ndjson",
+      "platforms": ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
     },
     "pnpm": {
       "releaseApiUrl": "https://api.github.com/repos/pnpm/pnpm/releases/latest",
