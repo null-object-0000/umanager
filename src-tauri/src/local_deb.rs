@@ -36,6 +36,25 @@ impl LocalDebState {
             .map_err(|_| "本地安装包状态不可用".to_owned())
     }
 
+    pub fn receive_arguments<I>(&self, arguments: I, cwd: &Path) -> Result<bool, String>
+    where
+        I: IntoIterator<Item = OsString>,
+    {
+        let Some(path) = find_deb_argument(arguments) else {
+            return Ok(false);
+        };
+        let path = if path.is_absolute() {
+            path
+        } else {
+            cwd.join(path)
+        };
+        *self
+            .launch_path
+            .lock()
+            .map_err(|_| "本地安装包状态不可用".to_owned())? = Some(path);
+        Ok(true)
+    }
+
     pub fn from_path_for_command(path: PathBuf) -> Self {
         Self {
             launch_path: Mutex::new(Some(path)),
@@ -404,6 +423,31 @@ mod tests {
     fn rejects_path_like_hashes() {
         assert!(validate_sha256("../package").is_err());
         assert!(validate_sha256(&"a".repeat(64)).is_ok());
+    }
+
+    #[test]
+    fn receives_files_from_subsequent_launches_and_preserves_them_on_normal_launch() {
+        let state = LocalDebState {
+            launch_path: Mutex::new(None),
+        };
+        let cwd = Path::new("/tmp/下载");
+        assert!(
+            state.receive_arguments([OsString::from("first package.deb")], cwd).unwrap()
+        );
+        assert_eq!(
+            state.pending_path().unwrap(),
+            Some(cwd.join("first package.deb"))
+        );
+        assert!(
+            state.receive_arguments([OsString::from("/tmp/second.DEB")], cwd).unwrap()
+        );
+        assert!(
+            !state.receive_arguments([OsString::from("--toggle-panel")], cwd).unwrap()
+        );
+        assert_eq!(
+            state.pending_path().unwrap(),
+            Some(PathBuf::from("/tmp/second.DEB"))
+        );
     }
 
     #[test]

@@ -2329,8 +2329,35 @@ export default function App() {
     void loadDevTools();
     void loadCategories();
     void loadWindowsState();
-    void getPendingLocalDeb().then(setPendingLocalDeb).catch((reason) => setPendingLocalDebError(String(reason)));
     getVersion().then(setAppVersion).catch(() => { /* 获取编译版本失败时兜底为空 */ });
+  }, []);
+  useEffect(() => {
+    let disposed = false;
+    let request = 0;
+    let unlisten: (() => void) | undefined;
+    const load = async () => {
+      const current = ++request;
+      setPendingLocalDeb(null);
+      setPendingLocalDebError(null);
+      try {
+        const pending = await getPendingLocalDeb();
+        if (!disposed && current === request) setPendingLocalDeb(pending);
+      } catch (reason) {
+        if (!disposed && current === request) setPendingLocalDebError(String(reason));
+      }
+    };
+    // 先监听再读取，避免启动期间转交的文件被漏掉。
+    void (async () => {
+      if ("__TAURI_INTERNALS__" in window) {
+        const stop = await listen("local-deb-opened", () => { void load(); });
+        if (disposed) { stop(); return; }
+        unlisten = stop;
+      }
+      if (!disposed) await load();
+    })().catch((reason) => {
+      if (!disposed) setPendingLocalDebError(String(reason));
+    });
+    return () => { disposed = true; unlisten?.(); };
   }, []);
   // 排序偏好只影响本机展示，持久化失败（隐私模式 / 存储禁用）时静默回落到默认。
   useEffect(() => {

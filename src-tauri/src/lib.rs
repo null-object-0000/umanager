@@ -730,7 +730,19 @@ fn notify_download_complete(title: String, body: String) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            match app.state::<local_deb::LocalDebState>().receive_arguments(
+                argv.iter().skip(1).map(std::ffi::OsString::from),
+                std::path::Path::new(&cwd),
+            ) {
+                Ok(true) => {
+                    background::show_window(app);
+                    let _ = app.emit_to("main", "local-deb-opened", ());
+                    return;
+                }
+                Ok(false) => {}
+                Err(error) => eprintln!("无法接收本地安装包：{error}"),
+            }
             if argv.iter().any(|arg| arg == panel::TOGGLE_ARG) {
                 panel::toggle(app);
             } else {
