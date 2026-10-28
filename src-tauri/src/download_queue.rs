@@ -127,6 +127,15 @@ impl QueueCore {
         self.jobs.iter().find(|job| job.job_id == job_id)
     }
 
+    /// 安装前复核失败后撤销旧的校验结果。只命中原任务，避免异步复核误伤重试任务。
+    fn invalidate_ready(&mut self, job_id: &str, error: String) -> bool {
+        if !self.job(job_id).is_some_and(|job| job.status == DownloadJobStatus::Ready) {
+            return false;
+        }
+        self.finish(job_id, DownloadJobStatus::Error, Some(error), None);
+        true
+    }
+
     fn index_of(&self, job_id: &str) -> Option<usize> {
         self.jobs.iter().position(|job| job.job_id == job_id)
     }
@@ -288,6 +297,12 @@ pub struct DownloadQueue {
 }
 
 impl DownloadQueue {
+    pub(crate) fn ready_job_id(&self, application_id: &str) -> Option<String> {
+        self.lock_core().jobs.iter()
+            .find(|job| job.application_id == application_id && job.status == DownloadJobStatus::Ready)
+            .map(|job| job.job_id.clone())
+    }
+
     fn new(concurrency: u8) -> Self {
         Self {
             core: Mutex::new(QueueCore::new(concurrency)),
@@ -460,6 +475,13 @@ fn publish(app: &AppHandle) {
     let _ = app.emit(EVENT_NAME, snapshot);
 }
 
+pub(crate) fn invalidate_ready(app: &AppHandle, job_id: &str, error: String) {
+    let changed = app.state::<DownloadQueue>().lock_core().invalidate_ready(job_id, error);
+    if changed {
+        publish(app);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 设置持久化
 // ---------------------------------------------------------------------------
@@ -598,6 +620,56 @@ mod tests {
             total_bytes: 100,
             bytes_per_second: 0,
         }
+    }
+
+    #[test]
+    fn failed_cache_revalidation_clears_ready_result_and_allows_retry() {
+        let mut core = core(1);
+        let (job, _) = core.enqueue("a", "pkg-a", "A", Some("1.0".to_owned()));
+        core.mark_running(&job);
+        let plan = source_engine::DownloadPlan {
+            application_id: "a".to_owned(),
+            package_name: "pkg-a".to_owned(),
+            version: "1.0".to_owned(),
+            architecture: "amd64".to_owned(),
+            source_kind: crate::scanner::SourceKind::OfficialRepository,
+            repository_url: None,
+            download_url: "https://example.com/a.deb".to_owned(),
+            file_name: "a.deb".to_owned(),
+            expected_size: 100,
+            expected_sha256: Some("a".repeat(64)),
+            target_path: "/tmp/cache/downloads/a.deb".to_owned(),
+            release_tag: None,
+            asset_name: None,
+            website_version: None,
+        };
+        let result = DownloadResult {
+            package_name: plan.package_name.clone(),
+            version: plan.version.clone(),
+            architecture: plan.architecture.clone(),
+            actual_size: 100,
+            actual_sha256: "a".repeat(64),
+            reused_existing_file: false,
+            verified: true,
+            plan,
+        };
+        core.finish(&job, DownloadJobStatus::Ready, None, Some(result));
+        assert!(core.job(&job).unwrap().result.as_ref().unwrap().verified);
+
+        assert!(core.invalidate_ready(&job, "缓存缺失或 feed 已更新".to_owned()));
+        let failed = core.job(&job).unwrap();
+        assert_eq!(failed.status, DownloadJobStatus::Error);
+        assert!(failed.result.is_none());
+        assert_eq!(failed.error.as_deref(), Some("缓存缺失或 feed 已更新"));
+        assert_eq!(core.running, 0);
+
+        let (retry, created) = core.enqueue("a", "pkg-a", "A", Some("2.0".to_owned()));
+        assert!(created);
+        assert_ne!(retry, job);
+        assert!(!core.invalidate_ready(&job, "迟到的复核结果".to_owned()));
+        assert!(!core.invalidate_ready(&retry, "不能覆盖进行中的任务".to_owned()));
+        assert_eq!(core.job(&retry).unwrap().status, DownloadJobStatus::Queued);
+        assert_eq!(core.startable(), vec![retry]);
     }
 
     #[test]

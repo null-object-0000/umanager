@@ -184,9 +184,22 @@ pub async fn download_and_verify(
         .await
         .map_err(|error| format!("无法创建下载缓存目录：{error}"))?;
     if target_path.is_file() {
-        let verified = verify_plan_file(app, &plan, &target_path, Some(&progress), &cancel).await?;
-        emit_progress(&progress, &plan, "completed", verified.0, 0);
-        return Ok(result_from_verified(plan, verified, true));
+        match verify_plan_file(app, &plan, &target_path, Some(&progress), &cancel).await {
+            Ok(verified) => {
+                emit_progress(&progress, &plan, "completed", verified.0, 0);
+                return Ok(result_from_verified(plan, verified, true));
+            }
+            Err(error) => {
+                ensure_not_canceled(&cancel)?;
+                if error == CANCELED_ERROR {
+                    return Err(error);
+                }
+                // 无效缓存不能让「重试下载」再次命中同一个坏文件。
+                tokio::fs::remove_file(&target_path)
+                    .await
+                    .map_err(|error| format!("无法清理失效安装包缓存：{error}"))?;
+            }
+        }
     }
 
     let temporary_path = parent.join(format!(
@@ -213,11 +226,19 @@ pub async fn download_and_verify(
     Ok(result_from_verified(plan, verified, false))
 }
 
+pub const CACHE_REVALIDATION_ERROR: &str = "安装包缓存复核失败，请重新下载：";
+
 pub async fn verify_cached(app: &Application, cache_dir: &Path) -> Result<DownloadResult, String> {
+    verify_cached_inner(app, cache_dir)
+        .await
+        .map_err(|error| format!("{CACHE_REVALIDATION_ERROR}{error}"))
+}
+
+async fn verify_cached_inner(app: &Application, cache_dir: &Path) -> Result<DownloadResult, String> {
     let plan = build_download_plan(app, cache_dir).await?;
     let target_path = PathBuf::from(&plan.target_path);
     if !target_path.is_file() {
-        return Err("安装包尚未下载或不再位于缓存中".to_owned());
+        return Err(format!("当前软件源版本 {} 的安装包尚未下载或不再位于缓存中", plan.version));
     }
     let verified = verify_plan_file(app, &plan, &target_path, None, &never_cancel()).await?;
     Ok(result_from_verified(plan, verified, true))

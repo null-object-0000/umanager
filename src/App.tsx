@@ -1143,8 +1143,8 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
   else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
   else if (ready) { actionLabel = "更新"; actionDisabled = false; onAction = () => void install(); }
   else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
-  else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
-  else if (hasUpdate) { actionLabel = "更新"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
+  else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
+  else if (hasUpdate) { actionLabel = "更新"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
   else if (isSelfUpdate) { actionLabel = "已是最新"; actionDisabled = true; onAction = () => {}; }
   else { actionLabel = "打开"; actionDisabled = !launchable; onAction = onLaunch; }
   const heroAction = downloading && job?.progress
@@ -1175,7 +1175,7 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
       <WhatsNew version={details.candidateVersion ?? downloadPlan?.version ?? null} seconds={details.versionUpdatedAtUnixSeconds} notes={details.releaseNotes} url={details.releaseNotesUrl}/>
       {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
       {downloadError && <div className="inline-error">{downloadError}</div>}
-      {error && details && <div className="inline-error">{error}</div>}
+      {error && details && !downloadError && <div className="inline-error">{error}</div>}
 
       <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null}>
         <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 更新计划</span></summary>
@@ -1374,8 +1374,8 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
   else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
   else if (ready) { actionLabel = "安装"; actionDisabled = false; onAction = () => void install(); }
   else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
-  else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
-  else { actionLabel = "获取"; actionDisabled = !downloadPlan; onAction = onEnqueue; }
+  else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
+  else { actionLabel = "获取"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
   // 互斥变体：目标与已安装的同组变体不能共存，还没开始下载时把主操作换成
   // 「卸载 X」，避免走到 dpkg 的 Conflicts 报错；已经下载/排队的情况保留原操作
   // （抽屉里的提示仍可发起替换，卸载完成后那条下载正好可以安装）。
@@ -1413,7 +1413,7 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
       <WhatsNew version={offer.candidateVersion ?? null} seconds={offer.versionUpdatedAtUnixSeconds} notes={offer.releaseNotes} url={offer.releaseNotesUrl}/>
       {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
       {downloadError && <div className="inline-error">{downloadError}</div>}
-      {error && <div className="inline-error">{error}</div>}
+      {error && !downloadError && <div className="inline-error">{error}</div>}
 
       <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null}>
         <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 安装计划</span></summary>

@@ -317,16 +317,24 @@ async fn create_operation_plan(
     app: tauri::AppHandle,
     application_id: String,
 ) -> Result<operation_plan::PlanArtifact, String> {
+    let ready_job_id = app.state::<download_queue::DownloadQueue>().ready_job_id(&application_id);
     let catalog = feed::effective_catalog().await?;
     let application = require_application(&catalog, &application_id)?;
     let cache_dir = app
         .path()
         .app_cache_dir()
         .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
-    if application.application_id == installation::APPLICATION_ID {
-        return operation_plan::create_self_update_plan(&cache_dir).await;
+    let result = if application.application_id == installation::APPLICATION_ID {
+        operation_plan::create_self_update_plan(&cache_dir).await
+    } else {
+        operation_plan::create_install_plan(&catalog, &application, cache_dir).await
+    };
+    if let (Some(job_id), Err(error)) = (ready_job_id, &result) {
+        if error.starts_with(source_engine::CACHE_REVALIDATION_ERROR) {
+            download_queue::invalidate_ready(&app, &job_id, error.clone());
+        }
     }
-    operation_plan::create_install_plan(&catalog, &application, cache_dir).await
+    result
 }
 
 #[tauri::command]
