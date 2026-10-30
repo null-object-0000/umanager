@@ -4252,6 +4252,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "windows-sys 0.61.2",
 ]
@@ -4528,7 +4529,7 @@ dependencies = [
 
 [[package]]
 name = "umanager"
-version = "0.13.18"
+version = "0.13.19"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -4567,6 +4568,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "url",
 ]
 
 [[package]]

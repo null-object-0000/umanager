@@ -537,7 +537,7 @@ fn run_removal_helper(
     Ok(report)
 }
 
-fn run_privileged_helper(
+pub(crate) fn run_privileged_helper(
     plan_id: &str,
     helper_action: &str,
     plan_path: &Path,
@@ -596,7 +596,7 @@ fn run_privileged_helper(
         plan_id,
         "completed",
         "system",
-        "系统包操作已成功完成",
+        "操作已成功完成",
     );
     Ok(output)
 }

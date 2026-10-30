@@ -603,3 +603,66 @@ export interface WindowsPlan {
   downloadSize: number | null;
   sha256: string | null;
 }
+export interface FirmwareRelease {
+  version: string;
+  name: string | null;
+  summary: string | null;
+  description: string | null;
+  remoteId: string | null;
+  checksum: string[];
+  locations: string[];
+  flags: string[];
+}
+
+export interface FirmwareTarget {
+  deviceId: string;
+  deviceName: string;
+  guids: string[];
+  installedVersion: string;
+  targetVersion: string;
+  remoteId: string;
+  checksums: string[];
+  location: string;
+  needsReboot: boolean;
+  needsShutdown: boolean;
+  requiresAc: boolean;
+}
+
+export interface FirmwarePlan {
+  planId: string;
+  payload: {
+    schemaVersion: number;
+    action: "installDeviceFirmware";
+    target: FirmwareTarget;
+    createdAtUnixSeconds: number;
+    expiresAtUnixSeconds: number;
+  };
+}
+
+export interface FirmwareReport {
+  planId: string;
+  dryRun: boolean;
+  verified: boolean;
+  target: FirmwareTarget;
+  message: string;
+}
+
+export interface FirmwareState {
+  available: boolean;
+  updatesChecked: boolean;
+  warnings: string[];
+  devices: {
+    id: string;
+    name: string;
+    vendor: string | null;
+    version: string | null;
+    updatable: boolean;
+    supported: boolean;
+    needsReboot: boolean;
+    needsShutdown: boolean;
+    requiresAc: boolean;
+    problems: string[];
+    updateError: string | null;
+    releases: FirmwareRelease[];
+  }[];
+}

@@ -5,6 +5,7 @@ mod dev_cli_tools;
 mod dev_tools;
 mod download_queue;
 mod feed;
+mod firmware;
 mod icon;
 mod installable;
 mod installation;
@@ -778,6 +779,10 @@ pub fn run() {
         })
         .on_window_event(background::handle_window_event)
         .invoke_handler(tauri::generate_handler![
+            firmware::get_firmware_state,
+            firmware::prepare_firmware_update,
+            firmware::run_firmware_dry_run,
+            firmware::install_device_firmware,
             windows_apps::get_windows_state,
             windows_apps::prepare_windows_operation,
             windows_apps::execute_windows_operation,

@@ -1,4 +1,5 @@
 pub mod cleanup;
+pub mod firmware;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 

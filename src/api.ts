@@ -4,6 +4,44 @@ import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplicat
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
+export async function getFirmwareState(): Promise<import("./types").FirmwareState> {
+  if (isMock()) return {
+    available: true, updatesChecked: true, warnings: ["浏览器预览：以下为示例数据，不代表本机状态。"],
+    devices: [{ id: "a".repeat(40), name: "示例固态硬盘", vendor: "示例厂商", version: "1.0", updatable: true, supported: true, requiresAc: true, needsReboot: true, needsShutdown: false, problems: [], updateError: null, releases: [{ version: "1.1", name: "固件维护更新", summary: "改善稳定性", description: "<p>修复设备恢复过程中的兼容性问题。</p>", remoteId: "lvfs", checksum: ["b".repeat(64)], locations: ["https://fwupd.org/downloads/test.cab"], flags: ["trusted-metadata", "is-upgrade"] }] }],
+  };
+  return invoke("get_firmware_state");
+}
+
+const previewFirmwarePlans = new Map<string, import("./types").FirmwarePlan>();
+export async function prepareFirmwareUpdate(deviceId: string, version: string): Promise<import("./types").FirmwarePlan> {
+  if (!isMock()) return invoke("prepare_firmware_update", { deviceId, version });
+  const now = Math.floor(Date.now() / 1000);
+  const plan: import("./types").FirmwarePlan = { planId: "preview-firmware", payload: {
+    schemaVersion: 1, action: "installDeviceFirmware", createdAtUnixSeconds: now, expiresAtUnixSeconds: now + 900,
+    target: { deviceId, deviceName: "示例固态硬盘", installedVersion: "1.0", targetVersion: version, remoteId: "lvfs", checksums: ["b".repeat(64)], location: "https://fwupd.org/downloads/test.cab", guids: ["example"], requiresAc: true, needsReboot: true, needsShutdown: false },
+  } };
+  previewFirmwarePlans.set(plan.planId, plan);
+  return plan;
+}
+
+export async function runFirmwareDryRun(planId: string): Promise<import("./types").FirmwareReport> {
+  if (isMock()) {
+    const plan = previewFirmwarePlans.get(planId);
+    if (!plan) throw new Error("示例计划不存在");
+    return { planId, dryRun: true, verified: true, target: plan.payload.target, message: "浏览器模拟复核通过；未请求管理员权限，未访问本机硬件。" };
+  }
+  return invoke("run_firmware_dry_run", { planId });
+}
+
+export async function installDeviceFirmware(planId: string, onProgress: (event: OperationProgressEvent) => void): Promise<import("./types").FirmwareReport> {
+  if (isMock()) {
+    const plan = previewFirmwarePlans.get(planId);
+    if (!plan) throw new Error("示例计划不存在");
+    return { planId, dryRun: false, verified: true, target: plan.payload.target, message: "浏览器模拟完成；没有下载或刷写任何真实设备。" };
+  }
+  return invokeWithOperationProgress("install_device_firmware", planId, onProgress);
+}
+
 async function invokeWithOperationProgress<T>(command: string, planId: string, onProgress?: (event: OperationProgressEvent) => void): Promise<T> {
   const unlisten = onProgress ? await listen<OperationProgressEvent>("operation-progress", ({ payload }) => {
     if (payload.planId === planId) onProgress(payload);

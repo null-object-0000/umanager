@@ -1807,3 +1807,31 @@ nav { display: grid; gap: 2px; }
 .cleanup-checklist label span { min-width: 0; overflow-wrap: anywhere; }
 .cleanup-checklist small { display: block; margin-top: 4px; color: var(--text-2); }
 .cleanup-warning { color: var(--text-2); }
+
+/* Firmware inventory: system fwupd, independent of the .deb store. */
+.firmware-workspace { overflow-y: auto; }
+.firmware-notice { padding: 14px 18px; background: #f3f6fa; border-radius: 12px; color: #536174; line-height: 1.7; }
+.firmware-summary { color: #637184; margin: 20px 0; }
+.firmware-devices { display: grid; gap: 14px; padding-bottom: 24px; }
+.firmware-card { border: 1px solid #e1e6ed; background: #fff; border-radius: 16px; padding: 20px; min-width: 0; overflow-wrap: anywhere; }
+.firmware-card-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.firmware-card h2 { font-size: 16px; margin: 0; }
+.firmware-card h3 { font-size: 14px; }
+.firmware-status, .firmware-update-badge { font-size: 12px; padding: 5px 9px; border-radius: 8px; background: #f1f4f8; color: #536174; }
+.firmware-update-badge { background: #e5f4ee; color: #216c50; }
+.firmware-card dl { display: flex; flex-wrap: wrap; gap: 16px 36px; font-size: 13px; }
+.firmware-card dl > div { display: flex; gap: 12px; }
+.firmware-card dt { color: #758194; }
+.firmware-card dd { margin: 0; }
+.firmware-requirements { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #806522; }
+.firmware-error { color: #a33c37; line-height: 1.7; }
+.firmware-release { border-top: 1px solid #e9edf2; margin-top: 16px; padding-top: 4px; font-size: 13px; line-height: 1.7; }
+.firmware-release summary { cursor: pointer; color: #416b99; }
+.firmware-release > button { margin-top: 12px; }
+.firmware-dialog { width: min(680px, calc(100vw - 48px)); max-height: calc(100vh - 64px); overflow: auto; border: 1px solid #e1e6ed; border-radius: 18px; padding: 24px; color: #263346; background: white; box-shadow: 0 24px 90px #14243c40; font-size: 14px; line-height: 1.7; }
+.firmware-dialog::backdrop { background: #17233880; }
+.firmware-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.firmware-dialog h2 { margin: 0; font-size: 20px; }
+.firmware-dialog .plan-confirmation { margin: 18px 0; }
+.firmware-dialog footer { display: flex; justify-content: flex-end; margin-top: 24px; }
+.firmware-log { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #f3f6fa; border-radius: 10px; padding: 12px; font-size: 12px; }

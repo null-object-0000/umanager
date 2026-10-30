@@ -6,6 +6,16 @@
 
 UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），管理从厂商官网/官方仓库安装的 `.deb` 应用及其版本更新、安装、卸载。所有系统级操作都经过一个独立的特权 helper（Polkit），并遵循「不可变计划 + 特权 dry-run + 再次确认」的安全模型（Polkit 用 `auth_admin_keep`：一次会话只弹一次管理员授权，之后该会话内的后续特权操作不再重复弹窗）。
 
+### 固件检测与按设备更新
+
+「工具 → 固件更新」由独立的 `src-tauri/src/firmware.rs`、`src/FirmwarePage.tsx` 与 `src/FirmwareDialog.tsx` 实现。固件设备与候选版本来自系统 fwupd 的本地缓存，通过固定绝对路径 `/usr/bin/fwupdmgr`、固定 argv 的 `get-devices --json` / `get-updates --json` 无特权读取；每条查询有 45 秒超时，超时终止查询子进程。硬件信息不作为受管 `.deb` 软件信息来源，不进入签名 feed 或软件包下载队列；固件下载、校验与设备写入由系统 fwupd 的独立信任链承担。
+
+固件计划定义在 `crates/umanager-plan/src/firmware.rs`，为独立 schema v1（不变更 feed/`.deb` plan schema），绑定单个 40 位设备 ID、硬件 GUID、当前版本、目标版本、remote ID、HTTPS 下载地址、校验信息、电源/重启/关机要求，使用 SHA-256 标识并限时 15 分钟。计划以完整只读文件原子发布，不覆盖现有计划。候选必须来自 fwupd 的可用升级列表，具备 `trusted-metadata`、`is-upgrade` 标记和 SHA-256，不接受任意 URL、本地固件包或前端提供的来源声明。
+
+新增 helper 固定动作 `install-device-firmware --plan <path> --dry-run|--execute`。它通过现有 `auth_admin_keep` Polkit 策略授权，独立读取当前用户的只读计划并重新查询 fwupd。dry-run 不下载或写入设备，只在 root 专属 `/run/umanager-firmware` 留下绑定用户与计划的一次性复核记录；执行必须先消费该记录，并再次检查计划有效期及设备、固件状态。全局文件锁阻止 UManager 并行固件操作。确认后使用固定 `fwupdmgr download <signed-https-location>` 在 root 专属临时目录下载，独立验证整个 cabinet 的 SHA-256 与计划完全一致，下载后再次核对计划和设备，再固定执行 `fwupdmgr local-install <root-staged-cab> <device-id>`，避免按版本重新选包的竞态，并保留 fwupd 默认验证，不传 force/allow-older/allow-reinstall，禁止自动刷新元数据、启用源或自动重启。固件写入开始后不设强制超时、不提供取消，避免中途杀死写入进程；失败需重新检查和授权，不自动重试。
+
+界面需要先核对并请求管理员复核，再勾选二次确认后点击更新。显示固件来源、版本、电源/重启要求、加密恢复提示及操作日志；异常不会当作更新成功。更新说明经 HTML 清洗，不加载图片或打开外部链接。浏览器开发预览只模拟授权/安装；测试通过注入模拟查询与安装函数验证完整流程（包括无复核拒绝、dry-run 不写入、单次执行、过期和状态变化拒绝），不执行本机固件更新。系统 fwupd 服务的最终设备检查及签名/校验仍然有效；UManager 不管理远端源配置。
+
 ## 2. 核心架构：软件信息只依赖签名 feed
 
 历史版本中，UManager 在用户机器上抓取官网、调用 GitHub Releases API、解析本机 `apt-cache policy` 来获知候选版本。这些逻辑已全部移除。现在的模型是：

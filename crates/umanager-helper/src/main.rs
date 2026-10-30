@@ -1,3 +1,4 @@
+mod firmware;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
@@ -105,6 +106,7 @@ struct Invocation {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HelperAction {
+    Firmware,
     Install(OperationAction),
     Remove(RemovalAction),
 }
@@ -172,6 +174,7 @@ struct RemovalReport {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum HelperReport {
+    Firmware(umanager_plan::firmware::FirmwareReport),
     Installation(OperationReport),
     Removal(RemovalReport),
 }
@@ -213,6 +216,7 @@ fn run() -> Result<HelperReport, String> {
     let now = unix_timestamp();
     let catalog = load_catalog()?;
     match invocation.expected_action {
+        HelperAction::Firmware => firmware::run(&invocation, &caller, now).map(HelperReport::Firmware),
         HelperAction::Install(expected_action) => {
             run_install(&invocation, expected_action, &caller, now, &catalog)
                 .map(HelperReport::Installation)
@@ -366,6 +370,8 @@ where
         arguments[0].to_string_lossy().as_ref(),
         arguments[3].to_string_lossy().as_ref(),
     ) {
+        ("install-device-firmware", "--dry-run") => (HelperAction::Firmware, ExecutionMode::DryRun),
+        ("install-device-firmware", "--execute") => (HelperAction::Firmware, ExecutionMode::Execute),
         ("install-verified-deb", "--dry-run") => (
             HelperAction::Install(OperationAction::InstallVerifiedDeb),
             ExecutionMode::DryRun,

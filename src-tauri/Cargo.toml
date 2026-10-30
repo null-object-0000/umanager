@@ -1,6 +1,6 @@
 [package]
 name = "umanager"
-version = "0.13.18"
+version = "0.13.19"
 description = "A read-only first Ubuntu manager for vendor .deb applications"
 authors = ["UManager contributors"]
 edition = "2024"
@@ -31,7 +31,7 @@ notify-rust = "4"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
-tokio = { version = "1", features = ["fs", "io-util", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "process"] }
 umanager-catalog = { path = "../crates/umanager-catalog" }
 umanager-plan = { path = "../crates/umanager-plan" }
 url = "2"
