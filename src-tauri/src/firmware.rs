@@ -38,6 +38,69 @@ fn parse_inventory(bytes: &[u8]) -> Result<Vec<Device>, String> {
     umanager_plan::firmware::parse_devices(bytes)
 }
 
+// --force applies only to metadata age: explicitly clicking refresh should
+// contact enabled remotes even within fwupd's normal 24-hour refresh interval.
+const REFRESH_ARGUMENTS: &[&str] = &[
+    "refresh",
+    "--force",
+    "--json",
+    "--no-unreported-check",
+    "--no-remote-check",
+    "--no-reboot-check",
+];
+static METADATA_REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn check_refresh_result(code: Option<i32>, stdout: &[u8], stderr: &[u8]) -> Result<(), String> {
+    let message = serde_json::from_slice::<serde_json::Value>(stdout)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("Error")
+                .and_then(|error| error.get("Message"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    if code == Some(0) && message.is_none() {
+        return Ok(());
+    }
+    let detail = message.unwrap_or_else(|| String::from_utf8_lossy(stderr).trim().to_owned());
+    let detail: String = detail.chars().take(800).collect();
+    Err(if detail.is_empty() {
+        "固件元数据刷新失败，请检查网络连接及系统授权后重试".to_owned()
+    } else {
+        format!("固件元数据刷新失败：{detail}")
+    })
+}
+
+/// Metadata only. No device IDs, firmware files, installation plans, helper
+/// actions, remote enabling, or installation commands are accepted here.
+#[tauri::command]
+pub(crate) async fn refresh_firmware_metadata() -> Result<(), String> {
+    let _guard = METADATA_REFRESH
+        .try_lock()
+        .map_err(|_| "固件元数据正在刷新，请稍后重试")?;
+    let mut command = tokio::process::Command::new(umanager_plan::firmware::FWUPDMGR);
+    command
+        .args(REFRESH_ARGUMENTS)
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let child = command.spawn().map_err(|error| {
+        if error.kind() == ErrorKind::NotFound {
+            "未安装 fwupd，无法联网刷新固件元数据".to_owned()
+        } else {
+            format!("无法启动固件元数据刷新：{error}")
+        }
+    })?;
+    let output = tokio::time::timeout(Duration::from_secs(180), child.wait_with_output())
+        .await
+        .map_err(|_| "固件元数据刷新超时，请检查网络后重试；未执行固件安装".to_owned())?
+        .map_err(|error| format!("无法完成固件元数据刷新：{error}"))?;
+    check_refresh_result(output.status.code(), &output.stdout, &output.stderr)
+}
+
 async fn query(updates: bool) -> Result<Option<Vec<Device>>, String> {
     let mut command = tokio::process::Command::new("/usr/bin/fwupdmgr");
     command
@@ -268,6 +331,26 @@ pub(crate) async fn install_device_firmware(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_errors_never_report_success_or_trigger_a_device_operation() {
+        assert!(check_refresh_result(Some(0), b"", b"").is_ok());
+        let error = br#"{"Error":{"Message":"Authorization denied"}}"#;
+        assert!(
+            check_refresh_result(Some(1), error, b"")
+                .unwrap_err()
+                .contains("Authorization denied")
+        );
+        assert!(check_refresh_result(Some(0), error, b"").is_err());
+        assert!(check_refresh_result(Some(2), b"", b"metadata unavailable").is_err());
+        assert!(check_refresh_result(None, b"", b"").is_err());
+        assert_eq!(REFRESH_ARGUMENTS.first(), Some(&"refresh"));
+        assert!(REFRESH_ARGUMENTS.contains(&"--no-remote-check"));
+        assert!(!REFRESH_ARGUMENTS.iter().any(|argument| matches!(
+            *argument,
+            "install" | "local-install" | "update" | "enable-remote" | "--assume-yes"
+        )));
+    }
 
     #[test]
     fn plan_publication_is_read_only_atomic_and_does_not_overwrite() {

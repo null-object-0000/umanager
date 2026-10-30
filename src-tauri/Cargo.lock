@@ -4529,7 +4529,7 @@ dependencies = [
 
 [[package]]
 name = "umanager"
-version = "0.13.19"
+version = "0.13.20"
 dependencies = [
  "arboard",
  "base64 0.22.1",

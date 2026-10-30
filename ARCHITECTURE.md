@@ -8,6 +8,8 @@ UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），�
 
 ### 固件检测与按设备更新
 
+显式联网刷新使用独立的无参数 Tauri command `refresh_firmware_metadata`，固定执行 `/usr/bin/fwupdmgr refresh --force --json --no-unreported-check --no-remote-check --no-reboot-check`。`--force` 仅用于绕过元数据年龄限制；该入口不接受设备、URL、固件文件或安装计划，不调用安装 helper，不启用远端源，也不启动任何固件写入。fwupd 负责元数据签名验证及其自身的系统授权。刷新有进程内互斥与 180 秒超时；前端成功后再调用只读检测，显示联网刷新时间，分别报告刷新失败与刷新后的检测失败，保留旧结果并阻止用旧结果进入安装。打开页面仍只读缓存，不自动联网刷新。
+
 「工具 → 固件更新」由独立的 `src-tauri/src/firmware.rs`、`src/FirmwarePage.tsx` 与 `src/FirmwareDialog.tsx` 实现。固件设备与候选版本来自系统 fwupd 的本地缓存，通过固定绝对路径 `/usr/bin/fwupdmgr`、固定 argv 的 `get-devices --json` / `get-updates --json` 无特权读取；每条查询有 45 秒超时，超时终止查询子进程。硬件信息不作为受管 `.deb` 软件信息来源，不进入签名 feed 或软件包下载队列；固件下载、校验与设备写入由系统 fwupd 的独立信任链承担。
 
 固件计划定义在 `crates/umanager-plan/src/firmware.rs`，为独立 schema v1（不变更 feed/`.deb` plan schema），绑定单个 40 位设备 ID、硬件 GUID、当前版本、目标版本、remote ID、HTTPS 下载地址、校验信息、电源/重启/关机要求，使用 SHA-256 标识并限时 15 分钟。计划以完整只读文件原子发布，不覆盖现有计划。候选必须来自 fwupd 的可用升级列表，具备 `trusted-metadata`、`is-upgrade` 标记和 SHA-256，不接受任意 URL、本地固件包或前端提供的来源声明。

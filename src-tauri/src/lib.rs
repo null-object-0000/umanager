@@ -780,6 +780,7 @@ pub fn run() {
         .on_window_event(background::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             firmware::get_firmware_state,
+            firmware::refresh_firmware_metadata,
             firmware::prepare_firmware_update,
             firmware::run_firmware_dry_run,
             firmware::install_device_firmware,

@@ -12,6 +12,11 @@ export async function getFirmwareState(): Promise<import("./types").FirmwareStat
   return invoke("get_firmware_state");
 }
 
+export async function refreshFirmwareMetadata(): Promise<void> {
+  if (isMock()) return; // Browser preview never refreshes real system metadata.
+  return invoke("refresh_firmware_metadata");
+}
+
 const previewFirmwarePlans = new Map<string, import("./types").FirmwarePlan>();
 export async function prepareFirmwareUpdate(deviceId: string, version: string): Promise<import("./types").FirmwarePlan> {
   if (!isMock()) return invoke("prepare_firmware_update", { deviceId, version });
