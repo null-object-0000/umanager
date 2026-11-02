@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { clipboardUpdates } from "./clipboardUpdates";
 import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogAiMode, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
@@ -903,6 +904,16 @@ export function clearClipboardHistory(): Promise<void> {
 
 export async function onClipboardHistoryChanged(callback: (entries: ClipboardEntry[]) => void): Promise<() => void> {
   if (isMock()) return () => {};
-  return listen<ClipboardEntry[]>("clipboard-history-changed", ({ payload }) => callback(payload));
+  const updates = clipboardUpdates(listClipboardHistory, () => document.visibilityState === "visible", callback);
+  const refresh = () => { void updates.refresh(); };
+  const unlisten = await listen<number>("clipboard-history-changed", refresh);
+  document.addEventListener("visibilitychange", refresh);
+  // 监听建立后再同步一次，覆盖首次加载与注册监听之间的变更。
+  refresh();
+  return () => {
+    updates.dispose();
+    unlisten();
+    document.removeEventListener("visibilitychange", refresh);
+  };
 }
 

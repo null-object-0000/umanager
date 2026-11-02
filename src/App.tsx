@@ -12,7 +12,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { scanRemovalCleanup, cancelDownload, clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, dragClipboardImage, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getClipboardHistoryRevision, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, hideClipboardPanel, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import { scanRemovalCleanup, cancelDownload, clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, dragClipboardImage, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, ClipboardEntry, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { aiButtonLabel, aiMode, canRegenerate, formatCachedOrigin, regenerateButtonLabel, shouldWarnMissingSummary } from "./changelogTranslation";
 import type { AiActionState } from "./changelogTranslation";
@@ -84,14 +84,6 @@ function storeVariant(groupId: string, applicationId: string) {
 
 let catalogByPackage: Record<string, CatalogApplication> = {};
 
-function clipboardPanelMode(): boolean {
-  if (!("__TAURI_INTERNALS__" in window)) return false;
-  try {
-    return getCurrentWebviewWindow().label === "clipboard-panel";
-  } catch {
-    return false;
-  }
-}
 
 function appearance(packageName: string) {
   const entry = catalogByPackage[packageName];
@@ -1858,89 +1850,6 @@ function ScriptsPage() {
   </main>;
 }
 
-function ClipboardPanel() {
-  const [entries, setEntries] = useState<ClipboardEntry[]>([]);
-  const [query, setQuery] = useState("");
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    let lastRevision = -1;
-    const load = () =>
-      listClipboardHistory()
-        .then((list) => { if (active) setEntries(list); })
-        .catch(() => {});
-    const refresh = async () => {
-      try {
-        const revision = await getClipboardHistoryRevision();
-        if (!active || revision === lastRevision) return;
-        lastRevision = revision;
-        await load();
-      } catch { /* 面板保持不闪断 */ }
-    };
-    void refresh();
-    let unlisten: (() => void) | null = null;
-    onClipboardHistoryChanged((list) => { if (active) setEntries(list); }).then((fn) => { unlisten = fn; });
-    // 面板常驻隐藏，每次重新显示/获得焦点时重新拉取最新历史，避免展示旧列表。
-    let unlistenFocus: (() => void) | null = null;
-    getCurrentWebviewWindow()
-      .onFocusChanged(({ payload }) => { if (payload) void refresh(); })
-      .then((fn) => { unlistenFocus = fn; })
-      .catch(() => {});
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") void hideClipboardPanel(); };
-    window.addEventListener("keydown", onKey);
-    // 面板常驻隐藏：隐藏期间 WebKitGTK 可能挂起整个页面，导致事件/焦点回调都不可靠。
-    // 这里用 visibilitychange 立即补拉 + 1s 轻量版本号轮询兜底，保证面板恢复可见时
-    // 能及时刷新，且不会频繁传输带缩略图的完整列表。
-    const onVisibility = () => { if (document.visibilityState === "visible") void refresh(); };
-    document.addEventListener("visibilitychange", onVisibility);
-    const interval = window.setInterval(() => { void refresh(); }, 1000);
-    return () => {
-      active = false; unlisten?.(); unlistenFocus?.();
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.clearInterval(interval);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, []);
-
-  const ordered = useMemo(() => [...entries.filter((entry) => entry.pinned), ...entries.filter((entry) => !entry.pinned)], [entries]);
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return ordered;
-    return ordered.filter((entry) => {
-      const haystack = entry.kind === "image" ? `图片 ${entry.imageWidth ?? 0}x${entry.imageHeight ?? 0}` : (entry.text ?? "");
-      return haystack.toLowerCase().includes(needle);
-    });
-  }, [ordered, query]);
-
-  const copy = async (entry: ClipboardEntry) => {
-    try {
-      await copyClipboardEntry(entry.id);
-      setCopiedId(entry.id);
-      window.setTimeout(() => setCopiedId((current) => (current === entry.id ? null : current)), 1000);
-    } catch { /* 面板保持不闪断 */ }
-  };
-
-  return <div className="clip-panel">
-    <div className="clip-panel-top">
-      <strong>剪贴板</strong>
-      <label className="search-box clip-panel-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索" autoFocus/></label>
-    </div>
-    <div className="clip-panel-list">
-      {visible.length === 0 && <div className="clip-panel-empty">{entries.length === 0 ? "还没有记录" : "无匹配"}</div>}
-      {visible.map((entry) => entry.kind === "image"
-        ? <div className={`clip-panel-item image ${copiedId === entry.id ? "copied" : ""}`} key={entry.id} draggable
-            onClick={() => void copy(entry)} title="点击复制图片，或拖到聊天窗口发送文件"
-            onDragStart={(event) => { event.preventDefault(); dragClipboardImage(entry.id).catch((reason) => console.error("图片拖拽失败", reason)); }}>
-            <img className="clip-panel-thumb" draggable={false} src={entry.imagePreview ?? ""} alt="剪贴板图片"/>
-            <span className="clip-panel-dim">{entry.imageWidth ?? 0}×{entry.imageHeight ?? 0}</span>
-          </div>
-        : <div className={`clip-panel-item text ${copiedId === entry.id ? "copied" : ""}`} key={entry.id} onClick={() => void copy(entry)} title="点击复制">
-            <span className="clip-panel-text">{entry.text}</span>
-          </div>)}
-    </div>
-  </div>;
-}
 
 function ClipboardPage() {
   const [entries, setEntries] = useState<ClipboardEntry[] | null>(null);
@@ -1967,7 +1876,8 @@ function ClipboardPage() {
       .catch((reason) => { if (active) setError(String(reason)); })
       .finally(() => { if (active) setLoading(false); });
     let unlisten: (() => void) | null = null;
-    onClipboardHistoryChanged((list) => setEntries(list)).then((fn) => { unlisten = fn; });
+    onClipboardHistoryChanged((list) => { if (active) setEntries(list); })
+      .then((fn) => { if (active) unlisten = fn; else fn(); }).catch(() => {});
     getClipboardHotkey().then((value) => { if (active) { setHotkey(value); setHotkeyDraft(value); } }).catch(() => {});
     getSessionInfo().then((info) => { if (active) setSession(info); }).catch(() => {});
     return () => { active = false; unlisten?.(); };
@@ -1984,7 +1894,7 @@ function ClipboardPage() {
         .catch((reason) => { if (active) setError(String(reason)); });
     getCurrentWebviewWindow()
       .onFocusChanged(({ payload }) => { if (payload) reload(); })
-      .then((fn) => { unlistenFocus = fn; })
+      .then((fn) => { if (active) unlistenFocus = fn; else fn(); })
       .catch(() => {});
     return () => { active = false; unlistenFocus?.(); };
   }, []);
@@ -2100,7 +2010,7 @@ function ClipboardPage() {
             {entry.pinned && <span className="status-badge upToDate">已置顶</span>}
           </div>
           {entry.kind === "image"
-            ? <button className="clip-image-thumb" draggable onDragStart={(event) => { event.preventDefault(); dragOut(entry); }} onClick={() => setPreviewEntry(entry)} title="拖动到聊天窗口或文件管理器即可发送/保存；点击查看大图"><img draggable={false} src={entry.imagePreview ?? ""} alt="剪贴板图片"/></button>
+            ? <button className="clip-image-thumb" draggable onDragStart={(event) => { event.preventDefault(); dragOut(entry); }} onClick={() => setPreviewEntry(entry)} title="拖动到聊天窗口或文件管理器即可发送/保存；点击查看大图"><img loading="lazy" decoding="async" draggable={false} src={entry.imagePreview ?? ""} alt="剪贴板图片"/></button>
             : <pre className="clip-text">{entry.text}</pre>}
           <div className="clip-actions">
             <button className="clip-action-primary" disabled={pendingId === entry.id} onClick={() => void copy(entry)}>{copiedId === entry.id ? "已复制 ✓" : entry.kind === "image" ? "复制图片" : "复制"}</button>
@@ -2228,7 +2138,6 @@ function DownloadsPage({ jobs, installedOf, onOpen, onRetry, onCancel, onRemove 
 }
 
 export default function App() {
-  if (clipboardPanelMode()) return <ClipboardPanel/>;
   const [page, setPage] = useState<Page>("installed");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);

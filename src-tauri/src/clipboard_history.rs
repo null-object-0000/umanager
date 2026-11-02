@@ -6,7 +6,8 @@
 //! 设计要点：
 //! - 文本与图片统一存进同一条 `entries` 列表；文本内联在 JSON，图片的原始 PNG 单文件
 //!   存放（`clipboard-images/{id}.png`），JSON 只存元数据与一张小缩略图（base64 data URL）。
-//! - 轮询（默认 800ms）优先尝试读图片（`arboard::get_image` 返回 RGBA8），读不到再读文本；
+//! - X11/XWayland 优先等待 XFixes 变化事件，不支持或连接失败时回退到 800ms 轮询。
+//!   变化时优先读图片（`arboard::get_image` 返回 RGBA8），读不到再读文本；
 //!   读取失败（无聚焦、Wayland 无数据控制、剪贴板为空等）时静默跳过。
 //! - 上限：最多 500 条、文本总字符 200 万、单条文本 20 万字符、单张图片编码后 ≤20MB、
 //!   图片总字节 ≤300MB；淘汰时优先丢未置顶的最旧条目，并同步删除图片文件。
@@ -14,10 +15,11 @@
 //! - 持久化 JSON 向后兼容：旧版本只有文本字段，`kind` 缺省按「文本」解析。
 
 use base64::Engine as _;
+use image::ImageEncoder;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
-use std::io::Cursor;
+use std::io::{BufWriter, Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -111,21 +113,32 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn encode_png(rgba: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())?;
+    // 借用原始像素，避免给 4K 截图再分配一份完整 RGBA 缓冲区。
+    let expected = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
+    if width == 0 || height == 0 || rgba.len() != expected {
+        return None;
+    }
     let mut output = Vec::new();
-    image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut Cursor::new(&mut output), image::ImageFormat::Png)
+    image::codecs::png::PngEncoder::new(&mut output)
+        .write_image(rgba, width, height, image::ExtendedColorType::Rgba8)
         .ok()?;
     Some(output)
 }
 
 fn thumbnail_data_url(rgba: &[u8], width: u32, height: u32) -> Option<String> {
-    let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())?;
-    let thumbnail = image::DynamicImage::ImageRgba8(image).thumbnail(THUMBNAIL_MAX, THUMBNAIL_MAX);
-    let mut output = Vec::new();
-    thumbnail
-        .write_to(&mut Cursor::new(&mut output), image::ImageFormat::Png)
-        .ok()?;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, rgba)?;
+    let (thumb_width, thumb_height) = if width >= height {
+        let bound = width.min(THUMBNAIL_MAX);
+        (bound, ((height as u64 * bound as u64 / width as u64) as u32).max(1))
+    } else {
+        let bound = height.min(THUMBNAIL_MAX);
+        (((width as u64 * bound as u64 / height as u64) as u32).max(1), bound)
+    };
+    let thumbnail = image::imageops::thumbnail(&image, thumb_width, thumb_height);
+    let output = encode_png(thumbnail.as_raw(), thumbnail.width(), thumbnail.height())?;
     Some(format!(
         "data:image/png;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(output)
@@ -385,18 +398,24 @@ impl Store {
         let Some(path) = self.data_path.as_ref() else {
             return;
         };
-        let payload = PersistedHistory {
+        #[derive(Serialize)]
+        struct BorrowedHistory<'a> {
+            next_id: u64,
+            entries: &'a [ClipboardEntry],
+        }
+        let payload = BorrowedHistory {
             next_id: self.next_id,
-            entries: self.entries.clone(),
-        };
-        let Ok(json) = serde_json::to_string(&payload) else {
-            return;
+            entries: &self.entries,
         };
         if let Some(directory) = path.parent() {
             let _ = std::fs::create_dir_all(directory);
         }
         let temporary = path.with_extension("json.tmp");
-        if std::fs::write(&temporary, json).is_ok() {
+        let Ok(file) = std::fs::File::create(&temporary) else {
+            return;
+        };
+        let mut writer = BufWriter::new(file);
+        if serde_json::to_writer(&mut writer, &payload).is_ok() && writer.flush().is_ok() {
             let _ = std::fs::rename(&temporary, path);
         }
     }
@@ -506,13 +525,14 @@ pub fn initialize(app: &AppHandle) {
 }
 
 fn emit_snapshot(app: &AppHandle, history: &ClipboardHistory) {
-    let _ = app.emit("clipboard-history-changed", history.snapshot());
+    // 只广播失效通知；订阅中的可见页面按需读取，隐藏窗口不复制/解析全部历史。
+    let _ = app.emit("clipboard-history-changed", history.revision());
 }
 
-/// 面板每次显示时调用：把当前剪贴板快照重新推给所有窗口。
+/// 面板每次显示时调用：通知订阅者按需同步历史。
 ///
-/// 快捷面板是一个常驻隐藏的 webview，隐藏期间前端监听器可能收不到实时变更；
-/// 在 `panel::toggle` 显示面板后补发一次快照，保证面板一弹出就是最新数据，
+/// 隐藏期间前端监听器可能收不到实时变更；
+/// 在 `panel::toggle` 显示面板后补发一次通知，保证面板一弹出就是最新数据，
 /// 而不必等用户重启应用。
 pub fn refresh(app: &AppHandle) {
     if let Some(history) = app.try_state::<ClipboardHistory>() {
@@ -524,13 +544,34 @@ fn start_monitor(app: AppHandle) {
     let _ = std::thread::Builder::new()
         .name("umanager-clipboard-monitor".to_string())
         .spawn(move || {
+            #[cfg(target_os = "linux")]
+            let mut watcher = crate::clipboard_watch::ClipboardWatch::new().ok();
             let Ok(mut clipboard) = arboard::Clipboard::new() else {
                 return;
             };
             let mut last_text: Option<String> = None;
             let mut last_image_hash: Option<String> = None;
+            let mut first = true;
             loop {
-                std::thread::sleep(POLL_INTERVAL);
+                if !first {
+                    #[cfg(target_os = "linux")]
+                    let notified = if let Some(watch) = &watcher {
+                        if watch.wait().is_ok() {
+                            true
+                        } else {
+                            watcher = None;
+                            false
+                        }
+                    } else {
+                        false
+                    };
+                    #[cfg(not(target_os = "linux"))]
+                    let notified = false;
+                    if !notified {
+                        std::thread::sleep(POLL_INTERVAL);
+                    }
+                }
+                first = false;
 
                 if let Ok(image) = clipboard.get_image() {
                     let rgba = image.bytes;
@@ -838,9 +879,47 @@ mod tests {
         assert!(png.len() > 8);
         let decoded = image::load_from_memory(&png).unwrap();
         assert_eq!((decoded.width(), decoded.height()), (2, 2));
+        assert_eq!(decoded.to_rgba8().as_raw(), &rgba);
 
         let data_url = thumbnail_data_url(&rgba, 2, 2).expect("thumbnail");
         assert!(data_url.starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn png_rejects_invalid_pixel_buffers_without_panicking() {
+        assert!(encode_png(&[], 0, 0).is_none());
+        assert!(encode_png(&[0; 3], 1, 1).is_none());
+        assert!(encode_png(&[0; 5], 1, 1).is_none());
+        assert!(encode_png(&[], u32::MAX, u32::MAX).is_none());
+    }
+
+    #[test]
+    fn borrowed_thumbnail_preserves_aspect_ratio_and_limits_size() {
+        let rgba = vec![128; 960 * 480 * 4];
+        let data_url = thumbnail_data_url(&rgba, 960, 480).unwrap();
+        let encoded = data_url.strip_prefix("data:image/png;base64,").unwrap();
+        let png = base64::engine::general_purpose::STANDARD.decode(encoded).unwrap();
+        let image = image::load_from_memory(&png).unwrap();
+        assert_eq!((image.width(), image.height()), (240, 120));
+    }
+
+    #[test]
+    fn streaming_persistence_keeps_history_and_next_id_across_reload() {
+        let directory = std::env::temp_dir().join(format!("umanager-clip-persist-{}-{}", std::process::id(), now_ms()));
+        let history = ClipboardHistory::load(Some(directory.clone()));
+        let first = history.capture_text("保存完整文本 🦀").unwrap();
+        history.set_pinned(first.id, true).unwrap();
+        let rgba = [255, 0, 0, 255];
+        let image = history.capture_image(&rgba, 1, 1).unwrap();
+        let loaded = ClipboardHistory::load(Some(directory.clone()));
+        let entries = loaded.snapshot();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].content_hash, image.content_hash);
+        assert_eq!(entries[0].image_preview, image.image_preview);
+        assert_eq!(entries[1].text, first.text);
+        assert!(entries[1].pinned);
+        assert!(loaded.capture_text("next").unwrap().id > image.id);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

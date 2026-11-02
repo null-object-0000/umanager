@@ -164,7 +164,11 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
         WindowEvent::CloseRequested { api, .. } => {
             if !is_quitting() {
                 api.prevent_close();
-                let _ = window.hide();
+                if window.label() == panel::PANEL_LABEL {
+                    panel::hide(window.app_handle());
+                } else {
+                    let _ = window.hide();
+                }
             }
         }
         WindowEvent::Focused(false) => {
