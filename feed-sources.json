@@ -944,29 +944,6 @@
       }
     },
     {
-      "applicationId": "todesk",
-      "packageName": "todesk",
-      "displayName": "ToDesk",
-      "vendor": "ToDesk",
-      "architecture": "amd64",
-      "description": "ToDesk 官方远程桌面客户端，支持远程控制与文件传输，使用 Debian/Ubuntu 通用稳定版。",
-      "homepage": "https://www.todesk.com/",
-      "icon": "todesk",
-      "accentColor": "#176bff",
-      "removable": true,
-      "source": {
-        "kind": "versionEndpoint",
-        "versionEndpointUrl": "https://www.todesk.com/api/config/getConfig",
-        "versionEndpointHosts": ["www.todesk.com"],
-        "query": { "type": 1 },
-        "payloadKind": "json",
-        "versionField": "data.list.16.value",
-        "downloadUrlField": "data.list.35.value",
-        "downloadHosts": ["dl.todesk.com"],
-        "immutableDownloadUrl": true
-      }
-    },
-    {
       "applicationId": "apifox",
       "packageName": "apifox",
       "displayName": "Apifox",
