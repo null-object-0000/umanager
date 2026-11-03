@@ -49,6 +49,8 @@ on:
       - "feed-sources.json"
       - "scripts/update-feed.mjs"
       - "scripts/desktop-icons.mjs"
+      - "scripts/extract-zip-deb.py"
+      - "scripts/zip-artifact.mjs"
       - "scripts/tool-version-source.mjs"
       - "scripts/feed-download-reuse.mjs"
       - "scripts/feed-fallback.mjs"

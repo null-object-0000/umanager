@@ -53,6 +53,7 @@ pub struct Evidence {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadPlan {
+    pub archive: Option<crate::zip_deb::ZipDebArtifact>,
     pub application_id: String,
     pub package_name: String,
     pub version: String,
@@ -140,17 +141,26 @@ type VerifiedFile = (u64, String, DebMetadata);
 // the .deb package name/version/architecture before an immutable plan is created.
 // ---------------------------------------------------------------------------
 
-pub async fn load_details(app: &Application, cache_dir: &Path) -> Result<ApplicationDetails, String> {
+pub async fn load_details(
+    app: &Application,
+    cache_dir: &Path,
+) -> Result<ApplicationDetails, String> {
     let entry = required_feed_entry(app).await?;
     feed_details(app, cache_dir, &entry)
 }
 
-pub async fn build_download_plan(app: &Application, cache_dir: &Path) -> Result<DownloadPlan, String> {
+pub async fn build_download_plan(
+    app: &Application,
+    cache_dir: &Path,
+) -> Result<DownloadPlan, String> {
     let entry = required_feed_entry(app).await?;
     feed_plan(app, cache_dir, &entry)
 }
 
-pub(crate) async fn load_installable(app: &Application, cache_dir: &Path) -> Result<Installable, String> {
+pub(crate) async fn load_installable(
+    app: &Application,
+    cache_dir: &Path,
+) -> Result<Installable, String> {
     let installed = installed_package_version_optional(app)?;
     let Some(entry) = optional_feed_entry(app).await? else {
         // No version data in the feed yet (e.g. CI couldn't scrape a vendor site);
@@ -234,7 +244,10 @@ pub async fn verify_cached(app: &Application, cache_dir: &Path) -> Result<Downlo
         .map_err(|error| format!("{CACHE_REVALIDATION_ERROR}{error}"))
 }
 
-async fn verify_cached_inner(app: &Application, cache_dir: &Path) -> Result<DownloadResult, String> {
+async fn verify_cached_inner(
+    app: &Application,
+    cache_dir: &Path,
+) -> Result<DownloadResult, String> {
     let plan = build_download_plan(app, cache_dir).await?;
     let target_path = PathBuf::from(&plan.target_path);
     if !target_path.is_file() {
@@ -357,6 +370,7 @@ fn feed_plan(
         .to_string_lossy()
         .into_owned();
     Ok(DownloadPlan {
+        archive: entry.archive.clone(),
         application_id: app.application_id.clone(),
         package_name: entry.package_name.clone(),
         version: entry.version.clone(),
@@ -406,12 +420,33 @@ fn feed_installable(
     })
 }
 
-fn validate_feed_entry_for_app(app: &Application, entry: &FeedApplicationEntry) -> Result<(), String> {
+fn validate_feed_entry_for_app(
+    app: &Application,
+    entry: &FeedApplicationEntry,
+) -> Result<(), String> {
     if entry.package_name != app.package_name || entry.architecture != app.architecture {
         return Err(format!(
             "元数据源中 {} 的包名或架构与软件源不一致",
             app.display_name
         ));
+    }
+    match (&app.source, &entry.archive) {
+        (SourceSpec::ZipDeb { .. }, Some(archive)) => {
+            if !crate::zip_deb::valid_member(&archive.member)
+                || archive.size == 0
+                || archive.size > crate::zip_deb::MAX_ARTIFACT_BYTES
+                || entry.size == 0
+                || entry.size > crate::zip_deb::MAX_ARTIFACT_BYTES
+                || !crate::zip_deb::valid_digest(&archive.sha256)
+                || !crate::zip_deb::valid_digest(&entry.sha256)
+            {
+                return Err("ZIP 安装包的签名元数据无效".into());
+            }
+        }
+        (SourceSpec::ZipDeb { .. }, None) | (_, Some(_)) => {
+            return Err("ZIP 安装包格式与软件源不一致".into());
+        }
+        _ => {}
     }
     let hosts = app.download_hosts();
     let host = https_host(&entry.download_url).ok_or_else(|| "元数据源下载地址格式无效".to_owned())?;
@@ -489,8 +524,12 @@ async fn resolve_download_url(app: &Application, raw_url: &str) -> Result<String
 /// `?{timestamp_param}={epoch-seconds}&{signature_param}={hex md5(secret + path + t)}`.
 /// Mirrors the generator's `md5QuerySignUrl` so the feed's recorded SHA-256
 /// still matches what the app downloads.
-fn md5_query_sign_url(sign: &umanager_catalog::VersionEndpointSign, raw_url: &str) -> Result<String, String> {
-    if sign.secret.is_empty() || sign.timestamp_param.is_empty() || sign.signature_param.is_empty() {
+fn md5_query_sign_url(
+    sign: &umanager_catalog::VersionEndpointSign,
+    raw_url: &str,
+) -> Result<String, String> {
+    if sign.secret.is_empty() || sign.timestamp_param.is_empty() || sign.signature_param.is_empty()
+    {
         return Err("签名配置不完整".to_owned());
     }
     let mut url = url::Url::parse(raw_url).map_err(|_| "下载地址无效".to_owned())?;
@@ -511,7 +550,10 @@ fn md5_query_sign_url(sign: &umanager_catalog::VersionEndpointSign, raw_url: &st
 }
 
 /// Apply the configured URL-signing step (e.g. QQ's trpc UrlSign) to `raw_url`.
-async fn sign_url(sign: &umanager_catalog::VersionEndpointSign, raw_url: &str) -> Result<String, String> {
+async fn sign_url(
+    sign: &umanager_catalog::VersionEndpointSign,
+    raw_url: &str,
+) -> Result<String, String> {
     if sign.kind == umanager_catalog::VersionEndpointSignKind::Md5QuerySign {
         return md5_query_sign_url(sign, raw_url);
     }
@@ -695,7 +737,53 @@ async fn download_plan_file(
     progress: &ProgressCallback,
     cancel: &CancelCheck,
 ) -> Result<VerifiedFile, String> {
-    let download_hosts = app.download_hosts().into_iter().map(str::to_owned).collect::<Vec<_>>();
+    if let Some(archive) = &plan.archive {
+        let zip_path = path.with_extension("zip.tmp");
+        let mut transport = plan.clone();
+        transport.archive = None;
+        transport.expected_size = archive.size;
+        transport.expected_sha256 = Some(archive.sha256.clone());
+        let result = async {
+            download_blob_file(app, &transport, &zip_path, progress, cancel).await?;
+            ensure_not_canceled(cancel)?;
+            emit_progress(progress, plan, "verifying", archive.size, 0);
+            let input = zip_path.clone();
+            let output = path.to_owned();
+            let member = archive.member.clone();
+            let size = plan.expected_size;
+            let hash = plan.expected_sha256.clone().ok_or("缺少 DEB SHA-256")?;
+            let canceled = cancel.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::zip_deb::extract_deb(&input, &output, &member, size, &hash, &canceled)
+            })
+            .await
+            .map_err(|e| format!("ZIP 解压任务失败：{e}"))??;
+            ensure_not_canceled(cancel)?;
+            // Revalidate the resulting DEB, including package/version/architecture.
+            verify_plan_file(app, plan, path, None, cancel).await
+        }
+        .await;
+        let _ = tokio::fs::remove_file(zip_path).await;
+        return result;
+    }
+    let (size, sha256) = download_blob_file(app, plan, path, progress, cancel).await?;
+    let metadata = inspect_deb(path).await?;
+    validate_downloaded_metadata(plan, &metadata)?;
+    Ok((size, sha256, metadata))
+}
+
+async fn download_blob_file(
+    app: &Application,
+    plan: &DownloadPlan,
+    path: &Path,
+    progress: &ProgressCallback,
+    cancel: &CancelCheck,
+) -> Result<(u64, String), String> {
+    let download_hosts = app
+        .download_hosts()
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     let download_url = resolve_download_url(app, &plan.download_url).await?;
     let client = restricted_client(&download_hosts, Duration::from_secs(30 * 60))?;
     let mut response = client
@@ -779,9 +867,7 @@ async fn download_plan_file(
     }
     emit_progress(progress, plan, "verifying", size, 0);
     ensure_not_canceled(cancel)?;
-    let metadata = inspect_deb(path).await?;
-    validate_downloaded_metadata(plan, &metadata)?;
-    Ok((size, sha256, metadata))
+    Ok((size, sha256))
 }
 
 async fn verify_plan_file(
@@ -959,7 +1045,10 @@ pub(crate) fn https_host(url: &str) -> Option<&str> {
         .and_then(|rest| rest.split('/').next())
 }
 
-pub(crate) fn restricted_client(allowed_hosts: &[String], timeout: Duration) -> Result<reqwest::Client, String> {
+pub(crate) fn restricted_client(
+    allowed_hosts: &[String],
+    timeout: Duration,
+) -> Result<reqwest::Client, String> {
     let hosts = allowed_hosts.to_vec();
     crate::network::apply_proxy(reqwest::Client::builder())
         .https_only(true)
@@ -970,9 +1059,12 @@ pub(crate) fn restricted_client(allowed_hosts: &[String], timeout: Duration) -> 
                 return attempt.error("请求重定向次数超过限制");
             }
             if attempt.url().scheme() == "https"
-                && hosts
-                    .iter()
-                    .any(|host| attempt.url().host_str().is_some_and(|h| host_matches(h, host)))
+                && hosts.iter().any(|host| {
+                    attempt
+                        .url()
+                        .host_str()
+                        .is_some_and(|h| host_matches(h, host))
+                })
             {
                 attempt.follow()
             } else {
@@ -994,8 +1086,12 @@ fn emit_progress(
     callback(DownloadProgress {
         package_name: plan.package_name.clone(),
         phase,
-        transferred_bytes,
-        total_bytes: plan.expected_size,
+        transferred_bytes: if phase == "completed" {
+            plan.archive.as_ref().map_or(transferred_bytes, |a| a.size)
+        } else {
+            transferred_bytes
+        },
+        total_bytes: plan.archive.as_ref().map_or(plan.expected_size, |a| a.size),
         bytes_per_second,
     });
 }
@@ -1135,6 +1231,7 @@ mod tests {
         let catalog = umanager_catalog::Catalog::load().unwrap();
         let code = catalog.by_application_id("vscode").unwrap().clone();
         let good = FeedApplicationEntry {
+            archive: None,
             package_name: "code".to_owned(),
             version: "1.2.3".to_owned(),
             architecture: "amd64".to_owned(),
@@ -1169,6 +1266,7 @@ mod tests {
         let catalog = umanager_catalog::Catalog::load().unwrap();
         let code = catalog.by_application_id("vscode").unwrap().clone();
         let entry = FeedApplicationEntry {
+            archive: None,
             package_name: "code".to_owned(),
             version: "1.2.3".to_owned(),
             architecture: "amd64".to_owned(),
@@ -1190,4 +1288,68 @@ mod tests {
         assert_eq!(plan.source_kind, SourceKind::OfficialRepository);
         assert!(plan.target_path.starts_with("/tmp/cache/downloads/"));
     }
+    #[test]
+    fn zip_feed_requires_both_layers_and_preserves_deb_integrity_in_the_plan() {
+        let mut app = umanager_catalog::Catalog::load()
+            .unwrap()
+            .by_application_id("vscode")
+            .unwrap()
+            .clone();
+        app.source = SourceSpec::ZipDeb {
+            download_url: "https://example.com/app.zip".into(),
+            download_hosts: vec!["example.com".into()],
+        };
+        let mut entry: FeedApplicationEntry = serde_json::from_value(serde_json::json!({
+            "packageName": "code", "version": "1.2.3", "architecture": "amd64",
+            "size": 42, "sha256": "a".repeat(64), "downloadUrl": "https://example.com/app.zip"
+        }))
+        .unwrap();
+        assert!(feed_plan(&app, Path::new("/tmp/cache"), &entry).is_err());
+        entry.archive = Some(crate::zip_deb::ZipDebArtifact {
+            member: "app.deb".into(),
+            size: 100,
+            sha256: "b".repeat(64),
+        });
+        let plan = feed_plan(&app, Path::new("/tmp/cache"), &entry).unwrap();
+        assert_eq!(plan.expected_size, 42);
+        assert_eq!(
+            plan.expected_sha256.as_deref(),
+            Some("a".repeat(64).as_str())
+        );
+        assert_eq!(plan.archive.unwrap().size, 100);
+        entry.archive.as_mut().unwrap().member = "../app.deb".into();
+        assert!(feed_plan(&app, Path::new("/tmp/cache"), &entry).is_err());
+        entry.archive.as_mut().unwrap().member = "app.deb".into();
+        entry.archive.as_mut().unwrap().sha256.clear();
+        assert!(feed_plan(&app, Path::new("/tmp/cache"), &entry).is_err());
+    }
+    #[test]
+    #[ignore = "downloads the official mutable Apifox 2.8.53 ZIP over HTTPS"]
+    fn official_apifox_download_verifies_zip_and_deb_without_installing() {
+        let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../feed-sources.json")).unwrap()).unwrap();
+        let app: Application = serde_json::from_value(config["applications"].as_array().unwrap().iter().find(|a| a["applicationId"] == "apifox").unwrap().clone()).unwrap();
+        let entry: FeedApplicationEntry = serde_json::from_value(serde_json::json!({
+            "packageName": "apifox", "version": "2.8.53", "architecture": "amd64",
+            "size": 156009548, "sha256": "5c3f19a0c9298ac575871e026160abec4d5aaf1bae9256645913a9e25e0656e3",
+            "downloadUrl": "https://file-assets.apifox.com/download/Apifox-linux-deb-latest.zip",
+            "archive": { "member": "apifox_2.8.53_amd64.deb", "size": 156025910, "sha256": "79e74ef128a0193b5d7ad6411175a485fcc8a75fbb2869e290af04f23edf535c" }
+        })).unwrap();
+        let dir = std::env::temp_dir().join(format!("umanager-apifox-download-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&dir).unwrap();
+        let plan = feed_plan(&app, &dir, &entry).unwrap();
+        let output = dir.join("verified.deb");
+        let progress: ProgressCallback = Arc::new(|_| {});
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let result = runtime.block_on(download_plan_file(&app, &plan, &output, &progress, &never_cancel()));
+        let files = std::fs::read_dir(&dir).unwrap().count();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let (size, hash, metadata) = result.unwrap();
+        assert_eq!(size, entry.size);
+        assert_eq!(hash, entry.sha256);
+        assert_eq!(metadata.package, "apifox");
+        assert_eq!(metadata.version, "2.8.53");
+        assert_eq!(metadata.architecture, "amd64");
+        assert_eq!(files, 1, "only the verified DEB remains, not the ZIP");
+    }
+
 }

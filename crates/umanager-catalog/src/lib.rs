@@ -157,11 +157,15 @@ pub enum DevToolInstaller {
 pub enum DevToolUninstall {
     Npm,
     #[serde(rename_all = "camelCase")]
-    RemoveFiles { paths: Vec<String> },
+    RemoveFiles {
+        paths: Vec<String>,
+    },
     /// Run the already-installed binary with a fixed argument vector, e.g.
     /// `hermes uninstall --yes` (the vendor's own non-interactive uninstaller).
     #[serde(rename_all = "camelCase")]
-    SelfCommand { args: Vec<String> },
+    SelfCommand {
+        args: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -233,6 +237,13 @@ pub struct Application {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SourceSpec {
+    /// Official ZIP containing exactly one DEB. Older clients deserialize this
+    /// as Unknown and cannot offer an unsafe direct ZIP installation.
+    #[serde(rename_all = "camelCase")]
+    ZipDeb {
+        download_url: String,
+        download_hosts: Vec<String>,
+    },
     #[serde(rename_all = "camelCase")]
     AptRepository {
         /// Exact repository root used to build and validate download URLs.
@@ -282,9 +293,7 @@ pub enum SourceSpec {
         allow_prerelease: bool,
     },
     #[serde(rename_all = "camelCase")]
-    BrowserImport {
-        homepage_url: String,
-    },
+    BrowserImport { homepage_url: String },
     #[serde(rename_all = "camelCase")]
     VersionEndpoint {
         /// Stable HTTPS endpoint returning JSON / JSON-in-script / HTML that
@@ -429,6 +438,7 @@ impl Application {
             self.source,
             SourceSpec::AptRepository { .. }
                 | SourceSpec::StableDownloadEndpoint { .. }
+                | SourceSpec::ZipDeb { .. }
                 | SourceSpec::ReleaseApi { .. }
                 | SourceSpec::VersionEndpoint { .. }
         )
@@ -440,6 +450,7 @@ impl Application {
         matches!(
             self.source,
             SourceSpec::StableDownloadEndpoint { .. }
+                | SourceSpec::ZipDeb { .. }
                 | SourceSpec::ReleaseApi { .. }
                 | SourceSpec::VersionEndpoint { .. }
         )
@@ -468,10 +479,11 @@ impl Application {
     /// candidate metadata comes from the central feed.
     pub fn download_hosts(&self) -> Vec<&str> {
         match &self.source {
-            SourceSpec::AptRepository { repository_hosts, .. } => {
-                repository_hosts.iter().map(String::as_str).collect()
-            }
-            SourceSpec::StableDownloadEndpoint { download_hosts, .. } => {
+            SourceSpec::AptRepository {
+                repository_hosts, ..
+            } => repository_hosts.iter().map(String::as_str).collect(),
+            SourceSpec::ZipDeb { download_hosts, .. }
+            | SourceSpec::StableDownloadEndpoint { download_hosts, .. } => {
                 download_hosts.iter().map(String::as_str).collect()
             }
             SourceSpec::ReleaseApi {

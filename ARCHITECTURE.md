@@ -312,3 +312,11 @@ LLM 是**用户自带的可选服务**，不参与任何 feed 信任判断，只
 - 改动 `SYSTEM_PROMPT` / `SUMMARY_PROMPT` 或落盘字段语义时，必须同时递增 `translation.rs` 里的 `CACHE_VERSION`，否则旧缓存会被继续展示；
 - 缓存读改写由 `CACHE_LOCK` 串行化，文件损坏/截断/格式不认识一律按「没有缓存」处理，落盘失败不影响本次结果展示；
 - 新增模式时，前端的 `ChangelogAiMode`（`src/types.ts`）与后端的 `TranslationMode`（serde `camelCase`）必须同名，单测 `translation_mode_deserializes_from_the_frontend_strings` 锁定该 IPC 契约。
+
+## 官方 ZIP 中的 DEB（v0.14.1）
+
+`zipDeb` 是新增的目录 source kind，仅在 `feed-sources.json` 声明官方 ZIP 地址和下载域名。CI 检查唯一的顶层普通 DEB，拒绝路径穿越、符号链接、加密、超限与不支持的压缩方式；校验包名和架构后生成签名元数据。feed 条目的既有 `size` / `sha256` 始终描述 DEB，新增可选 `archive: { member, size, sha256 }` 描述 ZIP；两层字段都由 feed 签名覆盖。
+
+主程序仍只通过后台队列下载，逐次校验 HTTPS 与允许域名，先核对 ZIP 大小和 SHA-256，再在用户权限下限量流式提取到固定临时路径。缓存只保留已按大小、SHA-256、包名、版本、架构复核的 DEB，特权 helper 不接触 ZIP。取消或失败清理两层临时文件。
+
+这是 feed v2 / v3 的兼容字段扩展，操作计划仍为 v2，特权授权链不变。旧目录解析器将 `zipDeb` 反序列化为 `Unknown`，不允许自动安装；新主程序必须搭配新版 helper 才能授权该源。

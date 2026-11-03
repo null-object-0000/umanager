@@ -967,6 +967,23 @@
       }
     },
     {
+      "applicationId": "apifox",
+      "packageName": "apifox",
+      "displayName": "Apifox",
+      "vendor": "Apifox",
+      "architecture": "amd64",
+      "description": "API 设计、调试、文档、Mock 与自动化测试协作工具，使用官方 ZIP 内的 DEB 安装包。",
+      "homepage": "https://apifox.com/",
+      "icon": "apifox",
+      "accentColor": "#f44c65",
+      "removable": true,
+      "source": {
+        "kind": "zipDeb",
+        "downloadUrl": "https://file-assets.apifox.com/download/Apifox-linux-deb-latest.zip",
+        "downloadHosts": ["file-assets.apifox.com"]
+      }
+    },
+    {
       "applicationId": "figcraft",
       "packageName": "figcraft",
       "displayName": "FigCraft",

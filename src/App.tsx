@@ -407,7 +407,7 @@ function DevToolLogo({ tool }: { tool: DevTool }) {
 function isAutoInstallable(packageName: string) {
   const entry = catalogByPackage[packageName];
   if (!entry) return false;
-  return ["aptRepository", "stableDownloadEndpoint", "releaseApi", "versionEndpoint"].includes(entry.source.kind);
+  return ["aptRepository", "stableDownloadEndpoint", "releaseApi", "versionEndpoint", "zipDeb"].includes(entry.source.kind);
 }
 
 // 只有带 .desktop 启动项的图形应用才提供「打开」；CLI 工具（category === "cli"）没有可启动入口。

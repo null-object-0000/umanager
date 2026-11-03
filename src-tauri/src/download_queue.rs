@@ -629,6 +629,7 @@ mod tests {
         let (job, _) = core.enqueue("a", "pkg-a", "A", Some("1.0".to_owned()));
         core.mark_running(&job);
         let plan = source_engine::DownloadPlan {
+            archive: None,
             application_id: "a".to_owned(),
             package_name: "pkg-a".to_owned(),
             version: "1.0".to_owned(),

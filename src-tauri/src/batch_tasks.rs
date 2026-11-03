@@ -1172,6 +1172,7 @@ mod tests {
             error: None,
             result: Some(source_engine::DownloadResult {
                 plan: source_engine::DownloadPlan {
+                    archive: None,
                     application_id: item.application_id.clone(),
                     package_name: item.package_name.clone(),
                     version: item.target_version.clone(),

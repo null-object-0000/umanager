@@ -1,3 +1,4 @@
+mod zip_deb;
 mod background;
 mod batch_tasks;
 mod clipboard_history;

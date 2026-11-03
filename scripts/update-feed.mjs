@@ -42,6 +42,7 @@
 //   categoryAssignments: { applications: { [applicationId]: categoryId },
 //                          developmentTools: { [toolId]: categoryId } }
 
+import { fetchZipArtifact } from "./zip-artifact.mjs";
 import { windowsEntry } from "./windows-feed.mjs";
 import { desktopIconPaths } from "./desktop-icons.mjs";
 import { spawnSync } from "node:child_process";
@@ -879,6 +880,52 @@ async function fetchAtomReleaseNotes(app, config) {
   return { releaseNotes, releaseNotesUrl };
 }
 
+// ZIP transport metadata and the extracted DEB metadata are both signed.
+// Existing clients see the unknown zipDeb source kind and cannot install it.
+async function zipDebEntry(app, source, previousEntry) {
+  const url = source.downloadUrl;
+  if (!/^https:\/\//.test(url || "") || !hostAllowedInList(url, source.downloadHosts || [])) {
+    fail(app.applicationId, "ZIP 下载地址不属于允许域名");
+    return null;
+  }
+  const probe = await probeArtifact(url, source.gatewayUrl);
+  const oldArchive = previousEntry?.archive;
+  if (oldArchive && oldArchive.member && oldArchive.size && /^[0-9a-f]{64}$/i.test(oldArchive.sha256 || "")) {
+    const decision = decideDownloadSkip({ previousEntry: { ...previousEntry, size: oldArchive.size, sha256: oldArchive.sha256 }, rawUrl: url, probe });
+    if (decision.skip) {
+      noteSkippedDownload(app, previousEntry, decision.reason);
+      return reusedEntry(app, previousEntry, url);
+    }
+  }
+  const zipPath = `/tmp/umanager-feed-${app.applicationId}-${process.pid}.zip`;
+  const debPath = `/tmp/umanager-feed-${app.applicationId}-${process.pid}.deb`;
+  try {
+    const bytes = await fetchZipArtifact(url, source.downloadHosts);
+    if (bytes.length > 1024 * 1024 * 1024) throw new Error("ZIP 超过大小上限");
+    writeFileSync(zipPath, bytes);
+    rmSync(debPath, { force: true });
+    const extracted = spawnSync("python3", [join(SCRIPT_DIR, "extract-zip-deb.py"), zipPath, debPath], { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+    if (extracted.status !== 0) throw new Error(`ZIP 解压失败：${extracted.stderr || extracted.error || extracted.status}`);
+    const { member } = JSON.parse(extracted.stdout);
+    if (debControlField(debPath, "Package") !== app.packageName || debControlField(debPath, "Architecture") !== app.architecture) throw new Error("ZIP 内 DEB 的包名或架构不匹配");
+    downloadedDebs.set(app.applicationId, debPath);
+    return {
+      packageName: app.packageName, version: debControlField(debPath, "Version"), architecture: app.architecture,
+      size: statSync(debPath).size, sha256: sha256OfFile(debPath), downloadUrl: url,
+      archive: { member, size: bytes.length, sha256: sha256Buf(bytes) },
+      releaseTag: null, assetName: null, websiteVersion: null,
+      _versionTimeCandidate: probe?.lastModified != null ? { time: probe.lastModified, source: "serverModified" } : null,
+    };
+  } catch (error) {
+    downloadedDebs.delete(app.applicationId);
+    rmSync(debPath, { force: true });
+    fail(app.applicationId, `读取 ZIP 安装包失败：${error.message}`);
+    return null;
+  } finally {
+    rmSync(zipPath, { force: true });
+  }
+}
+
 async function stableDownloadEntry(app, source, previousEntry) {
   // The version marker is optional: when absent, skip scraping the page and use
   // the .deb control field's Version as the authoritative version (e.g. Bitwarden's
@@ -1647,7 +1694,9 @@ async function scrapeAppEntry(app, releaseNotesOverrides, previousFeed = null) {
   const kind = app.source?.kind;
   const previousEntry = previousFeed?.applications?.[app.applicationId] ?? null;
   let entry = null;
-  if (kind === "aptRepository") {
+  if (kind === "zipDeb") {
+    entry = await zipDebEntry(app, app.source, previousEntry);
+  } else if (kind === "aptRepository") {
     entry = await aptEntry(app);
   } else if (kind === "releaseApi") {
     entry = await releaseApiEntry(app, app.source, previousEntry);
@@ -1774,7 +1823,12 @@ async function buildCatalogRecords({ extraApps, applications, previousFeed, icon
     let downloadedHere = false;
     if (!debPath) {
       try {
-        debPath = await downloadTemp(app.applicationId, await iconDownloadUrl(app, entry));
+        if (app.source?.kind === "zipDeb") {
+          if (!await zipDebEntry(app, app.source, null)) throw new Error("无法重新读取 ZIP 安装包");
+          debPath = downloadedDebs.get(app.applicationId);
+        } else {
+          debPath = await downloadTemp(app.applicationId, await iconDownloadUrl(app, entry));
+        }
         downloadedHere = true;
       } catch (error) {
         fail(app.applicationId, `图标下载失败：${error.message}`);

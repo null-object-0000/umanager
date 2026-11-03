@@ -60,7 +60,8 @@
       "insomnia": "dev-tools",
       "zoom": "office",
       "tabby": "dev-tools",
-      "todesk": "network"
+      "todesk": "network",
+      "apifox": "dev-tools"
     },
     "developmentTools": {
       "claude-code": "ai-tools",

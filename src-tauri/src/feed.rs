@@ -108,6 +108,8 @@ pub enum VersionUpdatedAtSource {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeedApplicationEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<crate::zip_deb::ZipDebArtifact>,
     pub package_name: String,
     pub version: String,
     pub architecture: String,
@@ -1715,8 +1717,8 @@ mod tests {
                     schema_version: 3,
                     generated_at_unix_seconds: 100,
                     applications: HashMap::from([
-                        ("qq".to_owned(), FeedApplicationEntry { package_name: "linuxqq".to_owned(), version: "3.2".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "a".to_owned(), download_url: "https://x/qq.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
-                        ("wechat".to_owned(), FeedApplicationEntry { package_name: "wechat".to_owned(), version: "4.0".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "b".to_owned(), download_url: "https://x/wx.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
+                        ("qq".to_owned(), FeedApplicationEntry { archive: None, package_name: "linuxqq".to_owned(), version: "3.2".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "a".to_owned(), download_url: "https://x/qq.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
+                        ("wechat".to_owned(), FeedApplicationEntry { archive: None, package_name: "wechat".to_owned(), version: "4.0".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "b".to_owned(), download_url: "https://x/wx.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
                     ]),
                     catalog_json: None, catalog_signature: None, self_update: None, development_tools: HashMap::new(), categories: Vec::new(), category_assignments: FeedCategoryAssignments { applications: HashMap::new(), development_tools: HashMap::new() }, source: None, sources: Vec::new(),
                 },
@@ -1731,8 +1733,8 @@ mod tests {
                     schema_version: 3,
                     generated_at_unix_seconds: 100,
                     applications: HashMap::from([
-                        ("wechat".to_owned(), FeedApplicationEntry { package_name: "wechat".to_owned(), version: "9.9".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "c".to_owned(), download_url: "https://x/wx2.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
-                        ("obsidian".to_owned(), FeedApplicationEntry { package_name: "obsidian".to_owned(), version: "1.6".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "d".to_owned(), download_url: "https://x/obs.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
+                        ("wechat".to_owned(), FeedApplicationEntry { archive: None, package_name: "wechat".to_owned(), version: "9.9".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "c".to_owned(), download_url: "https://x/wx2.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
+                        ("obsidian".to_owned(), FeedApplicationEntry { archive: None, package_name: "obsidian".to_owned(), version: "1.6".to_owned(), architecture: "amd64".to_owned(), size: 1, sha256: "d".to_owned(), download_url: "https://x/obs.deb".to_owned(), release_tag: None, asset_name: None, website_version: None, version_updated_at_unix_seconds: None, version_updated_at_source: None, release_notes: None, release_notes_url: None }),
                     ]),
                     catalog_json: None, catalog_signature: None, self_update: None, development_tools: HashMap::new(), categories: Vec::new(), category_assignments: FeedCategoryAssignments { applications: HashMap::new(), development_tools: HashMap::new() }, source: None, sources: Vec::new(),
                 },
@@ -1941,6 +1943,7 @@ mod tests {
 
     fn test_entry(version: &str) -> FeedApplicationEntry {
         FeedApplicationEntry {
+            archive: None,
             package_name: "pkg".to_owned(),
             version: version.to_owned(),
             architecture: "amd64".to_owned(),
