@@ -51,7 +51,11 @@
       "qq-music": "media",
       "wine": "dev-tools",
       "wine-stable": "dev-tools",
-      "figcraft": "office"
+      "figcraft": "office",
+      "rustdesk": "network",
+      "dbeaver": "dev-tools",
+      "motrix": "network",
+      "typora": "office"
     },
     "developmentTools": {
       "claude-code": "ai-tools",

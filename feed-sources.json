@@ -779,6 +779,87 @@
       }
     },
     {
+      "applicationId": "rustdesk",
+      "packageName": "rustdesk",
+      "displayName": "RustDesk",
+      "vendor": "RustDesk",
+      "architecture": "amd64",
+      "description": "开源跨平台远程桌面工具，支持远程控制、文件传输与自建中继服务。Wayland 下的远程控制能力受桌面环境与权限限制。",
+      "homepage": "https://rustdesk.com/",
+      "icon": "rustdesk",
+      "accentColor": "#0071ff",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/rustdesk/rustdesk/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "rustdesk-{tagVersion}-x86_64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "dbeaver",
+      "packageName": "dbeaver-ce",
+      "displayName": "DBeaver Community",
+      "vendor": "DBeaver",
+      "architecture": "amd64",
+      "description": "开源通用数据库客户端，支持多种数据库连接、SQL 编辑、数据浏览与导入导出。",
+      "homepage": "https://dbeaver.io/",
+      "icon": "dbeaver",
+      "accentColor": "#8b6245",
+      "removable": true,
+      "source": {
+        "kind": "aptRepository",
+        "repositoryUrl": "https://dbeaver.io/debs/dbeaver-ce",
+        "repositoryHosts": ["dbeaver.io"],
+        "packagesIndexUrl": "https://dbeaver.io/debs/dbeaver-ce/Packages"
+      },
+      "releaseNotes": {
+        "releaseApiUrl": "https://api.github.com/repos/dbeaver/dbeaver/releases/latest"
+      }
+    },
+    {
+      "applicationId": "motrix",
+      "packageName": "motrix",
+      "displayName": "Motrix",
+      "vendor": "Motrix contributors",
+      "architecture": "amd64",
+      "description": "开源下载管理器，支持 HTTP、FTP、BitTorrent 与磁力链接，提供下载队列与多任务管理。",
+      "homepage": "https://motrix.app/",
+      "icon": "motrix",
+      "accentColor": "#5269e8",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/agalwood/Motrix/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "Motrix_{tagVersion}_amd64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "typora",
+      "packageName": "typora",
+      "displayName": "Typora",
+      "vendor": "Typora",
+      "architecture": "amd64",
+      "description": "简洁的 Markdown 写作与阅读工具，支持实时预览、数学公式、表格与文档导出。商业软件，试用后需购买许可证。",
+      "homepage": "https://typora.io/",
+      "icon": "typora",
+      "accentColor": "#363b40",
+      "removable": true,
+      "source": {
+        "kind": "aptRepository",
+        "repositoryUrl": "https://downloads.typora.io",
+        "repositoryHosts": ["downloads.typora.io"],
+        "packagesIndexUrl": "https://downloads.typora.io/linux/Packages"
+      }
+    },
+    {
       "applicationId": "figcraft",
       "packageName": "figcraft",
       "displayName": "FigCraft",
