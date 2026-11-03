@@ -984,6 +984,64 @@
       }
     },
     {
+      "applicationId": "1password",
+      "packageName": "1password",
+      "displayName": "1Password",
+      "vendor": "1Password",
+      "architecture": "amd64",
+      "description": "1Password 官方密码管理器，安全保存密码与敏感信息，支持浏览器集成与 SSH 智能体；使用需要 1Password 会员账号。",
+      "homepage": "https://1password.com/downloads/linux",
+      "icon": "1password",
+      "accentColor": "#0572ec",
+      "removable": true,
+      "source": {
+        "kind": "aptRepository",
+        "repositoryUrl": "https://downloads.1password.com/linux/debian/amd64",
+        "repositoryHosts": ["downloads.1password.com"],
+        "packagesIndexUrl": "https://downloads.1password.com/linux/debian/amd64/dists/stable/main/binary-amd64/Packages.gz"
+      }
+    },
+    {
+      "applicationId": "slack",
+      "packageName": "slack-desktop",
+      "displayName": "Slack",
+      "vendor": "Slack Technologies",
+      "architecture": "amd64",
+      "description": "Slack 官方团队沟通客户端，支持频道、私信、文件共享与应用集成；Linux 版由官方标记为 Beta。",
+      "homepage": "https://slack.com/downloads/linux",
+      "icon": "slack",
+      "accentColor": "#4a154b",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://slack.com/intl/en-us/downloads/instructions/linux",
+        "versionEndpointHosts": ["slack.com"],
+        "query": { "ddl": "1", "build": "deb" },
+        "payloadKind": "html",
+        "downloadUrlField": ".deb",
+        "downloadHosts": ["downloads.slack-edge.com"],
+        "immutableDownloadUrl": true
+      }
+    },
+    {
+      "applicationId": "vivaldi",
+      "packageName": "vivaldi-stable",
+      "displayName": "Vivaldi",
+      "vendor": "Vivaldi Technologies",
+      "architecture": "amd64",
+      "description": "Vivaldi 官方稳定版浏览器，支持标签页分组、分屏浏览与丰富的界面自定义选项。",
+      "homepage": "https://vivaldi.com/",
+      "icon": "vivaldi",
+      "accentColor": "#ef3939",
+      "removable": true,
+      "source": {
+        "kind": "aptRepository",
+        "repositoryUrl": "https://repo.vivaldi.com/stable/deb",
+        "repositoryHosts": ["repo.vivaldi.com"],
+        "packagesIndexUrl": "https://repo.vivaldi.com/stable/deb/dists/stable/main/binary-amd64/Packages.gz"
+      }
+    },
+    {
       "applicationId": "figcraft",
       "packageName": "figcraft",
       "displayName": "FigCraft",
