@@ -860,6 +860,69 @@
       }
     },
     {
+      "applicationId": "drawio",
+      "packageName": "draw.io",
+      "displayName": "draw.io Desktop",
+      "vendor": "JGraph",
+      "architecture": "amd64",
+      "description": "开源离线绘图工具，支持流程图、架构图、网络拓扑与实体关系图，文件可保存在本地。",
+      "homepage": "https://www.drawio.com/",
+      "icon": "drawio",
+      "accentColor": "#f08705",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/jgraph/drawio-desktop/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "drawio-amd64-{tagVersion}.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "insomnia",
+      "packageName": "insomnia",
+      "displayName": "Insomnia",
+      "vendor": "Kong",
+      "architecture": "amd64",
+      "description": "开源 API 开发与调试客户端，支持 HTTP、GraphQL、gRPC 请求、环境变量与请求集合管理。",
+      "homepage": "https://insomnia.rest/",
+      "icon": "insomnia",
+      "accentColor": "#5849be",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/Kong/insomnia/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "Insomnia.Core-{tagVersion}.deb",
+        "stripTagPrefix": "core@",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "zoom",
+      "packageName": "zoom",
+      "displayName": "Zoom",
+      "vendor": "Zoom",
+      "architecture": "amd64",
+      "description": "Zoom 官方视频会议客户端，支持在线会议、屏幕共享与团队沟通。",
+      "homepage": "https://zoom.us/download",
+      "icon": "zoom",
+      "accentColor": "#0b5cff",
+      "removable": true,
+      "source": {
+        "kind": "stableDownloadEndpoint",
+        "officialPageUrl": "https://zoom.us/download",
+        "officialPageHosts": ["zoom.us"],
+        "downloadUrl": "https://zoom.us/client/latest/zoom_amd64.deb",
+        "downloadHosts": ["zoom.us", "cdn.zoom.us"],
+        "pageVersionMarker": "",
+        "downloadLinkFileName": "zoom_amd64.deb"
+      }
+    },
+    {
       "applicationId": "figcraft",
       "packageName": "figcraft",
       "displayName": "FigCraft",

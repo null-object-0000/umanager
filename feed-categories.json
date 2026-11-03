@@ -55,7 +55,10 @@
       "rustdesk": "network",
       "dbeaver": "dev-tools",
       "motrix": "network",
-      "typora": "office"
+      "typora": "office",
+      "drawio": "office",
+      "insomnia": "dev-tools",
+      "zoom": "office"
     },
     "developmentTools": {
       "claude-code": "ai-tools",
