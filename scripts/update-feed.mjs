@@ -43,6 +43,7 @@
 //                          developmentTools: { [toolId]: categoryId } }
 
 import { windowsEntry } from "./windows-feed.mjs";
+import { desktopIconPaths } from "./desktop-icons.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes, sign } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -1021,7 +1022,7 @@ function extractIcon(debPath) {
     return null;
   }
 
-  const candidates = [];
+  const candidates = desktopIconPaths(extractDir);
   for (const base of [
     join(extractDir, "usr/share/icons/hicolor"),
     join(extractDir, "usr/share/icons"),
