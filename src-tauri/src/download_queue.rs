@@ -315,7 +315,7 @@ impl DownloadQueue {
         self.core.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn snapshot(&self) -> Vec<DownloadJob> {
+    pub(crate) fn snapshot(&self) -> Vec<DownloadJob> {
         self.lock_core().snapshot()
     }
 
@@ -473,6 +473,7 @@ async fn execute(app: &AppHandle, job_id: &str) -> Outcome {
 fn publish(app: &AppHandle) {
     let snapshot = app.state::<DownloadQueue>().snapshot();
     let _ = app.emit(EVENT_NAME, snapshot);
+    crate::batch_tasks::downloads_changed(app);
 }
 
 pub(crate) fn invalidate_ready(app: &AppHandle, job_id: &str, error: String) {

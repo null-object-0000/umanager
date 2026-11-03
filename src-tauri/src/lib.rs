@@ -1,4 +1,5 @@
 mod background;
+mod batch_tasks;
 mod clipboard_history;
 #[cfg(target_os = "linux")]
 mod clipboard_watch;
@@ -361,6 +362,7 @@ async fn install_package(
     app: tauri::AppHandle,
     plan_id: String,
 ) -> Result<serde_json::Value, String> {
+    let _mutation = operation_plan::MUTATION_LOCK.try_lock().map_err(|_| "另一个软件安装或卸载正在执行，请稍后重试")?;
     let cache_dir = app
         .path()
         .app_cache_dir()
@@ -533,6 +535,7 @@ async fn get_installation_info() -> Result<installation::InstallationInfo, Strin
 /// dev/portable launches (where the restart button cannot normally be reached).
 #[tauri::command]
 async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
+    let _mutation = operation_plan::MUTATION_LOCK.try_lock().map_err(|_| "软件操作尚未完成，请稍后重启")?;
     let installed = PathBuf::from("/usr/bin/umanager");
     let executable = if installed.exists() {
         installed
@@ -620,6 +623,7 @@ async fn install_local_deb(
     app: tauri::AppHandle,
     plan_id: String,
 ) -> Result<serde_json::Value, String> {
+    let _mutation = operation_plan::MUTATION_LOCK.try_lock().map_err(|_| "另一个软件安装或卸载正在执行，请稍后重试")?;
     let cache_dir = app
         .path()
         .app_cache_dir()
@@ -711,6 +715,7 @@ async fn remove_managed_package(
     app: tauri::AppHandle,
     plan_id: String,
 ) -> Result<serde_json::Value, String> {
+    let _mutation = operation_plan::MUTATION_LOCK.try_lock().map_err(|_| "另一个软件安装或卸载正在执行，请稍后重试")?;
     let cache_dir = app
         .path()
         .app_cache_dir()
@@ -766,6 +771,7 @@ pub fn run() {
         .setup(|app| {
             network::initialize(app.handle());
             download_queue::initialize(app.handle());
+            batch_tasks::initialize(app.handle())?;
             translation::initialize(app.handle());
             feed::initialize(app.handle());
             dev_cli_tools::initialize(app.handle());
@@ -781,6 +787,11 @@ pub fn run() {
         })
         .on_window_event(background::handle_window_event)
         .invoke_handler(tauri::generate_handler![
+            batch_tasks::list_batch_tasks,
+            batch_tasks::start_batch_update,
+            batch_tasks::review_batch_update,
+            batch_tasks::execute_batch_update,
+            batch_tasks::cancel_batch_update,
             firmware::get_firmware_state,
             firmware::refresh_firmware_metadata,
             firmware::prepare_firmware_update,

@@ -1835,3 +1835,47 @@ nav { display: grid; gap: 2px; }
 .firmware-dialog .plan-confirmation { margin: 18px 0; }
 .firmware-dialog footer { display: flex; justify-content: flex-end; margin-top: 24px; }
 .firmware-log { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #f3f6fa; border-radius: 10px; padding: 12px; font-size: 12px; }
+
+/* Batch updates and durable task history. */
+.batch-picker { width: min(680px, calc(100vw - 40px)); max-height: calc(100vh - 64px); padding: 24px; border: 1px solid var(--hairline); border-radius: var(--radius-card); color: var(--text); background: var(--card); box-shadow: var(--shadow-float); overflow: auto; }
+.batch-picker::backdrop { background: rgba(0, 0, 0, .3); backdrop-filter: blur(3px); }
+.batch-picker header, .batch-card-header, .batch-item-top, .batch-picker footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.batch-picker h2, .batch-card h2 { margin: 0; font-size: var(--fs-lg); }
+.batch-picker p, .batch-card-header p { color: var(--text-2); line-height: 1.6; }
+.batch-picker footer { justify-content: flex-end; margin-top: 20px; }
+.batch-scope, .batch-history-note { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.7; }
+.batch-select-all, .batch-selection-list label, .batch-confirmation label { display: flex; align-items: flex-start; gap: 10px; line-height: 1.6; }
+.batch-picker input, .batch-confirmation input { accent-color: var(--accent); flex: 0 0 auto; margin-top: 4px; }
+.batch-selection-list { list-style: none; padding: 0; margin: 12px 0; }
+.batch-selection-list li { border-top: 1px solid var(--hairline); padding: 13px 0; }
+.batch-selection-list label { cursor: pointer; }
+.batch-selection-list span { min-width: 0; }
+.batch-selection-list small { display: block; color: var(--text-2); overflow-wrap: anywhere; }
+.tasks-workspace { overflow-y: auto; }
+.batch-card { padding: 22px; margin: 16px 0; border: 1px solid var(--hairline); border-radius: var(--radius-card); background: var(--card); box-shadow: var(--shadow-card); }
+.batch-status { border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent); padding: 5px 12px; font-size: var(--fs-sm); white-space: nowrap; }
+.batch-completed .batch-status { background: var(--green-soft); color: var(--green-text); }
+.batch-paused .batch-status, .batch-interrupted .batch-status { background: var(--orange-soft); color: var(--orange-text); }
+.batch-message { line-height: 1.7; color: var(--text-2); }
+.batch-items { padding-left: 24px; }
+.batch-items > li { padding: 14px 0; border-top: 1px solid var(--hairline); }
+.batch-item-top span { color: var(--text-2); font-size: var(--fs-sm); }
+.batch-item-succeeded .batch-item-top span { color: var(--green-text); }
+.batch-item-failed .batch-item-top span, .batch-error { color: var(--red-text); }
+.batch-error { line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.batch-version { margin: 6px 0; font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
+.batch-item-details { margin-top: 10px; font-size: var(--fs-sm); color: var(--text-2); }
+.batch-item-details summary { cursor: pointer; }
+.batch-item-details dl { display: grid; grid-template-columns: 70px 1fr; gap: 8px; }
+.batch-item-details dd { margin: 0; overflow-wrap: anywhere; font-family: var(--font-mono); }
+.batch-item-details pre { max-height: 260px; overflow: auto; padding: 12px; border-radius: var(--radius-sm); background: var(--bg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.batch-item-details code { display: block; padding: 10px 0; overflow-wrap: anywhere; }
+.batch-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 14px 0; }
+.batch-actions p { margin: 0; color: var(--text-2); line-height: 1.6; }
+.batch-confirmation { padding: 16px; margin: 16px 0; background: var(--accent-soft); border-radius: var(--radius-md); }
+.batch-confirmation > p { margin-top: 0; line-height: 1.7; }
+.batch-running, .batch-preview { background: var(--yellow-soft); padding: 12px 16px; border-radius: var(--radius-sm); color: var(--yellow-text); line-height: 1.7; }
+.batch-progress { display: flex; align-items: center; gap: 12px; margin: 8px 0; color: var(--text-2); font-size: var(--fs-sm); }
+.batch-progress progress { accent-color: var(--accent); width: min(200px, 35%); }
+.batch-filters { width: fit-content; margin-bottom: 18px; }
+@media (max-width: 720px) { .batch-card { padding: 16px; } .batch-card-header { flex-wrap: wrap; } .batch-item-top { flex-wrap: wrap; gap: 6px; } }

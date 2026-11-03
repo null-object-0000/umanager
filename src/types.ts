@@ -666,3 +666,33 @@ export interface FirmwareState {
     releases: FirmwareRelease[];
   }[];
 }
+
+export type BatchStatus = "preparing" | "downloading" | "awaitingReview" | "reviewing" | "awaitingConfirmation" | "installing" | "completed" | "paused" | "interrupted" | "canceled";
+export type BatchItemStatus = "downloading" | "ready" | "reviewed" | "installing" | "succeeded" | "failed" | "blocked" | "unknown" | "canceled";
+export interface BatchItem {
+  applicationId: string;
+  packageName: string;
+  displayName: string;
+  installedVersion: string;
+  targetVersion: string;
+  architecture: string;
+  sha256: string;
+  size: number;
+  downloadUrl: string;
+  downloadJobId: string | null;
+  status: BatchItemStatus;
+  planId: string | null;
+  expiresAtUnixSeconds: number | null;
+  error: string | null;
+  logs: string[];
+}
+export interface BatchTask {
+  id: string;
+  createdAtUnixSeconds: number;
+  updatedAtUnixSeconds: number;
+  status: BatchStatus;
+  items: BatchItem[];
+  message: string;
+  reviewId: string | null;
+}
+export interface BatchSnapshot { revision: number; batches: BatchTask[]; storageError?: string | null }

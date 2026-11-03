@@ -1,3 +1,7 @@
+import { BatchUpdatePicker, TasksPage, useBatchTasks } from "./TasksPage";
+import { batchActive, batchCandidates, unfinishedIds } from "./batchTasks";
+import type { BatchCandidate } from "./batchTasks";
+import type { BatchTask } from "./types";
 import { FirmwarePage } from "./FirmwarePage";
 import { WindowsConfirmDialog, WindowsRow } from "./WindowsAppsPage";
 import type { WindowsRowAction } from "./WindowsAppsPage";
@@ -47,7 +51,7 @@ import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 import umanagerLogo from "./assets/umanager-logo.png";
 
 type Filter = "all" | "installed" | "updates" | "installable";
-type Page = "firmware" | "installed" | "updates" | "downloads" | "dev" | "scripts" | "clipboard" | "settings";
+type Page = "tasks" | "firmware" | "installed" | "updates" | "downloads" | "dev" | "scripts" | "clipboard" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
@@ -2202,6 +2206,25 @@ export default function App() {
     setScanning(true); setError(null);
     try { setResult(await scanPackages()); } catch (reason) { setError(String(reason)); } finally { setScanning(false); }
   };
+  const batchTasks = useBatchTasks(() => { void refresh(); });
+  const [batchPicker, setBatchPicker] = useState<{ candidates: BatchCandidate[]; skipped: number } | null>(null);
+  const [batchChecking, setBatchChecking] = useState(false);
+  const batchCheckingRef = useRef(false);
+  const openBatchPicker = async (previous?: BatchTask) => {
+    if (batchCheckingRef.current) return;
+    if (batchTasks.snapshot.batches.some((b) => batchActive(b.status))) {
+      setPage("tasks"); setNotice("请先处理或结束当前批量任务。"); return;
+    }
+    batchCheckingRef.current = true; setBatchChecking(true);
+    try {
+      const [scan, entries] = await Promise.all([scanPackages(), getSoftwareCatalog()]);
+      setResult(scan);
+      const ids = previous ? unfinishedIds(previous) : undefined;
+      const candidates = batchCandidates(scan, entries, ids);
+      setBatchPicker({ candidates, skipped: ids ? ids.length - candidates.length : 0 });
+    } catch (reason) { setNotice(String(reason)); }
+    finally { batchCheckingRef.current = false; setBatchChecking(false); }
+  };
   const refreshInstallable = async () => {
     setInstallableLoading(true); setInstallableError(null);
     // 与可安装列表同时刷新目录快照，否则新软件有卡片但没有图标 / 强调色 / 可卸载标记。
@@ -2651,6 +2674,7 @@ export default function App() {
         <div className="nav-section">商店</div>
         <button className={`nav-item ${page === "installed" ? "active" : ""}`} onClick={showInstalledPage}><Icon name="apps"/>软件</button>
         <button className={`nav-item ${page === "updates" ? "active" : ""}`} onClick={showUpdatesPage}><Icon name="update"/>更新{updatesCount > 0 && <span className="nav-badge">{updatesCount}</span>}</button>
+        <button className={`nav-item ${page === "tasks" ? "active" : ""}`} onClick={() => { setPage("tasks"); setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null); }}><Icon name="history"/>任务中心{batchTasks.snapshot.batches.filter((b) => batchActive(b.status) || b.status === "paused" || b.status === "interrupted").length > 0 && <span className="nav-badge">{batchTasks.snapshot.batches.filter((b) => batchActive(b.status) || b.status === "paused" || b.status === "interrupted").length}</span>}</button>
         <button className={`nav-item ${page === "downloads" ? "active" : ""}`} onClick={showDownloadsPage}><Icon name="download"/>下载{activeDownloads > 0 && <span className="nav-badge">{activeDownloads}</span>}</button>
         <div className="nav-section">工具</div>
         <button className={`nav-item ${page === "firmware" ? "active" : ""}`} onClick={showFirmwarePage}><Icon name="shield"/>固件更新</button>
@@ -2706,7 +2730,7 @@ export default function App() {
       <header className="workspace-header">
         <div><h1>更新</h1><p>可用更新的软件与命令行工具</p></div>
         <div className="header-actions">
-          <button className="secondary-button" onClick={() => setNotice("「全部更新」暂未实现，请逐项更新。")}>全部更新</button>
+          <button className="secondary-button" disabled={batchChecking || scanning} onClick={() => void openBatchPicker()}>{batchChecking ? "重新检查中…" : "批量更新 .deb"}</button>
           <button className="primary-button" onClick={refreshAll} disabled={scanning}><span className={scanning ? "spin" : ""}>↻</span>{scanning ? "检查中…" : "检查更新"}</button>
         </div>
       </header>
@@ -2722,7 +2746,8 @@ export default function App() {
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
             : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
-    </main> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "firmware" ? <FirmwarePage/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
+    </main> : page === "tasks" ? <TasksPage snapshot={batchTasks.snapshot} error={batchTasks.error} jobs={downloadJobs} onSnapshot={batchTasks.apply} onRefresh={() => void batchTasks.refresh()} onRetry={(batch) => void openBatchPicker(batch)} onDownloads={showDownloadsPage}/> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "firmware" ? <FirmwarePage/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
+    {batchPicker && <BatchUpdatePicker candidates={batchPicker.candidates} skipped={batchPicker.skipped} onClose={() => setBatchPicker(null)} onStarted={(snapshot) => { batchTasks.apply(snapshot); setBatchPicker(null); setPage("tasks"); }}/> }
     {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
     {removalPackage && <RemovalDialog item={removalPackage} onClose={() => { setRemovalPackage(null); setVariantSwitchTarget(null); }} onRemoved={() => { void refresh(); if (variantSwitchTarget) finishVariantSwitch(); }}/>}

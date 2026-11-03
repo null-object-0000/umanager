@@ -346,6 +346,109 @@ fn version_satisfies(installed: &str, operator: &str, required: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
+// Batch updates deliberately stop instead of attempting dependency repair. This
+// is a read-only veto, not an APT solver or a new software metadata source.
+#[derive(Clone, Debug)]
+struct BatchPackage {
+    name: String,
+    version: String,
+    provides: String,
+    depends: String,
+    conflicts: String,
+}
+
+pub(crate) fn batch_preflight(plans: &[umanager_plan::OperationPlan]) -> Result<(), String> {
+    let audit = command_stdout(DPKG_BIN, &["--audit"])?;
+    if !audit.trim().is_empty() {
+        return Err(format!("系统存在未完成的软件包操作，请先处理后再更新：{}", audit.chars().take(2000).collect::<String>()));
+    }
+    let output = command_stdout(DPKG_QUERY_BIN, &["-W", "-f", "${binary:Package}\t${Version}\t${Status}\t${Provides}\t${Depends}\t${Pre-Depends}\t${Conflicts}\t${Breaks}\n"])?;
+    let installed = batch_packages(&output)?;
+    let mut targets = Vec::new();
+    for plan in plans {
+        let text = command_stdout(DPKG_DEB_BIN, &["-f", &plan.payload.deb_path])?;
+        let fields = control_fields(&text);
+        if fields.get("Package") != Some(&plan.payload.package_name) || fields.get("Version") != Some(&plan.payload.target_version) {
+            return Err("安装包元数据与批量计划不一致".into());
+        }
+        targets.push(BatchPackage {
+            name: plan.payload.package_name.clone(), version: plan.payload.target_version.clone(),
+            provides: fields.get("Provides").cloned().unwrap_or_default(),
+            depends: [fields.get("Depends"), fields.get("Pre-Depends")].into_iter().flatten().cloned().collect::<Vec<_>>().join(", "),
+            conflicts: [fields.get("Conflicts"), fields.get("Breaks")].into_iter().flatten().cloned().collect::<Vec<_>>().join(", "),
+        });
+    }
+    check_batch_relations(&installed, &targets)
+}
+
+fn control_fields(control: &str) -> HashMap<String, String> {
+    let mut result: HashMap<String, String> = HashMap::new();
+    let mut previous: Option<String> = None;
+    for line in control.lines() {
+        if line.starts_with([' ', '\t']) {
+            if let Some(value) = previous.as_ref().and_then(|key| result.get_mut(key)) { value.push(' '); value.push_str(line.trim()); }
+        } else if let Some((key, value)) = line.split_once(':') {
+            previous = Some(key.into()); result.insert(key.into(), value.trim().into());
+        } else { previous = None; }
+    }
+    result
+}
+fn batch_packages(output: &str) -> Result<Vec<BatchPackage>, String> {
+    let mut result = Vec::new();
+    for line in output.lines() {
+        let fields: Vec<_> = line.split('\t').collect();
+        if fields.len() != 8 { return Err("无法完整读取本机软件包关系，已停止批量更新".into()); }
+        if !fields[2].ends_with(" ok installed") { continue; }
+        result.push(BatchPackage { name: fields[0].split(':').next().unwrap_or("").into(), version: fields[1].into(), provides: fields[3].into(), depends: [fields[4], fields[5]].into_iter().filter(|v| !v.is_empty()).collect::<Vec<_>>().join(", "), conflicts: [fields[6], fields[7]].into_iter().filter(|v| !v.is_empty()).collect::<Vec<_>>().join(", ") });
+    }
+    Ok(result)
+}
+fn relation_index(packages: &[BatchPackage]) -> InstalledIndex {
+    InstalledIndex {
+        versions: packages.iter().map(|p| (p.name.clone(), p.version.clone())).collect(),
+        provides: packages.iter().flat_map(|p| p.provides.split(',').filter_map(parse_alternative).map(|a| a.name)).collect(),
+    }
+}
+fn check_batch_relations(installed: &[BatchPackage], targets: &[BatchPackage]) -> Result<(), String> {
+    let target_names: HashSet<_> = targets.iter().map(|p| &p.name).collect();
+    let mut projected: Vec<_> = installed.iter().filter(|p| !target_names.contains(&p.name)).cloned().collect();
+    projected.extend_from_slice(targets);
+    // Check both the current and projected sets. That also catches conflicts
+    // introduced only when two selected packages have both been upgraded.
+    for target in targets {
+        check_conflicts(target, installed)?;
+    }
+    for package in &projected {
+        if !package.conflicts.is_empty() { check_conflicts(package, &projected)?; }
+    }
+    let before = relation_index(installed);
+    let after = relation_index(&projected);
+    for package in &projected {
+        for group in parse_dependency_groups(&package.depends) {
+            // Only veto newly broken reverse dependencies. Existing unrelated
+            // dependency problems are not inferred to be caused by this batch.
+            if group_satisfied(&group, &before) && !group_satisfied(&group, &after) {
+                return Err(format!("更新会破坏 {} 的依赖：{}；请先处理后再批量更新", package.name, group.raw));
+            }
+        }
+    }
+    Ok(())
+}
+fn check_conflicts(package: &BatchPackage, others: &[BatchPackage]) -> Result<(), String> {
+    if package.conflicts.is_empty() { return Ok(()); }
+    let index = InstalledIndex {
+        versions: others.iter().filter(|p| p.name != package.name).map(|p| (p.name.clone(), p.version.clone())).collect(),
+        provides: others.iter().filter(|p| p.name != package.name).flat_map(|p| p.provides.split(',').filter_map(parse_alternative).map(|a| a.name)).collect(),
+    };
+    for group in parse_dependency_groups(&package.conflicts) {
+        if group.alternatives.is_empty() { return Err(format!("无法解析 {} 的冲突约束：{}", package.name, group.raw)); }
+        if group.alternatives.iter().any(|a| alternative_satisfied(a, &index) || (index.provides.contains(&a.name) && a.constraint.is_some())) {
+            return Err(format!("{} 存在 Conflicts / Breaks 冲突：{}；请先处理后再批量更新", package.name, group.raw));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,5 +569,63 @@ mod tests {
         let json = serde_json::to_value(&gap).unwrap();
         assert_eq!(json["installable"][0], "pass");
         assert_eq!(json["unavailable"][0], "docker-ce-cli");
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+    fn package(name: &str, version: &str, depends: &str, conflicts: &str, provides: &str) -> BatchPackage {
+        BatchPackage { name: name.into(), version: version.into(), depends: depends.into(), conflicts: conflicts.into(), provides: provides.into() }
+    }
+    #[test]
+    fn accepts_independent_updates_and_ignores_self_conflicts() {
+        let current = vec![package("a", "1", "", "", "virtual-a")];
+        let target = vec![package("a", "2", "", "a, virtual-a", "virtual-a")];
+        assert!(check_batch_relations(&current, &target).is_ok());
+    }
+    #[test]
+    fn detects_a_conflict_introduced_only_by_two_target_versions() {
+        let current = vec![package("a", "1", "", "", ""), package("b", "1", "", "", "")];
+        let target = vec![package("a", "2", "", "b (>= 2)", ""), package("b", "2", "", "", "")];
+        assert!(check_batch_relations(&current, &target).unwrap_err().contains("Conflicts"));
+    }
+    #[test]
+    fn detects_current_and_reverse_conflicts_and_virtual_packages() {
+        let current = vec![package("old", "1", "", "new (>= 2)", "virtual-conflict")];
+        assert!(check_batch_relations(&current, &[package("new", "2", "", "", "")]).is_err());
+        assert!(check_batch_relations(&current, &[package("new", "2", "", "virtual-conflict", "")]).is_err());
+        assert!(check_batch_relations(&current, &[package("new", "2", "", "virtual-conflict (>= 2)", "")]).is_err());
+    }
+    #[test]
+    fn detects_newly_broken_reverse_dependency() {
+        let current = vec![package("app", "1", "library (<< 2)", "", ""), package("library", "1", "", "", "")];
+        let targets = vec![package("library", "2", "", "", "")];
+        assert!(check_batch_relations(&current, &targets).unwrap_err().contains("app"));
+    }
+    #[test]
+    fn permits_an_alternative_dependency_that_remains_satisfied() {
+        let current = vec![package("app", "1", "library (<< 2) | fallback", "", ""), package("library", "1", "", "", ""), package("fallback", "1", "", "", "")];
+        assert!(check_batch_relations(&current, &[package("library", "2", "", "", "")]).is_ok());
+    }
+    #[test]
+    fn replacing_a_provider_does_not_leave_old_virtual_provides() {
+        let current = vec![package("app", "1", "old-virtual", "", ""), package("provider", "1", "", "", "old-virtual")];
+        assert!(check_batch_relations(&current, &[package("provider", "2", "", "", "new-virtual")]).is_err());
+    }
+    #[test]
+    fn malformed_conflict_constraints_fail_closed() {
+        assert!(check_batch_relations(&[], &[package("app", "2", "", "???", "")]).is_err());
+    }
+    #[test]
+    fn reads_multiline_control_fields_and_breaks() {
+        let fields = control_fields("Package: app\nVersion: 2\nDepends: library,\n other\nBreaks: legacy (<< 2)\n");
+        assert_eq!(fields["Depends"], "library, other"); assert_eq!(fields["Breaks"], "legacy (<< 2)");
+    }
+    #[test]
+    fn parses_installed_and_held_packages_but_rejects_partial_output() {
+        let rows = "a:amd64\t1\tinstall ok installed\tvirtual-a\tlibrary\t\told\tlegacy\nb\t2\thold ok installed\t\t\t\t\t\nc\t1\tdeinstall ok config-files\t\t\t\t\t\n";
+        let result = batch_packages(rows).unwrap(); assert_eq!(result.len(), 2); assert_eq!(result[0].name, "a"); assert_eq!(result[0].conflicts, "old, legacy");
+        assert!(batch_packages("incomplete\t1").is_err());
     }
 }

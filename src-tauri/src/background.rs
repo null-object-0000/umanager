@@ -116,6 +116,11 @@ pub fn initialize(app: &AppHandle) -> tauri::Result<()> {
             "panel" => panel::toggle(app),
             "show" => show_window(app),
             "quit" => {
+                if crate::operation_plan::MUTATION_LOCK.try_lock().is_err() {
+                    show_window(app);
+                    let _ = notify_rust::Notification::new().summary("软件操作尚未完成").body("请等待安装、卸载或批量复核完成后再退出 UManager。").show();
+                    return;
+                }
                 QUITTING.store(true, Ordering::SeqCst);
                 app.exit(0);
             }

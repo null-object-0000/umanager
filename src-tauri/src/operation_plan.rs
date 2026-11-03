@@ -15,6 +15,10 @@ use umanager_plan::{
     RemovalAction, RemovalPlan, RemovalPlanPayload,
 };
 
+// Serialize all in-app .deb mutations, including batch execution. The system
+// dpkg lock and privileged helper validation remain the final cross-process guards.
+pub(crate) static MUTATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 const DPKG_BIN: &str = "/usr/bin/dpkg";
 const SAFE_SYSTEM_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 
