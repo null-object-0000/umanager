@@ -58,7 +58,9 @@
       "typora": "office",
       "drawio": "office",
       "insomnia": "dev-tools",
-      "zoom": "office"
+      "zoom": "office",
+      "tabby": "dev-tools",
+      "todesk": "network"
     },
     "developmentTools": {
       "claude-code": "ai-tools",

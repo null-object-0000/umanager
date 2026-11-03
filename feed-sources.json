@@ -923,6 +923,50 @@
       }
     },
     {
+      "applicationId": "tabby",
+      "packageName": "tabby-terminal",
+      "displayName": "Tabby",
+      "vendor": "Tabby contributors",
+      "architecture": "amd64",
+      "description": "开源跨平台终端与 SSH 客户端，支持连接配置、多标签页、分屏与串口连接。",
+      "homepage": "https://tabby.sh/",
+      "icon": "tabby",
+      "accentColor": "#6674f4",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/Eugeny/tabby/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "tabby-{tagVersion}-linux-x64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "todesk",
+      "packageName": "todesk",
+      "displayName": "ToDesk",
+      "vendor": "ToDesk",
+      "architecture": "amd64",
+      "description": "ToDesk 官方远程桌面客户端，支持远程控制与文件传输，使用 Debian/Ubuntu 通用稳定版。",
+      "homepage": "https://www.todesk.com/",
+      "icon": "todesk",
+      "accentColor": "#176bff",
+      "removable": true,
+      "source": {
+        "kind": "versionEndpoint",
+        "versionEndpointUrl": "https://www.todesk.com/api/config/getConfig",
+        "versionEndpointHosts": ["www.todesk.com"],
+        "query": { "type": 1 },
+        "payloadKind": "json",
+        "versionField": "data.list.16.value",
+        "downloadUrlField": "data.list.35.value",
+        "downloadHosts": ["dl.todesk.com"],
+        "immutableDownloadUrl": true
+      }
+    },
+    {
       "applicationId": "figcraft",
       "packageName": "figcraft",
       "displayName": "FigCraft",
