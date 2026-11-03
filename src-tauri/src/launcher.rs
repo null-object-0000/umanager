@@ -139,29 +139,75 @@ pub fn open_url(url: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    struct DesktopFixture(PathBuf);
+
+    impl DesktopFixture {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            use std::time::{SystemTime, UNIX_EPOCH};
+            static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "umanager-launcher-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                SEQUENCE.fetch_add(1, Ordering::Relaxed),
+            ));
+            std::fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+
+        fn file(&self, relative: &str) -> String {
+            let path = self.0.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &path,
+                "[Desktop Entry]\nType=Application\nName=Fixture\nExec=true\n",
+            )
+            .unwrap();
+            path.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for DesktopFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn prefers_plain_system_launcher_over_url_handler() {
-        let listing = concat!(
-            "/usr/share/applications/code-url-handler.desktop\n",
-            "/usr/share/applications/code.desktop\n",
-            "/usr/share/doc/code/changelog.gz\n",
-        );
-        assert_eq!(
-            select_desktop_file(listing),
-            Some("/usr/share/applications/code.desktop".to_owned())
-        );
+        let fixture = DesktopFixture::new();
+        let handler = fixture.file("usr/share/applications/code-url-handler.desktop");
+        let launcher = fixture.file("usr/share/applications/code.desktop");
+        let listing = format!("{handler}\n{launcher}\n/usr/share/doc/code/changelog.gz\n");
+        assert_eq!(select_desktop_file(&listing), Some(launcher));
     }
 
     #[test]
     fn prefers_system_entry_over_user_local() {
-        let listing = concat!(
-            "/home/user/.local/share/applications/wechat.desktop\n",
-            "/usr/share/applications/wechat.desktop\n",
+        let fixture = DesktopFixture::new();
+        let local = fixture.file("home/user/.local/share/applications/wechat.desktop");
+        let system = fixture.file("usr/share/applications/wechat.desktop");
+        let listing = format!("{local}\n{system}\n");
+        assert_eq!(select_desktop_file(&listing), Some(system));
+    }
+
+    #[test]
+    fn skips_missing_launchers_and_directories() {
+        let fixture = DesktopFixture::new();
+        let launcher = fixture.file("usr/share/applications/z-real.desktop");
+        let missing = fixture.0.join("usr/share/applications/a-missing.desktop");
+        let directory = fixture.0.join("usr/share/applications/b-directory.desktop");
+        std::fs::create_dir(&directory).unwrap();
+        let listing = format!(
+            "{}\n{}\n{launcher}\n",
+            missing.display(),
+            directory.display()
         );
-        assert_eq!(
-            select_desktop_file(listing),
-            Some("/usr/share/applications/wechat.desktop".to_owned())
-        );
+        assert_eq!(select_desktop_file(&listing), Some(launcher));
     }
 
     #[test]
