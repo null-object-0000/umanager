@@ -69,7 +69,7 @@ struct DependencyGroup {
 
 struct InstalledIndex {
     versions: HashMap<String, String>,
-    provides: HashSet<String>,
+    provides: HashMap<String, Vec<Option<String>>>,
 }
 
 /// Dependency groups of `deb_path` that the locally installed set does not
@@ -166,27 +166,12 @@ fn package_has_apt_candidate_in(output: &str) -> bool {
 /// Joins `Pre-Depends` and `Depends` from a `dpkg-deb -f` control dump, keeping
 /// RFC-822 continuation lines.
 fn dependency_fields(control: &str) -> String {
-    let mut collected = Vec::new();
-    let mut active = false;
-    for raw_line in control.lines() {
-        let trimmed = raw_line.trim_end();
-        if let Some(stripped) = trimmed.strip_prefix(' ') {
-            // Continuation line of the field we are currently collecting.
-            if active {
-                collected.push(stripped.trim_start());
-            }
-            continue;
-        }
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if DEPENDENCY_FIELDS.contains(&name) {
-                active = true;
-                collected.push(value.trim_start());
-                continue;
-            }
-        }
-        active = false;
-    }
-    collected.join(" ")
+    let fields = control_fields(control);
+    DEPENDENCY_FIELDS.iter()
+        .filter_map(|name| fields.get(*name))
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn command_stdout(program: &str, args: &[&str]) -> Result<String, String> {
@@ -230,23 +215,18 @@ fn installed_index() -> Option<InstalledIndex> {
 
 fn installed_index_from_lines(input: &str) -> InstalledIndex {
     let mut versions = HashMap::new();
-    let mut provides = HashSet::new();
+    let mut provides = HashMap::new();
     for line in input.lines() {
         let mut fields = line.splitn(4, '\t');
         let package = fields.next().unwrap_or("").split(':').next().unwrap_or("").trim();
         let version = fields.next().unwrap_or("").trim();
         let provides_field = fields.next().unwrap_or("");
         let status = fields.next().unwrap_or("").trim();
-        if status != "install ok installed" || package.is_empty() || version.is_empty() {
+        if !status.ends_with(" ok installed") || package.is_empty() || version.is_empty() {
             continue;
         }
         versions.insert(package.to_owned(), version.to_owned());
-        for provide in provides_field.split(',') {
-            let name = provide.split_whitespace().next().unwrap_or("").trim();
-            if !name.is_empty() {
-                provides.insert(name.to_owned());
-            }
-        }
+        add_provides(&mut provides, provides_field);
     }
     InstalledIndex { versions, provides }
 }
@@ -324,19 +304,40 @@ fn group_satisfied(group: &DependencyGroup, installed: &InstalledIndex) -> bool 
 }
 
 fn alternative_satisfied(alternative: &Alternative, installed: &InstalledIndex) -> bool {
-    if let Some(version) = installed.versions.get(&alternative.name) {
-        return match &alternative.constraint {
-            Some((operator, required)) => version_satisfies(version, operator, required),
-            None => true,
+    let satisfies = |version: &str| match &alternative.constraint {
+        Some((operator, required)) => version_satisfies(version, operator, required),
+        None => true,
+    };
+    if installed.versions.get(&alternative.name).is_some_and(|version| satisfies(version)) {
+        return true;
+    }
+    installed.provides.get(&alternative.name).is_some_and(|providers| {
+        providers.iter().any(|version| match version {
+            Some(version) => satisfies(version),
+            None => alternative.constraint.is_none(),
+        })
+    })
+}
+
+// Debian versioned Provides uses equality. Compare against the advertised
+// virtual version, which can differ from the provider package's own version.
+fn add_provides(index: &mut HashMap<String, Vec<Option<String>>>, field: &str) {
+    for alternative in field.split(',').filter_map(parse_alternative) {
+        let version = match alternative.constraint {
+            Some((operator, version)) if operator == "=" => Some(version),
+            None => None,
+            Some(_) => continue,
         };
+        index.entry(alternative.name).or_default().push(version);
     }
-    if installed.provides.contains(&alternative.name) {
-        // A virtual package: only accept it when the dependency carries no
-        // version constraint — versioned `Provides` is rare and we would risk a
-        // false negative by trusting it blindly.
-        return alternative.constraint.is_none();
+}
+
+fn provided_index<'a>(fields: impl Iterator<Item = &'a str>) -> HashMap<String, Vec<Option<String>>> {
+    let mut index = HashMap::new();
+    for field in fields {
+        add_provides(&mut index, field);
     }
-    false
+    index
 }
 
 fn version_satisfies(installed: &str, operator: &str, required: &str) -> bool {
@@ -406,7 +407,7 @@ fn batch_packages(output: &str) -> Result<Vec<BatchPackage>, String> {
 fn relation_index(packages: &[BatchPackage]) -> InstalledIndex {
     InstalledIndex {
         versions: packages.iter().map(|p| (p.name.clone(), p.version.clone())).collect(),
-        provides: packages.iter().flat_map(|p| p.provides.split(',').filter_map(parse_alternative).map(|a| a.name)).collect(),
+        provides: provided_index(packages.iter().map(|p| p.provides.as_str())),
     }
 }
 fn check_batch_relations(installed: &[BatchPackage], targets: &[BatchPackage]) -> Result<(), String> {
@@ -438,11 +439,11 @@ fn check_conflicts(package: &BatchPackage, others: &[BatchPackage]) -> Result<()
     if package.conflicts.is_empty() { return Ok(()); }
     let index = InstalledIndex {
         versions: others.iter().filter(|p| p.name != package.name).map(|p| (p.name.clone(), p.version.clone())).collect(),
-        provides: others.iter().filter(|p| p.name != package.name).flat_map(|p| p.provides.split(',').filter_map(parse_alternative).map(|a| a.name)).collect(),
+        provides: provided_index(others.iter().filter(|p| p.name != package.name).map(|p| p.provides.as_str())),
     };
     for group in parse_dependency_groups(&package.conflicts) {
         if group.alternatives.is_empty() { return Err(format!("无法解析 {} 的冲突约束：{}", package.name, group.raw)); }
-        if group.alternatives.iter().any(|a| alternative_satisfied(a, &index) || (index.provides.contains(&a.name) && a.constraint.is_some())) {
+        if group.alternatives.iter().any(|a| alternative_satisfied(a, &index) || (index.provides.get(&a.name).is_some_and(|versions| versions.contains(&None)) && a.constraint.is_some())) {
             return Err(format!("{} 存在 Conflicts / Breaks 冲突：{}；请先处理后再批量更新", package.name, group.raw));
         }
     }
@@ -506,6 +507,42 @@ mod tests {
     }
 
     #[test]
+    fn t64_providers_satisfy_chrome_and_chatgpt_dependencies() {
+        let libraries = [
+            ("libasound2", "1.2.15.3-1ubuntu1.1", "1.0.17"),
+            ("libatk-bridge2.0-0", "2.60.4-0ubuntu0.1", "2.5.3"),
+            ("libatk1.0-0", "2.60.4-0ubuntu0.1", "2.32.0"),
+            ("libatspi2.0-0", "2.60.4-0ubuntu0.1", "2.9.90"),
+            ("libcups2", "2.4.16-1ubuntu1.3", "1.7.0"),
+            ("libglib2.0-0", "2.88.0-1ubuntu0.1", "2.49.3"),
+            ("libgtk-3-0", "3.24.52-0ubuntu1", "3.9.10"),
+            ("libssl3", "3.5.5-1ubuntu3.7", "3.0.0"),
+            ("libtss2-esys-3.0.2-0", "4.1.3-6", "2.3.1"),
+            ("libtss2-tcti-device0", "4.1.3-6", "3.0.1"),
+        ];
+        let rows = libraries.iter().map(|(name, version, _)| {
+            format!("{name}t64:amd64\t{version}\t{name} (= {version})\tinstall ok installed\n")
+        }).collect::<String>();
+        let installed = index(&rows);
+        for (name, _, minimum) in libraries {
+            assert!(group_satisfied(&parse_one(&format!("{name} (>= {minimum})")), &installed), "{name}");
+        }
+    }
+
+    #[test]
+    fn virtual_versions_use_provided_version_and_accept_any_matching_provider() {
+        let installed = index(
+            "provider-a\t99\tvirtual (= 1), unversioned\tinstall ok installed\n\
+             provider-b\t1\tvirtual (= 3:2.0-1)\thold ok installed\n\
+             virtual\t0.1\t\tinstall ok installed\n",
+        );
+        assert!(group_satisfied(&parse_one("virtual (>= 3:2.0)"), &installed));
+        assert!(!group_satisfied(&parse_one("virtual (>= 3:3.0)"), &installed));
+        assert!(!group_satisfied(&parse_one("unversioned (>= 1)"), &installed));
+        assert!(!group_satisfied(&parse_one("missing (>= 1)"), &installed));
+    }
+
+    #[test]
     fn constrained_dependency_checks_installed_version() {
         let installed = index("libgtk-3-0\t3.22.0-1\t\tinstall ok installed\n");
         // 3.22 < 3.24, so `>= 3.24` is unsatisfied.
@@ -516,7 +553,7 @@ mod tests {
     #[test]
     fn dependency_fields_keep_continuation_lines() {
         let control = "Package: x\nPre-Depends: liba (>= 1),\n libb\nDepends: libc\n";
-        assert_eq!(dependency_fields(control), "liba (>= 1), libb libc");
+        assert_eq!(dependency_fields(control), "liba (>= 1), libb, libc");
     }
 
     // Verbatim `apt-cache policy docker-ce-cli` output from an Ubuntu 26.04 host
@@ -612,6 +649,21 @@ mod batch_tests {
     fn replacing_a_provider_does_not_leave_old_virtual_provides() {
         let current = vec![package("app", "1", "old-virtual", "", ""), package("provider", "1", "", "", "old-virtual")];
         assert!(check_batch_relations(&current, &[package("provider", "2", "", "", "new-virtual")]).is_err());
+    }
+    #[test]
+    fn versioned_provides_detect_reverse_dependency_breakage() {
+        let current = vec![
+            package("app", "1", "library (>= 2)", "", ""),
+            package("libraryt64", "99", "", "", "library (= 2)"),
+        ];
+        assert!(check_batch_relations(&current, &[package("libraryt64", "100", "", "", "library (= 1)")]).is_err());
+        assert!(check_batch_relations(&current, &[package("libraryt64", "100", "", "", "library (= 3)")]).is_ok());
+    }
+    #[test]
+    fn versioned_provides_apply_versions_to_conflicts() {
+        let current = vec![package("libraryt64", "99", "", "", "library (= 2)")];
+        assert!(check_batch_relations(&current, &[package("app", "1", "", "library (>= 3)", "")]).is_ok());
+        assert!(check_batch_relations(&current, &[package("app", "1", "", "library (>= 2)", "")]).is_err());
     }
     #[test]
     fn malformed_conflict_constraints_fail_closed() {
