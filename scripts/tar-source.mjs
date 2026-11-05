@@ -8,8 +8,10 @@ export function selectTarRelease(html, source) {
   if (links.length !== 1) throw new Error(`期望唯一的官方 tar.gz 链接，实际 ${links.length}`);
   const url = links[0];
   const segment = url.slice(source.downloadUrlPrefix.length).split("/")[0];
-  const version = /^(\d+\.\d+\.\d+)(?:-\d+)?$/.exec(segment)?.[1];
-  if (!version) throw new Error("官方 tar.gz 地址缺少可识别版本");
+  const version = source.downloadVersionPattern
+    ? new RegExp(source.downloadVersionPattern).exec(url)?.[1]
+    : /^(\d+\.\d+\.\d+)(?:-\d+)?$/.exec(segment)?.[1];
+  if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) throw new Error("官方 tar.gz 地址缺少可识别版本");
   return { downloadUrl: url, version };
 }
 

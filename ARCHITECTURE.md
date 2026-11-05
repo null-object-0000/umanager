@@ -332,3 +332,7 @@ LLM 是**用户自带的可选服务**，不参与任何 feed 信任判断，只
 整个生命周期无特权，复用应用内 `MUTATION_LOCK` 防并发变更；DEB 计划入口和 helper 均排除 `TarGz`，批量 DEB 更新也排除它。旧客户端将新 source kind 解析为 Unknown 并拒绝自动安装。
 
 软件 UI 使用同一 `InstallDrawer` / `UpdateDrawer` 与 `useSoftwareInstall` 生命周期；不按来源格式另开简化详情弹窗。获取、后台下载进度、版本/来源/校验证据、已安装管理均共用，tar.gz 只在执行后端、用户目录安装说明和锁定计划的再次确认上区分。卸载保留与 DEB 相同的确认对话框结构。
+
+Antigravity 三条产品线的日志页面虽使用不同 `tab` 参数，HTML 实际包含全部产品。`scripts/antigravity-changelog.mjs` 在 CI 按 `rel-<product>-<version>` 的 article 精确定位，保留日期、分类与 Markdown 内容，禁止跨产品或跨版本回退。App/IDE 接入应用 releaseNotes，CLI 接入工具 releaseNotes 与官方 JSON 版本索引。CLI 使用编译期工具定义中的官方脚本、`agy update` 和限定文件卸载；主程序不抓取官网日志或远程版本。
+
+`tarGzV2` 是 `TarGz` 的兼容别名，允许签名目录指定归档内产品版本文件与字段（`versionPath` / `versionField`），新客户端规范化为现有 tar.gz UI 类型；旧客户端按 Unknown 拒绝安装。IDE 使用 `resources/app/product.json` 的 `ideVersion`，其包内 `package.json.version` 是基础编辑器版本，不能用于产品版本校验。

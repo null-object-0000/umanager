@@ -234,6 +234,34 @@
   ],
   "developmentTools": [
     {
+      "toolId": "antigravity-cli",
+      "displayName": "Antigravity CLI",
+      "vendor": "Google",
+      "description": "Google 官方终端 AI 编程智能体，通过 agy 在终端中编写、调试和交付代码，支持官方安装器与自更新。",
+      "homepage": "https://antigravity.google/docs/cli/reference/",
+      "icon": "antigravity",
+      "accentColor": "#4285f4",
+      "binaryName": "agy",
+      "installer": {
+        "kind": "curlScript",
+        "scriptUrl": "https://antigravity.google/cli/install.sh",
+        "host": "antigravity.google",
+        "shell": "bash"
+      },
+      "uninstall": {
+        "kind": "removeFiles",
+        "paths": [
+          "~/.local/bin/agy"
+        ]
+      },
+      "update": {
+        "kind": "selfCommand",
+        "args": [
+          "update"
+        ]
+      }
+    },
+    {
       "toolId": "claude-code",
       "displayName": "Claude Code",
       "vendor": "Anthropic",

@@ -1247,6 +1247,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn antigravity_cli_uses_the_official_installer_native_update_and_scoped_removal() {
+        let tool = Catalog::load().unwrap().by_tool_id("antigravity-cli").unwrap().clone();
+        assert_eq!(tool.binary_name, "agy");
+        assert!(tool.npm_package.is_none());
+        let root = std::env::temp_dir().join(format!("umanager-agy-command-test-{}", std::process::id()));
+        std::fs::create_dir_all(root.join(".local/bin")).unwrap();
+        std::fs::write(root.join(".local/bin/agy"), b"test binary; never executed").unwrap();
+        let install = install_command(&tool, &root, Some("1.5.1")).unwrap();
+        assert!(format!("{:?}", install.get_args().collect::<Vec<_>>()).contains("https://antigravity.google/cli/install.sh"));
+        let (update, _) = update_command(&tool, &root, Some("1.5.1")).unwrap();
+        assert_eq!(update.get_args().collect::<Vec<_>>(), ["update"]);
+        let removal = uninstall_command(&tool, &root, "officialInstaller").unwrap();
+        let args = format!("{:?}", removal.get_args().collect::<Vec<_>>());
+        assert!(args.contains(".local/bin/agy"));
+        assert!(!args.contains(".config"));
+        assert!(!args.contains("antigravity-app"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn detects_node_cli_version_without_shell_path_setup() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -1330,7 +1350,8 @@ mod tests {
     #[test]
     fn embedded_tools_are_configured() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 8);
+        assert_eq!(catalog.development_tools.len(), 9);
+        assert!(catalog.by_tool_id("antigravity-cli").is_some());
         assert!(catalog.by_tool_id("claude-code").is_some());
         assert!(catalog.by_tool_id("opencode").is_some());
         assert!(catalog.by_tool_id("pi").is_some());

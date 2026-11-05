@@ -49,6 +49,7 @@ on:
       - "feed-sources.json"
       - "scripts/update-feed.mjs"
       - "scripts/tar-source.mjs"
+      - "scripts/antigravity-changelog.mjs"
       - "scripts/desktop-icons.mjs"
       - "scripts/extract-zip-deb.py"
       - "scripts/zip-artifact.mjs"

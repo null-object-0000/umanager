@@ -173,3 +173,9 @@ Google Antigravity 使用官网新版 Linux x64 tar.gz（Antigravity App），�
 tar.gz 与 `.deb` 共用软件详情页、下载进度与安装入口。在详情中点击「获取」下载，完成后点击「安装」复核并锁定计划，核对目录和版本，再点击「确认安装」。安装在 `~/.local/share/umanager/apps/antigravity/`，桌面启动项位于 `~/.local/share/applications/umanager-antigravity.desktop`。全程以普通用户执行，无需 Polkit，不运行归档内的安装脚本。更新、启动和卸载也在软件商店管理；旧版本保留到卸载，以免影响正在运行的程序，卸载保留应用个人数据。
 
 此能力需要包含 `tarGz` 支持的新版 UManager，并等待 CI 发布新版签名 feed；旧客户端会把该来源识别为不支持。它不参与 `.deb` 批量更新，也不接管自行解压或旧 APT 安装的 Antigravity。官方应用自身的系统依赖与 Electron 沙箱要求仍需满足，UManager 不关闭沙箱或更改系统安全策略。
+
+### Antigravity App、CLI 与 IDE
+
+三个产品分别管理，版本与更新日志各自从官方来源采集并签名发布，详情页可查看对应产品、对应版本的说明与官网日志链接。App 和 IDE 使用用户目录 tar.gz 安装流程；IDE 读取 `product.json` 的 `ideVersion`，不把基础编辑器版本当成产品版本。IDE 的 `tarGzV2` 元数据需要包含产品版本校验支持的新客户端，旧客户端会拒绝自动安装。
+
+Antigravity CLI 出现在 AI 工具 / 开发环境中，命令为 `agy`，通过官方安装脚本安装到 `~/.local/bin/agy`，用 `agy update` 更新；卸载只移除该程序，保留个人配置。CLI 最新版本取自官方更新索引；若对应版本的更新日志尚未发布，只展示官网链接，不套用旧版本说明。

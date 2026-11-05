@@ -239,7 +239,7 @@ pub struct Application {
 pub enum SourceSpec {
     /// Official tar.gz desktop application installed without privileges in the
     /// current user's UManager directory. Older clients treat this as Unknown.
-    #[serde(rename_all = "camelCase")]
+    #[serde(rename_all = "camelCase", alias = "tarGzV2")]
     TarGz {
         official_page_url: String,
         official_page_hosts: Vec<String>,
@@ -250,6 +250,12 @@ pub enum SourceSpec {
         /// Relative paths inside the archive, including its top-level directory.
         executable: String,
         icon_path: String,
+        /// Optional product version metadata (e.g. VS Code-based IDEs expose
+        /// their own version separately from the embedded editor version).
+        #[serde(default)]
+        version_path: Option<String>,
+        #[serde(default)]
+        version_field: Option<String>,
     },
     /// Official ZIP containing exactly one DEB. Older clients deserialize this
     /// as Unknown and cannot offer an unsafe direct ZIP installation.
@@ -587,7 +593,7 @@ mod tests {
     #[test]
     fn development_tools_are_configuration_driven() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 8);
+        assert_eq!(catalog.development_tools.len(), 9);
         let codex = catalog.by_tool_id("codex").unwrap();
         assert_eq!(codex.binary_name, "codex");
         assert_eq!(codex.npm_package.as_deref(), Some("@openai/codex"));

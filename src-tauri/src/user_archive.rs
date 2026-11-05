@@ -177,9 +177,9 @@ fn asar_member<'a>(bytes: &'a [u8], member: &str) -> Result<&'a [u8], String> {
     let end = start.checked_add(size).ok_or("ASAR 成员大小溢出")?;
     bytes.get(start..end).ok_or_else(|| "ASAR 成员越界".into())
 }
-fn validate_version(bytes: &[u8], version: &str) -> Result<(), String> {
+fn validate_version(bytes: &[u8], version: &str, field: &str) -> Result<(), String> {
     let json: serde_json::Value = serde_json::from_slice(bytes).map_err(err)?;
-    if json["version"].as_str() != Some(version) {
+    if json[field].as_str() != Some(version) {
         return Err("归档内版本与签名 feed 不一致".into());
     }
     Ok(())
@@ -213,10 +213,32 @@ fn walk_archive(
         .parent()
         .ok_or("缺少归档根目录")?
         .join("resources/app.asar");
-    let manifest = Path::new(executable)
+    let SourceSpec::TarGz {
+        version_path,
+        version_field,
+        ..
+    } = &app.source
+    else {
+        return Err("不是归档软件源".into());
+    };
+    let default_manifest = Path::new(executable)
         .parent()
         .ok_or("缺少归档根目录")?
         .join("resources/app/package.json");
+    let manifest = version_path
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or(default_manifest);
+    let version_field = version_field.as_deref().unwrap_or("version");
+    if !safe_relative(&manifest)
+        || manifest.components().next().map(|c| c.as_os_str()) != Some(top)
+        || version_field.is_empty()
+        || !version_field
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return Err("归档版本字段配置无效".into());
+    }
     for entry in archive.entries().map_err(err)? {
         if cancel() {
             return Err(crate::source_engine::CANCELED_ERROR.into());
@@ -298,7 +320,7 @@ fn walk_archive(
                 return Err("归档版本文件过大".into());
             }
             entry.read_to_end(&mut prefix).map_err(err)?;
-            validate_version(&prefix, version)?;
+            validate_version(&prefix, version, version_field)?;
             found_version = true;
         }
         if path == asar {
@@ -306,8 +328,14 @@ fn walk_archive(
                 return Err("ASAR 文件超过 64 MiB".into());
             }
             copy_checked(&mut entry, &mut prefix, cancel)?;
-            validate_version(asar_member(&prefix, "package.json")?, version)?;
-            found_version = true;
+            if version_path.is_none() {
+                validate_version(
+                    asar_member(&prefix, "package.json")?,
+                    version,
+                    version_field,
+                )?;
+                found_version = true;
+            }
             if let Some((archive_path, member)) = icon_path.split_once(':') {
                 if Path::new(archive_path) != path {
                     return Err("ASAR 图标归档路径不一致".into());
@@ -1078,7 +1106,20 @@ mod tests {
             std::env::var_os("UMANAGER_TEST_ARCHIVE").expect("set UMANAGER_TEST_ARCHIVE"),
         );
         let version = std::env::var("UMANAGER_TEST_VERSION").expect("set UMANAGER_TEST_VERSION");
-        let app = app();
+        let id =
+            std::env::var("UMANAGER_TEST_APPLICATION").unwrap_or_else(|_| "antigravity".into());
+        let catalog: serde_json::Value =
+            serde_json::from_str(include_str!("../../feed-sources.json")).unwrap();
+        let app: Application = serde_json::from_value(
+            catalog["applications"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["applicationId"] == id)
+                .unwrap()
+                .clone(),
+        )
+        .unwrap();
         validate_archive(&app, &path, &version).unwrap();
         let home = temp();
         let root = root(&home, &app).unwrap();
@@ -1098,11 +1139,19 @@ mod tests {
         };
         install(&home, &root, &target, &app, &path, &payload).unwrap();
         assert_eq!(state(&home, &app).unwrap().unwrap().version, version);
-        assert!(root.join(hash).join(".umanager-icon.png").is_file());
+        assert!(
+            root.join(hash)
+                .join(if spec(&app).unwrap().1.contains(':') {
+                    ".umanager-icon.png"
+                } else {
+                    spec(&app).unwrap().1
+                })
+                .is_file()
+        );
         assert!(
             fs::read_to_string(target)
                 .unwrap()
-                .contains("X-UManager-Application=antigravity")
+                .contains(&format!("X-UManager-Application={}", app.application_id))
         );
         fs::remove_dir_all(home).unwrap();
     }

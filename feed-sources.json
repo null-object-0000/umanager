@@ -36,6 +36,39 @@
         "downloadUrlSuffix": "/linux-x64/Antigravity.tar.gz",
         "executable": "Antigravity-x64/antigravity",
         "iconPath": "Antigravity-x64/resources/app.asar:icon.png"
+      },
+      "releaseNotes": { "antigravityProduct": "hub" }
+    },
+    {
+      "applicationId": "antigravity-ide",
+      "packageName": "antigravity-ide",
+      "displayName": "Antigravity IDE",
+      "vendor": "Google",
+      "architecture": "amd64",
+      "description": "Google 官方 AI 编程 IDE，集成编辑器、智能体面板和代码工作区。与 Antigravity App 独立安装，使用官网 Linux tar.gz。",
+      "homepage": "https://antigravity.google/download",
+      "icon": "antigravity",
+      "accentColor": "#4285f4",
+      "removable": true,
+      "source": {
+        "kind": "tarGzV2",
+        "officialPageUrl": "https://antigravity.google/download",
+        "officialPageHosts": [
+          "antigravity.google"
+        ],
+        "downloadHosts": [
+          "edgedl.me.gvt1.com"
+        ],
+        "downloadUrlPrefix": "https://edgedl.me.gvt1.com/edgedl/release2/",
+        "downloadUrlSuffix": "/linux-x64/Antigravity%20IDE.tar.gz",
+        "downloadVersionPattern": "/antigravity/stable/(\\d+\\.\\d+\\.\\d+)-\\d+/",
+        "executable": "Antigravity IDE/antigravity-ide",
+        "iconPath": "Antigravity IDE/resources/app/resources/linux/code.png",
+        "versionPath": "Antigravity IDE/resources/app/product.json",
+        "versionField": "ideVersion"
+      },
+      "releaseNotes": {
+        "antigravityProduct": "ide"
       }
     },
     {
@@ -1105,6 +1138,7 @@
     }
   },
   "toolReleaseNotesOverrides": {
+    "antigravity-cli": { "antigravityProduct": "cli" },
     "claude-code": {
       "changelogMarkdownUrl": "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md",
       "releaseNotesUrl": "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md"
@@ -1138,6 +1172,7 @@
     }
   },
   "toolVersionOverrides": {
+    "antigravity-cli": { "antigravityManifestUrl": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json" },
     "hermes": {
       "releaseApiUrl": "https://api.github.com/repos/NousResearch/hermes-agent/releases?per_page=30",
       "commitApiUrl": "https://api.github.com/repos/NousResearch/hermes-agent/commits",

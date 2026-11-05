@@ -42,6 +42,7 @@
 //   categoryAssignments: { applications: { [applicationId]: categoryId },
 //                          developmentTools: { [toolId]: categoryId } }
 
+import { antigravityChangelog, antigravityCliVersion } from "./antigravity-changelog.mjs";
 import { tarEntry } from "./tar-source.mjs";
 import { fetchZipArtifact } from "./zip-artifact.mjs";
 import { windowsEntry } from "./windows-feed.mjs";
@@ -567,6 +568,12 @@ async function releaseApiEntry(app, source, previousEntry) {
 // through the signed feed. Best-effort: a failure only leaves the note absent,
 // it never drops the app entry.
 async function fetchReleaseNotes(app, config, entry) {
+  if (config?.antigravityProduct) {
+    try {
+      const notes = antigravityChangelog(await fetchText(`https://antigravity.google/docs/changelog?tab=${config.antigravityProduct}`), config.antigravityProduct, entry.version);
+      return { ...notes, releaseNotes: sanitizeReleaseNotes(notes.releaseNotes) };
+    } catch (error) { fail(app.applicationId, `读取 Antigravity 更新日志失败：${error.message}`); return null; }
+  }
   if (!config || typeof config !== "object") return null;
   if (typeof config.atomUrl === "string") return fetchAtomReleaseNotes(app, config);
   if (typeof config.versionedHtmlUrl === "string") return fetchVersionedHtmlReleaseNotes(app, config, entry);
@@ -1431,7 +1438,10 @@ async function toolEntry(tool, versionOverrides) {
   // app can offer a per-tool version-line switch. npm tools only; the resolved
   // `version` below stays the configured channel's version (the default line).
   let channels = null;
-  if (versionOverride?.updaterManifestUrl) {
+  if (versionOverride?.antigravityManifestUrl) {
+    try { version = antigravityCliVersion(JSON.parse(await fetchText(versionOverride.antigravityManifestUrl))); }
+    catch (error) { fail(tool.toolId, `读取 Antigravity CLI 版本失败：${error.message}`); return null; }
+  } else if (versionOverride?.updaterManifestUrl) {
     try {
       const release = resolveUpdaterManifest(
         await fetchText(versionOverride.updaterManifestUrl),
@@ -1539,6 +1549,14 @@ const toolNotesSourceCache = new Map();
 
 async function toolNotesSource(config) {
   if (!config || typeof config !== "object") return null;
+  if (config?.antigravityProduct) {
+    const url = `https://antigravity.google/docs/changelog?tab=${config.antigravityProduct}`;
+    if (!toolNotesSourceCache.has(url)) {
+      try { toolNotesSourceCache.set(url, { kind: "antigravity", text: await fetchText(url) }); }
+      catch (error) { log(`  toolReleaseNotes: ${url} — ${error.message}`); toolNotesSourceCache.set(url, null); }
+    }
+    return toolNotesSourceCache.get(url);
+  }
   if (typeof config.changelogMarkdownUrl === "string") {
     const url = config.changelogMarkdownUrl;
     if (!toolNotesSourceCache.has(url)) {
@@ -1573,6 +1591,10 @@ async function toolNotesSource(config) {
 /// same source serves the default version and every channel version.
 function releaseNotesFromSource(source, tool, config, version) {
   if (!source) return null;
+  if (source.kind === "antigravity") {
+    const notes = antigravityChangelog(source.text, config.antigravityProduct, version);
+    return { ...notes, releaseNotes: sanitizeReleaseNotes(notes.releaseNotes) };
+  }
   if (source.kind === "markdown") {
     const section = extractMarkdownVersionSection(source.text, version);
     const releaseNotes = sanitizeReleaseNotes(
@@ -1695,7 +1717,7 @@ async function scrapeAppEntry(app, releaseNotesOverrides, previousFeed = null) {
   const kind = app.source?.kind;
   const previousEntry = previousFeed?.applications?.[app.applicationId] ?? null;
   let entry = null;
-  if (kind === "tarGz") {
+  if (kind === "tarGz" || kind === "tarGzV2") {
     try { entry = await tarEntry(app, previousEntry); }
     catch (error) { fail(app.applicationId, `读取官方 tar.gz 失败：${error.message}`); }
   } else if (kind === "zipDeb") {
@@ -1746,7 +1768,7 @@ function toCatalogApplication(app) {
   if (record.source && "endpointHeaders" in record.source) delete record.source.endpointHeaders;
   // Download-reuse hints are CI-only too: they describe how the *generator*
   // decides whether a .deb needs re-downloading and mean nothing to the app.
-  for (const hint of ["immutableDownloadUrl", "dynamicDownloadUrl", "forceDownload"]) {
+  for (const hint of ["immutableDownloadUrl", "dynamicDownloadUrl", "forceDownload", "downloadVersionPattern"]) {
     if (record.source && hint in record.source) delete record.source[hint];
   }
   if ("releaseNotes" in record) delete record.releaseNotes;
@@ -1793,7 +1815,7 @@ async function buildCatalogRecords({ extraApps, applications, previousFeed, icon
   for (const app of extraApps) {
     const record = records[app.applicationId];
     // tar.gz apps install their official archive icon locally; never pass a tar to dpkg-deb.
-    if (app.source?.kind === "tarGz") continue;
+    if (["tarGz", "tarGzV2"].includes(app.source?.kind)) continue;
     const entry = applications[app.applicationId];
     if (!entry?.downloadUrl) {
       log(`  icon: ${app.applicationId} — 无下载地址，跳过`);
@@ -1951,6 +1973,7 @@ async function scrapeCentralData(config, previousFeed, nowUnixSeconds, reusedEnt
       if (notes) {
         entry.releaseNotes = notes.releaseNotes;
         entry.releaseNotesUrl = notes.releaseNotesUrl;
+        if (notes.updatedAtUnixSeconds != null) entry._versionTimeCandidate = { time: notes.updatedAtUnixSeconds, source: "official" };
       }
     }
     // Per-channel release notes: every distinct version among the npm

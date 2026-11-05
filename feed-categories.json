@@ -14,6 +14,7 @@
       "vscode": "dev-tools",
       "codebuddy-ide": "ai-tools",
       "antigravity": "ai-tools",
+      "antigravity-ide": "ai-tools",
       "github-cli": "dev-tools",
       "chatgpt": "ai-tools",
       "google-chrome": "browser",
@@ -68,6 +69,7 @@
       "apifox": "dev-tools"
     },
     "developmentTools": {
+      "antigravity-cli": "ai-tools",
       "claude-code": "ai-tools",
       "opencode": "ai-tools",
       "pi": "ai-tools",

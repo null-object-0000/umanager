@@ -58,9 +58,10 @@ async function invokeWithOperationProgress<T>(command: string, planId: string, o
   }
 }
 
-let mockArchiveVersion: string | null = null;
+const mockArchiveVersions: Record<string, string | null> = { antigravity: null, "antigravity-ide": null };
 const mockArchivePlans = new Map<string, import("./types").ArchivePlan>();
 const mockCatalog: CatalogApplication[] = [
+  { applicationId: "antigravity-ide", packageName: "antigravity-ide", displayName: "Antigravity IDE", vendor: "Google", description: "Google 官方 AI 编程 IDE，集成编辑器、智能体面板和代码工作区。", architecture: "amd64", homepage: "https://antigravity.google/download", icon: "antigravity", accentColor: "#4285f4", removable: true, source: { kind: "tarGz" } },
   { applicationId: "antigravity", packageName: "antigravity-app", displayName: "Google Antigravity", vendor: "Google", description: "Google 官方 AI 智能体桌面应用，集中启动、监控与协调编程智能体。", architecture: "amd64", homepage: "https://antigravity.google/download", icon: "antigravity", accentColor: "#4285f4", removable: true, source: { kind: "tarGz" } },
   { applicationId: "vscode", packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", architecture: "amd64", homepage: "https://code.visualstudio.com/", icon: "vscode", accentColor: "#2b78bd", removable: true, source: { kind: "aptRepository", repositoryUrl: "https://packages.microsoft.com/repos/code", repositoryHosts: ["packages.microsoft.com"] } },
   { applicationId: "google-chrome", packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", architecture: "amd64", homepage: "https://www.google.com/chrome/", icon: "google-chrome", accentColor: "#4285f4", removable: true, source: { kind: "aptRepository", repositoryUrl: "https://dl.google.com/linux/chrome-stable/deb", repositoryHosts: ["dl.google.com"] } },
@@ -71,6 +72,7 @@ const mockCatalog: CatalogApplication[] = [
 ];
 
 const mockPlans: Record<string, DownloadPlan> = {
+  "antigravity-ide": { applicationId: "antigravity-ide", packageName: "antigravity-ide", version: "2.6.0", architecture: "amd64", sourceKind: "officialWebsite", repositoryUrl: null, downloadUrl: "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.6.0-5526304964083712/linux-x64/Antigravity%20IDE.tar.gz", fileName: "antigravity-ide-2.6.0.tar.gz", expectedSize: 195292315, expectedSha256: "a".repeat(64), targetPath: "/home/user/.cache/io.github.umanager.app/downloads/antigravity-ide.tar.gz", releaseTag: null, assetName: "Antigravity IDE.tar.gz", websiteVersion: "2.6.0" },
   antigravity: { applicationId: "antigravity", packageName: "antigravity-app", version: "2.29.0", architecture: "amd64", sourceKind: "officialWebsite", repositoryUrl: null, downloadUrl: "https://storage.googleapis.com/antigravity-public/antigravity-hub/2.29.0-5723181030440960/linux-x64/Antigravity.tar.gz", fileName: "antigravity-app-2.29.0.tar.gz", expectedSize: 185017758, expectedSha256: "3a675704b9b3a3070e06c0d50d3533043af54521cd15c65494e9cdc2bf189664", targetPath: "/home/user/.cache/io.github.umanager.app/downloads/antigravity-app.tar.gz", releaseTag: null, assetName: "Antigravity.tar.gz", websiteVersion: "2.29.0" },
   vscode: { applicationId: "vscode", packageName: "code", version: "1.134.0-1787078834", architecture: "amd64", sourceKind: "officialRepository", repositoryUrl: "https://packages.microsoft.com/repos/code", downloadUrl: "https://packages.microsoft.com/repos/code/pool/main/c/code/code_1.134.0-1787078834_amd64.deb", fileName: "code_1.134.0-1787078834_amd64.deb", expectedSize: 238188742, expectedSha256: "dcd3a2f52d53df079cd389662ff1fdbeb629938331d3a63655fed929f8d49f19", targetPath: "/home/user/.cache/io.github.umanager.app/downloads/code.deb", releaseTag: null, assetName: null, websiteVersion: null },
   "google-chrome": { applicationId: "google-chrome", packageName: "google-chrome-stable", version: "151.0.7922.173-1", architecture: "amd64", sourceKind: "officialRepository", repositoryUrl: "https://dl.google.com/linux/chrome-stable/deb", downloadUrl: "https://dl.google.com/linux/chrome-stable/deb/pool/main/g/google-chrome-stable/google-chrome-stable_151.0.7922.173-1_amd64.deb", fileName: "google-chrome-stable_151.0.7922.173-1_amd64.deb", expectedSize: 140077524, expectedSha256: "8".repeat(64), targetPath: "/home/user/.cache/io.github.umanager.app/downloads/google-chrome-stable.deb", releaseTag: null, assetName: null, websiteVersion: null },
@@ -83,6 +85,8 @@ const mockPlans: Record<string, DownloadPlan> = {
 // vscode / codex 特意放英文更新日志，方便在 dev 模式下直接验证「翻译并总结」；
 // flclash 是中文更新日志，用来验证「归纳总结」这条只归纳、不翻译的路径。
 const mockReleaseNotes: Record<string, { notes: string; url: string }> = {
+  antigravity: { notes: "浏览器预览：Antigravity App 对应版本的更新说明。", url: "https://antigravity.google/docs/changelog?tab=hub" },
+  "antigravity-ide": { notes: "浏览器预览：Antigravity IDE 对应版本的更新说明。", url: "https://antigravity.google/docs/changelog?tab=ide" },
   vscode: {
     notes: [
       "## 1.134.0",
@@ -124,7 +128,7 @@ function mockDetails(applicationId: string): ApplicationDetails {
     architecture: entry?.architecture ?? "amd64",
     trusted: true,
   };
-  const installed: Record<string, string | null> = { antigravity: mockArchiveVersion, vscode: "1.134.0-1787078834", "google-chrome": "151.0.7922.169-1", chatgpt: "26.818.21641", wechat: "4.1.1.8", flclash: "0.8.96+2026081701" };
+  const installed: Record<string, string | null> = { ...mockArchiveVersions, vscode: "1.134.0-1787078834", "google-chrome": "151.0.7922.169-1", chatgpt: "26.818.21641", wechat: "4.1.1.8", flclash: "0.8.96+2026081701" };
   // 与下面 scanPackages / getInstallableApplications 的 mock 保持同一批
   // 版本发布时间，让详情抽屉的「新内容」日期与列表卡片一致。
   const versionTimes: Record<string, [number, VersionUpdatedAtSource]> = {
@@ -315,7 +319,7 @@ export function scanPackages(): Promise<ScanResult> {
       scannedAtUnixSeconds: Math.floor(Date.now() / 1000),
       warnings: [],
       packages: [
-        ...(mockArchiveVersion ? [{ packageName: "antigravity-app", displayName: "Google Antigravity", vendor: "Google", installedVersion: mockArchiveVersion, candidateVersion: mockPlans.antigravity.version, architecture: "amd64", sourceKind: "officialWebsite" as const, sourceUrl: mockPlans.antigravity.downloadUrl, updateState: mockArchiveVersion === mockPlans.antigravity.version ? "upToDate" as const : "updateAvailable" as const, homepage: "https://antigravity.google/download" }] : []),
+        ...mockCatalog.filter((app) => app.source.kind === "tarGz" && mockArchiveVersions[app.applicationId]).map((app) => ({ packageName: app.packageName, displayName: app.displayName, vendor: app.vendor, installedVersion: mockArchiveVersions[app.applicationId]!, candidateVersion: mockPlans[app.applicationId].version, architecture: app.architecture, sourceKind: "officialWebsite" as const, sourceUrl: mockPlans[app.applicationId].downloadUrl, updateState: mockArchiveVersions[app.applicationId] === mockPlans[app.applicationId].version ? "upToDate" as const : "updateAvailable" as const, homepage: app.homepage })),
         { packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://packages.microsoft.com/repos/code", updateState: "upToDate", homepage: "https://code.visualstudio.com/", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 20), versionUpdatedAtSource: "official" },
         { packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", installedVersion: "151.0.7922.169-1", candidateVersion: "151.0.7922.173-1", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://dl.google.com/linux/chrome-stable/deb", updateState: "updateAvailable", homepage: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 22), versionUpdatedAtSource: "serverModified" },
         { packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", installedVersion: "26.818.21641", candidateVersion: "26.818.41705", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb", updateState: "updateAvailable", homepage: "https://developers.openai.com/codex/app", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 18), versionUpdatedAtSource: "official" },
@@ -597,7 +601,7 @@ export function getInstallableApplications(): Promise<InstallableApplication[]> 
   if (isMock()) {
     const aptPlan = (applicationId: string): DownloadPlan => ({ ...mockPlans[applicationId] });
     return Promise.resolve([
-      { applicationId: "antigravity", packageName: "antigravity-app", displayName: "Google Antigravity", vendor: "Google", description: mockCatalog[0].description, homepage: "https://antigravity.google/download", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: mockArchiveVersion, candidateVersion: mockPlans.antigravity.version, installAvailable: mockArchiveVersion === null, unavailableReason: mockArchiveVersion ? "已在本机安装" : null, downloadPlan: mockArchiveVersion ? null : aptPlan("antigravity") },
+      ...mockCatalog.filter((app) => app.source.kind === "tarGz").map((app) => ({ applicationId: app.applicationId, packageName: app.packageName, displayName: app.displayName, vendor: app.vendor, description: app.description, homepage: app.homepage, architecture: app.architecture, sourceKind: "officialWebsite" as const, installedVersion: mockArchiveVersions[app.applicationId], candidateVersion: mockPlans[app.applicationId].version, installAvailable: mockArchiveVersions[app.applicationId] === null, unavailableReason: mockArchiveVersions[app.applicationId] ? "已在本机安装" : null, downloadPlan: mockArchiveVersions[app.applicationId] ? null : aptPlan(app.applicationId), releaseNotes: mockReleaseNotes[app.applicationId]?.notes ?? null, releaseNotesUrl: mockReleaseNotes[app.applicationId]?.url ?? null })),
       { applicationId: "vscode", packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", homepage: "https://code.visualstudio.com/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 20), versionUpdatedAtSource: "official" },
       { applicationId: "google-chrome", packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", homepage: "https://www.google.com/chrome/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: null, candidateVersion: mockPlans["google-chrome"].version, installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("google-chrome"), versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 22), versionUpdatedAtSource: "serverModified" },
       { applicationId: "chatgpt", packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/app", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "26.818.21641", candidateVersion: "26.818.61809", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 18), versionUpdatedAtSource: "official" },
@@ -759,6 +763,7 @@ async function invokeWithDevToolProgress<T>(command: string, toolId: string, onP
 }
 
 const mockDevTools: DevTool[] = [
+  { toolId: "antigravity-cli", displayName: "Antigravity CLI", vendor: "Google", homepage: "https://antigravity.google/docs/cli/reference/", description: "Google 官方终端 AI 编程智能体", icon: "antigravity", accentColor: "#4285f4", binaryName: "agy", npmPackage: null, installer: { kind: "curlScript", scriptUrl: "https://antigravity.google/cli/install.sh", host: "antigravity.google", shell: "bash" }, uninstall: { kind: "removeFiles", paths: ["~/.local/bin/agy"] }, update: { kind: "selfCommand", args: ["update"] } },
   { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: "claude", accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installer: { kind: "curlScript", scriptUrl: "https://claude.ai/install.sh", host: "claude.ai", shell: "bash" }, uninstall: { kind: "removeFiles", paths: ["~/.local/bin/claude"] }, update: { kind: "selfCommand", args: ["update"] } },
   { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: "opencode", accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installer: { kind: "curlScript", scriptUrl: "https://opencode.ai/install", host: "opencode.ai", shell: "bash" }, uninstall: { kind: "removeFiles", paths: ["~/.opencode/bin/opencode"] }, update: { kind: "selfCommand", args: ["upgrade"] } },
   { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: "pi", accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installer: { kind: "curlScript", scriptUrl: "https://pi.dev/install.sh", host: "pi.dev", shell: "sh" }, uninstall: { kind: "removeFiles", paths: ["~/.local/bin/pi"] }, update: { kind: "selfCommand", args: ["update"] } },
@@ -768,6 +773,7 @@ const mockDevTools: DevTool[] = [
 ];
 
 const mockDevToolStates: Record<string, DevToolState> = {
+  "antigravity-cli": { toolId: "antigravity-cli", displayName: "Antigravity CLI", vendor: "Google", homepage: "https://antigravity.google/docs/cli/reference/", icon: "antigravity", accentColor: "#4285f4", binaryName: "agy", npmPackage: null, installerKind: "curlScript", npmAvailable: false, installed: false, installKind: null, version: null, latestVersion: "1.5.1", channels: null, selectedChannel: null, binaryPath: null, updateAvailable: false, canUninstall: false, releaseNotes: null, releaseNotesUrl: "https://antigravity.google/docs/changelog?tab=cli" },
   "claude-code": { toolId: "claude-code", displayName: "Claude Code", vendor: "Anthropic", homepage: "https://docs.anthropic.com/en/docs/claude-code", icon: null, accentColor: "#b0562a", binaryName: "claude", npmPackage: "@anthropic-ai/claude-code", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "officialInstaller", version: "2.1.245", latestVersion: "2.1.245", channels: null, selectedChannel: null, binaryPath: "/home/user/.local/bin/claude", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 12), versionUpdatedAtSource: "official" },
   opencode: { toolId: "opencode", displayName: "OpenCode", vendor: "OpenCode (SST)", homepage: "https://opencode.ai/", icon: null, accentColor: "#d97757", binaryName: "opencode", npmPackage: "opencode-ai", installerKind: "curlScript", npmAvailable: true, installed: true, installKind: "npmGlobal", version: "1.18.22", latestVersion: "1.18.22", channels: null, selectedChannel: null, binaryPath: "/home/user/.nvm/versions/node/v24.19.0/bin/opencode", updateAvailable: false, canUninstall: true, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 19), versionUpdatedAtSource: "official" },
   pi: { toolId: "pi", displayName: "Pi", vendor: "earendil-works", homepage: "https://pi.dev/", icon: null, accentColor: "#7c5ce5", binaryName: "pi", npmPackage: "@earendil-works/pi-coding-agent", installerKind: "curlScript", npmAvailable: true, installed: false, installKind: null, version: null, latestVersion: "0.84.3", channels: null, selectedChannel: null, binaryPath: null, updateAvailable: false, canUninstall: false, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 14), versionUpdatedAtSource: "official" },
@@ -858,11 +864,12 @@ export function stopScript(scriptId: string): Promise<boolean> {
 
 export async function prepareArchiveOperation(applicationId: string, remove: boolean): Promise<import("./types").ArchivePlan> {
   if (isMock()) {
-    if (applicationId !== "antigravity") throw new Error("未知的示例归档应用");
+    if (!Object.prototype.hasOwnProperty.call(mockArchiveVersions, applicationId)) throw new Error("未知的示例归档应用");
+    const installedVersion = mockArchiveVersions[applicationId];
     if (!remove && !mockJobs.some((job) => job.applicationId === applicationId && job.status === "ready")) throw new Error("请先完成示例下载");
-    if (remove && !mockArchiveVersion) throw new Error("示例应用尚未安装");
+    if (remove && !installedVersion) throw new Error("示例应用尚未安装");
     const now = Math.floor(Date.now() / 1000);
-    const plan: import("./types").ArchivePlan = { planId: `preview-archive-${Date.now()}`, installPath: "/home/user/.local/share/umanager/apps/antigravity", payload: { schemaVersion: 1, applicationId, remove, version: remove ? mockArchiveVersion! : mockPlans.antigravity.version, sha256: mockPlans.antigravity.expectedSha256!, installedVersion: mockArchiveVersion, expiresAtUnixSeconds: now + 900 } };
+    const plan: import("./types").ArchivePlan = { planId: `preview-archive-${applicationId}-${Date.now()}`, installPath: `/home/user/.local/share/umanager/apps/${applicationId}`, payload: { schemaVersion: 1, applicationId, remove, version: remove ? installedVersion! : mockPlans[applicationId].version, sha256: mockPlans[applicationId].expectedSha256!, installedVersion, expiresAtUnixSeconds: now + 900 } };
     mockArchivePlans.set(plan.planId, plan);
     return plan;
   }
@@ -871,8 +878,8 @@ export async function prepareArchiveOperation(applicationId: string, remove: boo
 export async function executeArchiveOperation(planId: string): Promise<string> {
   if (isMock()) {
     const plan = mockArchivePlans.get(planId);
-    if (!plan || plan.payload.expiresAtUnixSeconds <= Date.now() / 1000 || plan.payload.installedVersion !== mockArchiveVersion) throw new Error("示例计划已失效，请重新准备");
-    mockArchiveVersion = plan.payload.remove ? null : plan.payload.version;
+    if (!plan || plan.payload.expiresAtUnixSeconds <= Date.now() / 1000 || plan.payload.installedVersion !== mockArchiveVersions[plan.payload.applicationId]) throw new Error("示例计划已失效，请重新准备");
+    mockArchiveVersions[plan.payload.applicationId] = plan.payload.remove ? null : plan.payload.version;
     mockArchivePlans.delete(planId);
     return "浏览器模拟完成，未安装或卸载任何真实软件";
   }

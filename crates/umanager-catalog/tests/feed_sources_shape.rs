@@ -23,3 +23,17 @@ fn every_feed_source_application_matches_the_catalog_schema() {
     }
     println!("validated {} feed-sources applications", apps.len());
 }
+
+#[test]
+fn antigravity_ide_uses_its_product_version_and_preserves_user_archive_safety() {
+    let json: serde_json::Value = serde_json::from_str(include_str!("../../../feed-sources.json")).unwrap();
+    let app = json["applications"].as_array().unwrap().iter().find(|app| app["applicationId"] == "antigravity-ide").unwrap();
+    assert_eq!(app["source"]["kind"], "tarGzV2");
+    let parsed: Application = serde_json::from_value(app.clone()).unwrap();
+    assert!(parsed.is_auto_installable() && parsed.is_user_archive());
+    assert_eq!(parsed.download_hosts(), ["edgedl.me.gvt1.com"]);
+    if let umanager_catalog::SourceSpec::TarGz { version_path, version_field, .. } = parsed.source {
+        assert_eq!(version_field.as_deref(), Some("ideVersion"));
+        assert_eq!(version_path.as_deref(), Some("Antigravity IDE/resources/app/product.json"));
+    } else { panic!("IDE must use a user archive"); }
+}
