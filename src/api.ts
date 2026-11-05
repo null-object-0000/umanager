@@ -58,7 +58,10 @@ async function invokeWithOperationProgress<T>(command: string, planId: string, o
   }
 }
 
+let mockArchiveVersion: string | null = null;
+const mockArchivePlans = new Map<string, import("./types").ArchivePlan>();
 const mockCatalog: CatalogApplication[] = [
+  { applicationId: "antigravity", packageName: "antigravity-app", displayName: "Google Antigravity", vendor: "Google", description: "Google 官方 AI 智能体桌面应用，集中启动、监控与协调编程智能体。", architecture: "amd64", homepage: "https://antigravity.google/download", icon: "antigravity", accentColor: "#4285f4", removable: true, source: { kind: "tarGz" } },
   { applicationId: "vscode", packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", architecture: "amd64", homepage: "https://code.visualstudio.com/", icon: "vscode", accentColor: "#2b78bd", removable: true, source: { kind: "aptRepository", repositoryUrl: "https://packages.microsoft.com/repos/code", repositoryHosts: ["packages.microsoft.com"] } },
   { applicationId: "google-chrome", packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", architecture: "amd64", homepage: "https://www.google.com/chrome/", icon: "google-chrome", accentColor: "#4285f4", removable: true, source: { kind: "aptRepository", repositoryUrl: "https://dl.google.com/linux/chrome-stable/deb", repositoryHosts: ["dl.google.com"] } },
   { applicationId: "chatgpt", packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", architecture: "amd64", homepage: "https://developers.openai.com/codex/app", icon: "chatgpt", accentColor: "#171918", removable: true, source: { kind: "aptRepository", repositoryUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb", repositoryHosts: ["persistent.oaistatic.com"] } },
@@ -68,6 +71,7 @@ const mockCatalog: CatalogApplication[] = [
 ];
 
 const mockPlans: Record<string, DownloadPlan> = {
+  antigravity: { applicationId: "antigravity", packageName: "antigravity-app", version: "2.29.0", architecture: "amd64", sourceKind: "officialWebsite", repositoryUrl: null, downloadUrl: "https://storage.googleapis.com/antigravity-public/antigravity-hub/2.29.0-5723181030440960/linux-x64/Antigravity.tar.gz", fileName: "antigravity-app-2.29.0.tar.gz", expectedSize: 185017758, expectedSha256: "3a675704b9b3a3070e06c0d50d3533043af54521cd15c65494e9cdc2bf189664", targetPath: "/home/user/.cache/io.github.umanager.app/downloads/antigravity-app.tar.gz", releaseTag: null, assetName: "Antigravity.tar.gz", websiteVersion: "2.29.0" },
   vscode: { applicationId: "vscode", packageName: "code", version: "1.134.0-1787078834", architecture: "amd64", sourceKind: "officialRepository", repositoryUrl: "https://packages.microsoft.com/repos/code", downloadUrl: "https://packages.microsoft.com/repos/code/pool/main/c/code/code_1.134.0-1787078834_amd64.deb", fileName: "code_1.134.0-1787078834_amd64.deb", expectedSize: 238188742, expectedSha256: "dcd3a2f52d53df079cd389662ff1fdbeb629938331d3a63655fed929f8d49f19", targetPath: "/home/user/.cache/io.github.umanager.app/downloads/code.deb", releaseTag: null, assetName: null, websiteVersion: null },
   "google-chrome": { applicationId: "google-chrome", packageName: "google-chrome-stable", version: "151.0.7922.173-1", architecture: "amd64", sourceKind: "officialRepository", repositoryUrl: "https://dl.google.com/linux/chrome-stable/deb", downloadUrl: "https://dl.google.com/linux/chrome-stable/deb/pool/main/g/google-chrome-stable/google-chrome-stable_151.0.7922.173-1_amd64.deb", fileName: "google-chrome-stable_151.0.7922.173-1_amd64.deb", expectedSize: 140077524, expectedSha256: "8".repeat(64), targetPath: "/home/user/.cache/io.github.umanager.app/downloads/google-chrome-stable.deb", releaseTag: null, assetName: null, websiteVersion: null },
   chatgpt: { applicationId: "chatgpt", packageName: "chatgpt", version: "26.818.61809", architecture: "amd64", sourceKind: "officialRepository", repositoryUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb", downloadUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb/pool/main/c/chatgpt/chatgpt_26.818.61809_amd64.deb", fileName: "chatgpt_26.818.61809_amd64.deb", expectedSize: 388572198, expectedSha256: "1".repeat(64), targetPath: "/home/user/.cache/io.github.umanager.app/downloads/chatgpt.deb", releaseTag: null, assetName: null, websiteVersion: null },
@@ -120,7 +124,7 @@ function mockDetails(applicationId: string): ApplicationDetails {
     architecture: entry?.architecture ?? "amd64",
     trusted: true,
   };
-  const installed: Record<string, string | null> = { vscode: "1.134.0-1787078834", "google-chrome": "151.0.7922.169-1", chatgpt: "26.818.21641", wechat: "4.1.1.8", flclash: "0.8.96+2026081701" };
+  const installed: Record<string, string | null> = { antigravity: mockArchiveVersion, vscode: "1.134.0-1787078834", "google-chrome": "151.0.7922.169-1", chatgpt: "26.818.21641", wechat: "4.1.1.8", flclash: "0.8.96+2026081701" };
   // 与下面 scanPackages / getInstallableApplications 的 mock 保持同一批
   // 版本发布时间，让详情抽屉的「新内容」日期与列表卡片一致。
   const versionTimes: Record<string, [number, VersionUpdatedAtSource]> = {
@@ -153,7 +157,7 @@ function mockDetails(applicationId: string): ApplicationDetails {
     releaseNotesUrl: mockReleaseNotes[applicationId]?.url ?? null,
     evidence: [
       { label: website ? "下载域名" : "APT 仓库域名", actual: plan.repositoryUrl ?? plan.downloadUrl, expected: plan.repositoryUrl ?? plan.downloadUrl, passed: true },
-      { label: "Debian 软件包名", actual: plan.packageName, expected: plan.packageName, passed: true },
+      { label: entry?.source.kind === "tarGz" ? "应用标识" : "Debian 软件包名", actual: plan.packageName, expected: plan.packageName, passed: true },
       { label: "软件包架构", actual: plan.architecture, expected: "amd64", passed: true },
     ],
   };
@@ -311,6 +315,7 @@ export function scanPackages(): Promise<ScanResult> {
       scannedAtUnixSeconds: Math.floor(Date.now() / 1000),
       warnings: [],
       packages: [
+        ...(mockArchiveVersion ? [{ packageName: "antigravity-app", displayName: "Google Antigravity", vendor: "Google", installedVersion: mockArchiveVersion, candidateVersion: mockPlans.antigravity.version, architecture: "amd64", sourceKind: "officialWebsite" as const, sourceUrl: mockPlans.antigravity.downloadUrl, updateState: mockArchiveVersion === mockPlans.antigravity.version ? "upToDate" as const : "updateAvailable" as const, homepage: "https://antigravity.google/download" }] : []),
         { packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://packages.microsoft.com/repos/code", updateState: "upToDate", homepage: "https://code.visualstudio.com/", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 20), versionUpdatedAtSource: "official" },
         { packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", installedVersion: "151.0.7922.169-1", candidateVersion: "151.0.7922.173-1", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://dl.google.com/linux/chrome-stable/deb", updateState: "updateAvailable", homepage: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 22), versionUpdatedAtSource: "serverModified" },
         { packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", installedVersion: "26.818.21641", candidateVersion: "26.818.41705", architecture: "amd64", sourceKind: "officialRepository", sourceUrl: "https://persistent.oaistatic.com/codex-app-prod/linux/deb", updateState: "updateAvailable", homepage: "https://developers.openai.com/codex/app", versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 18), versionUpdatedAtSource: "official" },
@@ -592,6 +597,7 @@ export function getInstallableApplications(): Promise<InstallableApplication[]> 
   if (isMock()) {
     const aptPlan = (applicationId: string): DownloadPlan => ({ ...mockPlans[applicationId] });
     return Promise.resolve([
+      { applicationId: "antigravity", packageName: "antigravity-app", displayName: "Google Antigravity", vendor: "Google", description: mockCatalog[0].description, homepage: "https://antigravity.google/download", architecture: "amd64", sourceKind: "officialWebsite", installedVersion: mockArchiveVersion, candidateVersion: mockPlans.antigravity.version, installAvailable: mockArchiveVersion === null, unavailableReason: mockArchiveVersion ? "已在本机安装" : null, downloadPlan: mockArchiveVersion ? null : aptPlan("antigravity") },
       { applicationId: "vscode", packageName: "code", displayName: "Visual Studio Code", vendor: "Microsoft", homepage: "https://code.visualstudio.com/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "1.134.0-1787078834", candidateVersion: "1.134.0-1787078834", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 20), versionUpdatedAtSource: "official" },
       { applicationId: "google-chrome", packageName: "google-chrome-stable", displayName: "Google Chrome", vendor: "Google", homepage: "https://www.google.com/chrome/", architecture: "amd64", sourceKind: "officialRepository", installedVersion: null, candidateVersion: mockPlans["google-chrome"].version, installAvailable: true, unavailableReason: null, downloadPlan: aptPlan("google-chrome"), versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 22), versionUpdatedAtSource: "serverModified" },
       { applicationId: "chatgpt", packageName: "chatgpt", displayName: "ChatGPT Desktop", vendor: "OpenAI", homepage: "https://developers.openai.com/codex/app", architecture: "amd64", sourceKind: "officialRepository", installedVersion: "26.818.21641", candidateVersion: "26.818.61809", installAvailable: false, unavailableReason: "已在本机安装，请在“软件”页管理更新或卸载。", downloadPlan: null, versionUpdatedAtUnixSeconds: mockVersionTime(2026, 8, 18), versionUpdatedAtSource: "official" },
@@ -851,10 +857,24 @@ export function stopScript(scriptId: string): Promise<boolean> {
 }
 
 export async function prepareArchiveOperation(applicationId: string, remove: boolean): Promise<import("./types").ArchivePlan> {
-  if (isMock()) throw new Error("浏览器预览不执行归档安装，请在桌面应用中操作");
+  if (isMock()) {
+    if (applicationId !== "antigravity") throw new Error("未知的示例归档应用");
+    if (!remove && !mockJobs.some((job) => job.applicationId === applicationId && job.status === "ready")) throw new Error("请先完成示例下载");
+    if (remove && !mockArchiveVersion) throw new Error("示例应用尚未安装");
+    const now = Math.floor(Date.now() / 1000);
+    const plan: import("./types").ArchivePlan = { planId: `preview-archive-${Date.now()}`, installPath: "/home/user/.local/share/umanager/apps/antigravity", payload: { schemaVersion: 1, applicationId, remove, version: remove ? mockArchiveVersion! : mockPlans.antigravity.version, sha256: mockPlans.antigravity.expectedSha256!, installedVersion: mockArchiveVersion, expiresAtUnixSeconds: now + 900 } };
+    mockArchivePlans.set(plan.planId, plan);
+    return plan;
+  }
   return invoke("prepare_archive_operation", { applicationId, remove });
 }
 export async function executeArchiveOperation(planId: string): Promise<string> {
-  if (isMock()) throw new Error("浏览器预览不执行归档安装");
+  if (isMock()) {
+    const plan = mockArchivePlans.get(planId);
+    if (!plan || plan.payload.expiresAtUnixSeconds <= Date.now() / 1000 || plan.payload.installedVersion !== mockArchiveVersion) throw new Error("示例计划已失效，请重新准备");
+    mockArchiveVersion = plan.payload.remove ? null : plan.payload.version;
+    mockArchivePlans.delete(planId);
+    return "浏览器模拟完成，未安装或卸载任何真实软件";
+  }
   return invoke("execute_archive_operation", { planId });
 }

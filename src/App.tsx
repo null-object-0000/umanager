@@ -18,9 +18,10 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { useModalFocus } from "./useModalFocus";
 import antigravityIcon from "./assets/app-icons/antigravity.png";
-import { ArchiveDrawer } from "./ArchiveDrawer";
-import { scanRemovalCleanup, cancelDownload, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getDevReleases, getNodeGlobalPackages, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSoftwareCatalog, getWindowsState, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listScripts, notifyDownloadComplete, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
-import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, NodeGlobalPackages, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import { ArchiveRemovalDialog } from "./ArchiveRemovalDialog";
+import { useSoftwareInstall } from "./useSoftwareInstall";
+import { scanRemovalCleanup, cancelDownload, createLocalDebOperationPlan, createRemovalOperationPlan, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getDevReleases, getNodeGlobalPackages, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSoftwareCatalog, getWindowsState, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, launchApplication, launchWindowsApplication, listScripts, notifyDownloadComplete, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runRemovalDryRun, scanPackages, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import type { CleanupScan, CleanupSelection, ApplicationDetails, ArchivePlan, CatalogApplication, CategoryCatalog, ChangelogTranslation, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, NodeGlobalPackages, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { aiButtonLabel, aiMode, canRegenerate, formatCachedOrigin, regenerateButtonLabel, shouldWarnMissingSummary } from "./changelogTranslation";
 import type { AiActionState } from "./changelogTranslation";
 import { activeJobCount, findJob, installActionLabel, isActiveStatus, jobPercent, jobProgress, jobStatusLabel, queuedPosition, sortJobs } from "./downloadQueue";
@@ -1009,6 +1010,14 @@ function DownloadCard({ plan }: { plan: DownloadPlan }) {
   return <div className="download-plan-card"><div className="download-file"><div><strong>{plan.fileName}</strong><span>{formatBytes(plan.expectedSize)} · {plan.architecture}</span></div><span className="apt-index-badge">{isWebsite ? "发布资产" : "APT 索引"}</span></div><dl><div><dt>版本</dt><dd>{plan.version}</dd></div><div><dt>SHA-256</dt><dd title={plan.expectedSha256 ?? undefined}>{plan.expectedSha256 ?? "下载后计算"}</dd></div><div><dt>缓存位置</dt><dd title={plan.targetPath}>{plan.targetPath}</dd></div></dl></div>;
 }
 
+function ArchiveInstallDetails({ plan, message }: { plan: ArchivePlan | null; message: string | null }) {
+  if (!plan) return null;
+  return <>
+    <div className="immutable-plan"><strong>安装计划已锁定</strong><span>安装位置：{plan.installPath}</span><span>有效至：{new Date(plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>
+    {message ? <div className="dry-run-success"><strong>✓ 安装完成</strong><span>{message}</span></div> : <div className="dry-run-success"><strong>✓ 安装前复核通过</strong><span>已重新核对签名软件源、安装状态和缓存文件；核对计划后点击上方确认按钮执行安装。</span></div>}
+  </>;
+}
+
 /// 详情页顶部的变体切换（与「开发环境」里 dsh 的版本线切换同款交互）：同一款
 /// 软件的国内版 / 国际版是两份互相独立的安装包，切换后「获取 / 更新 / 卸载」都
 /// 作用于所选变体。只是选择安装对象，不改变任何授权或校验链路。
@@ -1032,19 +1041,15 @@ function VariantPicker({ variants, selected, onSelect }: { variants: CatalogAppl
 
 function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch, onRemove }: { item: ManagedPackage; job: DownloadJob | undefined; variantPicker?: ReactNode; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void; onRemove: () => void }) {
   const applicationId = catalogByPackage[item.packageName]?.applicationId;
+  const isArchive = catalogByPackage[item.packageName]?.source.kind === "tarGz";
   const isSelfUpdate = item.packageName === "u-manager";
   const [details, setDetails] = useState<ApplicationDetails | null>(null);
   const [downloadPlan, setDownloadPlan] = useState<DownloadPlan | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
-  const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
-  const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
-  const [installPhase, setInstallPhase] = useState<"idle" | "planning" | "dry-run" | "installing" | "done">("idle");
-  const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
+  const { operationPlan, archivePlan, dryRun, installed, archiveInstalled, installPhase, error, setError, progressEvents, install, cancelConfirmation } = useSoftwareInstall(applicationId, isArchive, onInstalled, onDismissDownload);
 
   useEffect(() => {
-    setLoading(true); setDetails(null); setDownloadPlan(null); setError(null); setOperationPlan(null); setDryRun(null); setInstalled(null); setInstallPhase("idle"); setProgressEvents([]);
+    setLoading(true); setDetails(null); setDownloadPlan(null); setError(null);
     if (!applicationId) { setLoading(false); setError(`软件源中未找到 ${item.packageName} 的适配策略`); return; }
     void Promise.allSettled([getApplicationDetails(applicationId), getDownloadPlan(applicationId)]).then(([detailsOutcome, planOutcome]) => {
       if (detailsOutcome.status === "fulfilled") setDetails(detailsOutcome.value); else setError(String(detailsOutcome.reason));
@@ -1063,27 +1068,6 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
   const downloadError = job !== undefined && job.status === "error" ? job.error : null;
   const installRunning = installPhase === "planning" || installPhase === "dry-run" || installPhase === "installing";
 
-  const install = async () => {
-    setError(null);
-    try {
-      setInstallPhase("planning");
-      const plan = await createOperationPlan(applicationId!);
-      setOperationPlan(plan);
-      setInstallPhase("dry-run");
-      const dry = await runOperationDryRun(plan.plan.planId);
-      setDryRun(dry);
-      setInstallPhase("installing");
-      const report = await installPackage(plan.plan.planId, (event) => appendProgress(setProgressEvents, event));
-      setInstalled(report);
-      onInstalled();
-      onDismissDownload();
-      setInstallPhase("done");
-    } catch (reason) {
-      setError(String(reason));
-      setInstallPhase("idle");
-    }
-  };
-
   const done = installPhase === "done";
   const launchable = isLaunchable(item.packageName);
   const removable = catalogByPackage[item.packageName]?.removable ?? false;
@@ -1097,6 +1081,7 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
   }
   else if (installRunning) { actionLabel = installPhase === "planning" ? "准备中…" : installPhase === "dry-run" ? "复核中…" : "安装中…"; actionDisabled = true; onAction = () => {}; }
   else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
+  else if (installPhase === "confirming") { actionLabel = "确认更新"; actionDisabled = false; onAction = () => void install(); }
   else if (ready) { actionLabel = "更新"; actionDisabled = false; onAction = () => void install(); }
   else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
   else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
@@ -1109,7 +1094,8 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
     ? <><button className="hero-button" disabled>已排队</button><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
     : <>
         <button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>
-        {removable && !installRunning && !downloading && !queued && <button className="ghost-link" onClick={onRemove}>卸载</button>}
+        {installPhase === "confirming" && <button className="ghost-link" onClick={cancelConfirmation}>取消</button>}
+        {removable && installPhase !== "confirming" && !installRunning && !downloading && !queued && <button className="ghost-link" onClick={onRemove}>卸载</button>}
       </>;
 
   return <DetailShell
@@ -1127,18 +1113,19 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
     {error && !details && <div className="message error"><strong>无法检查 {item.displayName} 更新</strong><span>{error}</span></div>}
     {details && <div className="drawer-content">
       {(downloading || queued) && <div className="message" role="status" aria-live="polite"><strong>下载在后台队列里进行</strong><span>可以点左上角「返回」继续做别的事；下载完成后到「下载」页或回到这里点「更新」。</span></div>}
-      <div className={`trust-banner ${details.trusted ? "trusted" : "needsReview"}`}><Icon name="shield"/><div><strong>{details.trusted ? `来源验证通过 · ${sourceText[details.sourceKind] ?? details.sourceKind}` : "来源需要复核"}</strong><span>{isWebsite ? "官网、下载域名、Debian 包名和架构均符合软件源策略" : "包名、架构和官方仓库均符合软件源策略"}</span></div></div>
+      <div className={`trust-banner ${details.trusted ? "trusted" : "needsReview"}`}><Icon name="shield"/><div><strong>{details.trusted ? `来源验证通过 · ${sourceText[details.sourceKind] ?? details.sourceKind}` : "来源需要复核"}</strong><span>{isArchive ? "官方签名软件源、下载域名和应用架构均符合软件源策略" : isWebsite ? "官网、下载域名、Debian 包名和架构均符合软件源策略" : "包名、架构和官方仓库均符合软件源策略"}</span></div></div>
       <WhatsNew version={details.candidateVersion ?? downloadPlan?.version ?? null} seconds={details.versionUpdatedAtUnixSeconds} notes={details.releaseNotes} url={details.releaseNotesUrl}/>
-      {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
+      {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>{isArchive ? "大小、SHA-256、归档路径、版本和程序架构均通过" : "大小、SHA-256、包名、版本和架构均通过"}；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
       {downloadError && <div className="inline-error">{downloadError}</div>}
       {error && details && !downloadError && <div className="inline-error">{error}</div>}
 
-      <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null}>
+      <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null || archivePlan !== null}>
         <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 更新计划</span></summary>
-        <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div>{details.websiteVersion && <p className="version-source-note">官网/发布标签展示 {details.websiteVersion}；UManager 通过 HTTP Range 读取 `.deb` 控制信息，获得用于比较的完整版本。</p>}</section>
+        <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{done ? archivePlan?.payload.version ?? installed?.targetVersion ?? details.installedVersion : details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div>{details.websiteVersion && <p className="version-source-note">{isArchive ? `官网展示 ${details.websiteVersion}；下载后核对应用内版本和程序架构。` : `官网/发布标签展示 ${details.websiteVersion}；UManager 通过 HTTP Range 读取 .deb 控制信息，获得用于比较的完整版本。`}</p>}</section>
         <InfoPanel homepage={item.homepage} entries={[
           { label: "开发者", value: details.vendor },
           { label: "软件包", value: details.packageName, mono: true },
+          ...(isArchive ? [{ label: "安装方式", value: "当前用户 · tar.gz" }] : []),
           { label: "架构", value: details.architecture, mono: true },
           { label: "下载大小", value: downloadPlan ? formatBytes(downloadPlan.expectedSize) : details.expectedSize != null ? formatBytes(details.expectedSize) : "—" },
           { label: "SHA-256", value: downloadPlan?.expectedSha256 ?? details.sha256 ?? "—", mono: true },
@@ -1147,10 +1134,11 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
         <section className="detail-section"><h3>官方证据</h3><div className="evidence-list">{details.evidence.map((entry) => <div key={entry.label}><span className={entry.passed ? "check passed" : "check failed"}>{entry.passed ? "✓" : "!"}</span><div><strong>{entry.label}</strong><code>{entry.actual}</code></div></div>)}</div></section>
         <section className="detail-section download-section"><h3>官方安装包</h3>
           {downloadPlan && <DownloadCard plan={downloadPlan}/>}
-          <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。</p>
+          <p className="download-safety">{isArchive ? "安装到当前用户目录，无需管理员权限。下载完成后核对安装计划，再确认执行。" : "下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。"}</p>
         </section>
-        {downloadResult?.verified && <section className="detail-section final-plan-section"><h3>最终更新计划</h3>
-          <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isSelfUpdate ? "install-umanager" : isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{item.packageName} · {item.architecture}</dd></div><div><dt>版本</dt><dd>{item.installedVersion} → {downloadResult.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult.actualSha256}>{downloadResult.actualSha256}</dd></div></dl></div>
+        {(downloadResult?.verified || archivePlan !== null) && <section className="detail-section final-plan-section"><h3>最终更新计划</h3>
+          <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isArchive ? "安装到当前用户目录" : isSelfUpdate ? "install-umanager" : isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{item.packageName} · {item.architecture}</dd></div><div><dt>版本</dt><dd>{item.installedVersion} → {downloadResult?.version ?? archivePlan?.payload.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult?.actualSha256 ?? archivePlan?.payload.sha256}>{downloadResult?.actualSha256 ?? archivePlan?.payload.sha256}</dd></div></dl></div>
+          <ArchiveInstallDetails plan={archivePlan} message={archiveInstalled}/>
           {operationPlan && <div className="immutable-plan"><strong>更新计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
           {operationPlan && <DependencyGapWarning gap={operationPlan.missingDependencies}/>}
           {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已重新核对来源、版本、架构和缓存中的安装包，本次未修改系统。</span></div>}
@@ -1283,13 +1271,9 @@ type VariantSwitchPrompt = { label: string; targetLabel: string; onSwitch: () =>
 
 function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, onCancelDownload, onDismissDownload, onClose, onInstalled, onLaunch }: { offer: InstallableApplication; job: DownloadJob | undefined; variantPicker?: ReactNode; variantSwitch?: VariantSwitchPrompt | null; onEnqueue: () => void; onCancelDownload: () => void; onDismissDownload: () => void; onClose: () => void; onInstalled: () => void; onLaunch: () => void }) {
   const downloadPlan = offer.downloadPlan;
+  const isArchive = catalogByPackage[offer.packageName]?.source.kind === "tarGz";
   const isWebsite = offer.sourceKind === "officialWebsite";
-  const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
-  const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
-  const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
-  const [installPhase, setInstallPhase] = useState<"idle" | "planning" | "dry-run" | "installing" | "done">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [progressEvents, setProgressEvents] = useState<OperationProgressEvent[]>([]);
+  const { operationPlan, archivePlan, dryRun, installed, archiveInstalled, installPhase, error, setError, progressEvents, install, cancelConfirmation } = useSoftwareInstall(offer.applicationId, isArchive, onInstalled, onDismissDownload);
 
   const downloadStatus = job?.status;
   const downloading = downloadStatus === "downloading" || downloadStatus === "verifying";
@@ -1299,27 +1283,6 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
   const downloadError = job !== undefined && job.status === "error" ? job.error : null;
   const installRunning = installPhase === "planning" || installPhase === "dry-run" || installPhase === "installing";
 
-  const install = async () => {
-    setError(null);
-    try {
-      setInstallPhase("planning");
-      const plan = await createOperationPlan(offer.applicationId);
-      setOperationPlan(plan);
-      setInstallPhase("dry-run");
-      const dry = await runOperationDryRun(plan.plan.planId);
-      setDryRun(dry);
-      setInstallPhase("installing");
-      const report = await installPackage(plan.plan.planId, (event) => appendProgress(setProgressEvents, event));
-      setInstalled(report);
-      onInstalled();
-      onDismissDownload();
-      setInstallPhase("done");
-    } catch (reason) {
-      setError(String(reason));
-      setInstallPhase("idle");
-    }
-  };
-
   const done = installPhase === "done";
   const launchable = isLaunchable(offer.packageName);
   let actionLabel: string;
@@ -1328,6 +1291,7 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
   if (done) { actionLabel = "打开"; actionDisabled = !launchable; onAction = onLaunch; }
   else if (installRunning) { actionLabel = installPhase === "planning" ? "准备中…" : installPhase === "dry-run" ? "复核中…" : "安装中…"; actionDisabled = true; onAction = () => {}; }
   else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
+  else if (installPhase === "confirming") { actionLabel = "确认安装"; actionDisabled = false; onAction = () => void install(); }
   else if (ready) { actionLabel = "安装"; actionDisabled = false; onAction = () => void install(); }
   else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
   else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
@@ -1345,7 +1309,7 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
     ? <><HeroDownloadProgress progress={job.progress}/><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
     : queued
     ? <><button className="hero-button" disabled>已排队</button><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
-    : <button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>;
+    : <><button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>{installPhase === "confirming" && <button className="ghost-link" onClick={cancelConfirmation}>取消</button>}</>;
 
   return <DetailShell
     label={`安装 ${offer.displayName}`}
@@ -1367,16 +1331,17 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
         <button className="secondary-button" onClick={variantSwitch.onSwitch}>先卸载{variantSwitch.label}</button>
       </div>}
       <WhatsNew version={offer.candidateVersion ?? null} seconds={offer.versionUpdatedAtUnixSeconds} notes={offer.releaseNotes} url={offer.releaseNotesUrl}/>
-      {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>大小、SHA-256、包名、版本和架构均通过；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
+      {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>{isArchive ? "大小、SHA-256、归档路径、版本和程序架构均通过" : "大小、SHA-256、包名、版本和架构均通过"}；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
       {downloadError && <div className="inline-error">{downloadError}</div>}
       {error && !downloadError && <div className="inline-error">{error}</div>}
 
-      <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null}>
+      <details className="tech-disclosure" open={downloading || ready || installRunning || installed !== null || archivePlan !== null}>
         <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 安装计划</span></summary>
-        <section className="detail-section"><h3>安装版本</h3><div className="version-pair"><div><span>当前状态</span><strong>未安装</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div></section>
+        <section className="detail-section"><h3>安装版本</h3><div className="version-pair"><div><span>当前状态</span><strong>{done ? "已安装" : "未安装"}</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div></section>
         <InfoPanel homepage={offer.homepage} entries={[
           { label: "开发者", value: offer.vendor },
           { label: "软件包", value: offer.packageName, mono: true },
+          ...(isArchive ? [{ label: "安装方式", value: "当前用户 · tar.gz" }] : []),
           { label: "架构", value: offer.architecture, mono: true },
           { label: "下载大小", value: downloadPlan ? formatBytes(downloadPlan.expectedSize) : "—" },
           { label: "SHA-256", value: downloadPlan?.expectedSha256 ?? "—", mono: true },
@@ -1384,10 +1349,11 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
         <section className="detail-section"><h3>安装来源</h3><div className="path-card"><div><span className={`source-dot ${offer.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${offer.vendor} 官方 APT 仓库`}</strong></div><code title={downloadPlan?.downloadUrl}>{downloadPlan?.downloadUrl}</code><p>{isWebsite ? "下载地址与所有 HTTPS 重定向都不能离开允许域名。" : "安装包路径和所有 HTTPS 重定向都不能离开允许域名。"}</p></div></section>
         <section className="detail-section download-section"><h3>官方安装包</h3>
           {downloadPlan && <DownloadCard plan={downloadPlan}/>}
-          <p className="download-safety">下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。</p>
+          <p className="download-safety">{isArchive ? "安装到当前用户目录，无需管理员权限。下载完成后核对安装计划，再确认执行。" : "下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。"}</p>
         </section>
-        {downloadResult?.verified && <section className="detail-section final-plan-section"><h3>最终安装计划</h3>
-          <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{offer.packageName} · {offer.architecture}</dd></div><div><dt>版本</dt><dd>未安装 → {downloadResult.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult.actualSha256}>{downloadResult.actualSha256}</dd></div></dl></div>
+        {(downloadResult?.verified || archivePlan !== null) && <section className="detail-section final-plan-section"><h3>最终安装计划</h3>
+          <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isArchive ? "安装到当前用户目录" : isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{offer.packageName} · {offer.architecture}</dd></div><div><dt>版本</dt><dd>未安装 → {downloadResult?.version ?? archivePlan?.payload.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult?.actualSha256 ?? archivePlan?.payload.sha256}>{downloadResult?.actualSha256 ?? archivePlan?.payload.sha256}</dd></div></dl></div>
+          <ArchiveInstallDetails plan={archivePlan} message={archiveInstalled}/>
           {operationPlan && <div className="immutable-plan"><strong>安装计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>installedVersion：{operationPlan.plan.payload.installedVersion ?? "null（未安装）"}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
           {operationPlan && <DependencyGapWarning gap={operationPlan.missingDependencies}/>}
           {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已确认软件仍未安装，并重新核对来源、缓存文件与安装包元数据。</span></div>}
@@ -1914,7 +1880,7 @@ function DownloadsPage({ jobs, installedOf, onOpen, onRetry, onCancel, onRemove 
       {ordered.length === 0
         ? <div className="dev-empty">下载队列为空。在「软件」或「更新」页点「获取 / 更新」后，安装包会排到这里下载。</div>
         : <ul className="download-queue-list">{ordered.map((job) => <DownloadQueueRow key={job.jobId} job={job} position={queuedPosition(jobs, job)} installed={installedOf(job.packageName)} onOpen={onOpen} onRetry={onRetry} onCancel={onCancel} onRemove={onRemove}/>)}</ul>}
-      <p className="download-queue-hint">下载只写入缓存、不请求系统授权；点「安装 / 更新」才会锁定不可变计划并弹出一次管理员授权。并发数在「设置 → 下载」里调整。</p>
+      <p className="download-queue-hint">下载只写入缓存；点「安装 / 更新」后核对并确认安装计划。系统级 .deb 安装需要管理员授权，用户目录安装无需授权。并发数在「设置 → 下载」里调整。</p>
     </section>
   </main>;
 }
@@ -2282,7 +2248,7 @@ export default function App() {
       const previous = before.get(job.jobId);
       if (job.status !== "ready" || previous === undefined || previous === "ready") continue;
       if (document.hasFocus()) continue;
-      void notifyDownloadComplete(`${job.displayName} 下载完成`, "安装包已通过校验，回到 UManager 继续安装或更新（需系统授权）。").catch(() => { /* 通知失败不影响流程 */ });
+      void notifyDownloadComplete(`${job.displayName} 下载完成`, catalogByPackage[job.packageName]?.source.kind === "tarGz" ? "安装包已通过校验，回到 UManager 确认安装或更新到当前用户目录。" : "安装包已通过校验，回到 UManager 继续安装或更新（需系统授权）。").catch(() => { /* 通知失败不影响流程 */ });
     }
     downloadJobsRef.current = jobs;
     setDownloadJobs(jobs);
@@ -2521,11 +2487,11 @@ export default function App() {
       </section>
     </main> : page === "tasks" ? <TasksPage snapshot={batchTasks.snapshot} error={batchTasks.error} jobs={downloadJobs} onSnapshot={batchTasks.apply} onRefresh={() => void batchTasks.refresh()} onRetry={(batch) => void openBatchPicker(batch)} onDownloads={showDownloadsPage}/> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "firmware" ? <FirmwarePage/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {batchPicker && <BatchUpdatePicker candidates={batchPicker.candidates} skipped={batchPicker.skipped} onClose={() => setBatchPicker(null)} onStarted={(snapshot) => { batchTasks.apply(snapshot); setBatchPicker(null); setPage("tasks"); }}/> }
-    {updatePackage && catalogByPackage[updatePackage.packageName]?.source.kind === "tarGz" ? <ArchiveDrawer application={catalogByPackage[updatePackage.packageName]} installedVersion={updatePackage.installedVersion} job={jobOf(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onChanged={() => { void refresh(); void refreshInstallable(); }} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)}/> : updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
+    {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(result?.packages.find((pkg) => pkg.packageName === updatePackage.packageName) ?? updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
-    {removalPackage && catalogByPackage[removalPackage.packageName]?.source.kind === "tarGz" ? <ArchiveDrawer application={catalogByPackage[removalPackage.packageName]} installedVersion={removalPackage.installedVersion} remove job={jobOf(removalPackage.packageName)} onClose={() => setRemovalPackage(null)} onChanged={() => { setRemovalPackage(null); void refresh(); void refreshInstallable(); }} onEnqueue={() => {}} onCancelDownload={() => {}} onDismissDownload={() => dismissPackageJob(removalPackage.packageName)}/> : removalPackage && <RemovalDialog item={removalPackage} onClose={() => { setRemovalPackage(null); setVariantSwitchTarget(null); }} onRemoved={() => { void refresh(); if (variantSwitchTarget) finishVariantSwitch(); }}/>}
+    {removalPackage && catalogByPackage[removalPackage.packageName]?.source.kind === "tarGz" ? <ArchiveRemovalDialog application={catalogByPackage[removalPackage.packageName]} installedVersion={removalPackage.installedVersion} onClose={() => setRemovalPackage(null)} onChanged={() => { setRemovalPackage(null); void refresh(); void refreshInstallable(); }}/> : removalPackage && <RemovalDialog item={removalPackage} onClose={() => { setRemovalPackage(null); setVariantSwitchTarget(null); }} onRemoved={() => { void refresh(); if (variantSwitchTarget) finishVariantSwitch(); }}/>}
     {installOffer && (
-      catalogByPackage[installOffer.packageName]?.source.kind === "tarGz" ? <ArchiveDrawer application={catalogByPackage[installOffer.packageName]} installedVersion={null} job={jobOf(installOffer.packageName)} onClose={() => setInstallOffer(null)} onChanged={() => { void refresh(); void refreshInstallable(); }} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)}/> : <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} variantPicker={variantPicker} variantSwitch={variantSwitch} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
+      <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} variantPicker={variantPicker} variantSwitch={variantSwitch} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
     )}
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>

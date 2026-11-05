@@ -170,6 +170,6 @@ xvfb-run -a env WINEDLLOVERRIDES=winemenubuilder.exe=d \
 
 Google Antigravity 使用官网新版 Linux x64 tar.gz（Antigravity App），不使用已停止更新的 1.x APT 仓库。后台下载队列校验签名 feed 中的地址、大小与 SHA-256，再检查归档路径、程序 ELF 架构与应用版本。
 
-在详情中点击「获取」下载，完成后「准备安装计划」，核对目录和版本，再点击「确认安装」。安装在 `~/.local/share/umanager/apps/antigravity/`，桌面启动项位于 `~/.local/share/applications/umanager-antigravity.desktop`。全程以普通用户执行，无需 Polkit，不运行归档内的安装脚本。更新、启动和卸载也在软件商店管理；旧版本保留到卸载，以免影响正在运行的程序，卸载保留应用个人数据。
+tar.gz 与 `.deb` 共用软件详情页、下载进度与安装入口。在详情中点击「获取」下载，完成后点击「安装」复核并锁定计划，核对目录和版本，再点击「确认安装」。安装在 `~/.local/share/umanager/apps/antigravity/`，桌面启动项位于 `~/.local/share/applications/umanager-antigravity.desktop`。全程以普通用户执行，无需 Polkit，不运行归档内的安装脚本。更新、启动和卸载也在软件商店管理；旧版本保留到卸载，以免影响正在运行的程序，卸载保留应用个人数据。
 
 此能力需要包含 `tarGz` 支持的新版 UManager，并等待 CI 发布新版签名 feed；旧客户端会把该来源识别为不支持。它不参与 `.deb` 批量更新，也不接管自行解压或旧 APT 安装的 Antigravity。官方应用自身的系统依赖与 Electron 沙箱要求仍需满足，UManager 不关闭沙箱或更改系统安全策略。

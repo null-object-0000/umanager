@@ -330,3 +330,5 @@ LLM 是**用户自带的可选服务**，不参与任何 feed 信任判断，只
 `user_archive.rs` 使用独立 `ArchivePlan` 格式（schemaVersion 1，不改变 feed/DEB plan v2），ID 为 payload SHA-256，0600 写入后只读、用户归属校验、15 分钟有效。准备阶段复核已下载文件，用户核对并再次点击确认后，执行阶段重查当前签名目录、feed、原安装版本/摘要及缓存；复制至 staging 后再验 SHA-256，解压完成才切换桌面入口与安装记录。安装到 `~/.local/share/umanager/apps/<applicationId>/<sha256>/`，通过 `installed.json` 识别；旧版本保留供仍在运行的进程使用。卸载只移除该专用程序目录和 UManager 桌面入口，个人数据保留。
 
 整个生命周期无特权，复用应用内 `MUTATION_LOCK` 防并发变更；DEB 计划入口和 helper 均排除 `TarGz`，批量 DEB 更新也排除它。旧客户端将新 source kind 解析为 Unknown 并拒绝自动安装。
+
+软件 UI 使用同一 `InstallDrawer` / `UpdateDrawer` 与 `useSoftwareInstall` 生命周期；不按来源格式另开简化详情弹窗。获取、后台下载进度、版本/来源/校验证据、已安装管理均共用，tar.gz 只在执行后端、用户目录安装说明和锁定计划的再次确认上区分。卸载保留与 DEB 相同的确认对话框结构。
