@@ -75,7 +75,7 @@ fn managed_applications(catalog: &Catalog) -> Vec<ManagedApplication> {
     catalog
         .applications
         .iter()
-        .filter(|application| application.removable)
+        .filter(|application| application.removable && !application.is_user_archive())
         .map(|application| ManagedApplication {
             application_id: application.application_id.clone(),
             package_name: application.package_name.clone(),
@@ -88,7 +88,7 @@ fn website_applications(catalog: &Catalog) -> Vec<WebsiteApplication> {
     catalog
         .applications
         .iter()
-        .filter(|application| application.is_auto_installable())
+        .filter(|application| application.is_auto_installable() && !application.is_user_archive())
         .map(|application| WebsiteApplication {
             application_id: application.application_id.clone(),
             package_name: application.package_name.clone(),

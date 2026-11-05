@@ -1,3 +1,4 @@
+mod user_archive;
 mod zip_deb;
 mod background;
 mod batch_tasks;
@@ -836,6 +837,8 @@ pub fn run() {
             create_operation_plan,
             run_operation_dry_run,
             install_package,
+            user_archive::prepare_archive_operation,
+            user_archive::execute_archive_operation,
             get_installable_applications,
             get_pending_local_deb,
             import_pending_local_deb,

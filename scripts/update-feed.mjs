@@ -42,6 +42,7 @@
 //   categoryAssignments: { applications: { [applicationId]: categoryId },
 //                          developmentTools: { [toolId]: categoryId } }
 
+import { tarEntry } from "./tar-source.mjs";
 import { fetchZipArtifact } from "./zip-artifact.mjs";
 import { windowsEntry } from "./windows-feed.mjs";
 import { desktopIconPaths } from "./desktop-icons.mjs";
@@ -1694,7 +1695,10 @@ async function scrapeAppEntry(app, releaseNotesOverrides, previousFeed = null) {
   const kind = app.source?.kind;
   const previousEntry = previousFeed?.applications?.[app.applicationId] ?? null;
   let entry = null;
-  if (kind === "zipDeb") {
+  if (kind === "tarGz") {
+    try { entry = await tarEntry(app, previousEntry); }
+    catch (error) { fail(app.applicationId, `读取官方 tar.gz 失败：${error.message}`); }
+  } else if (kind === "zipDeb") {
     entry = await zipDebEntry(app, app.source, previousEntry);
   } else if (kind === "aptRepository") {
     entry = await aptEntry(app);
@@ -1788,6 +1792,8 @@ async function buildCatalogRecords({ extraApps, applications, previousFeed, icon
   const previousCatalogMap = parseCatalogApplications(previousFeed?.catalogJson);
   for (const app of extraApps) {
     const record = records[app.applicationId];
+    // tar.gz apps install their official archive icon locally; never pass a tar to dpkg-deb.
+    if (app.source?.kind === "tarGz") continue;
     const entry = applications[app.applicationId];
     if (!entry?.downloadUrl) {
       log(`  icon: ${app.applicationId} — 无下载地址，跳过`);

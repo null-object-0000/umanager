@@ -16,6 +16,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import { useModalFocus } from "./useModalFocus";
+import antigravityIcon from "./assets/app-icons/antigravity.png";
+import { ArchiveDrawer } from "./ArchiveDrawer";
 import { scanRemovalCleanup, cancelDownload, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getDevReleases, getNodeGlobalPackages, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSoftwareCatalog, getWindowsState, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listScripts, notifyDownloadComplete, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, NodeGlobalPackages, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { aiButtonLabel, aiMode, canRegenerate, formatCachedOrigin, regenerateButtonLabel, shouldWarnMissingSummary } from "./changelogTranslation";
@@ -53,7 +56,7 @@ import umanagerLogo from "./assets/umanager-logo.png";
 type Filter = "all" | "installed" | "updates" | "installable";
 type Page = "tasks" | "firmware" | "installed" | "updates" | "downloads" | "dev" | "scripts" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
+const iconAssets: Record<string, string> = { antigravity: antigravityIcon, vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 
@@ -190,49 +193,6 @@ function SortPopUp({ value, onChange }: { value: SortMode; onChange: (mode: Sort
   </div>;
 }
 
-function useModalFocus<T extends HTMLElement>(onClose: () => void, canClose: boolean) {
-  const ref = useRef<T | null>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const canCloseRef = useRef(canClose);
-  canCloseRef.current = canClose;
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const focusables = () => Array.from(node.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    )).filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true");
-    (focusables()[0] ?? node).focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (canCloseRef.current) onCloseRef.current();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const list = focusables();
-      if (list.length === 0) { event.preventDefault(); return; }
-      const first = list[0];
-      const last = list[list.length - 1];
-      const active = document.activeElement;
-      if (event.shiftKey && (active === first || active === node)) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    node.addEventListener("keydown", onKeyDown);
-    return () => {
-      node.removeEventListener("keydown", onKeyDown);
-      previouslyFocused?.focus?.();
-    };
-  }, []);
-  return ref;
-}
 
 function DetailShell({ label, icon, title, subtitle, description, action, canClose, onClose, children }: {
   label: string;
@@ -406,7 +366,7 @@ function DevToolLogo({ tool }: { tool: DevTool }) {
 function isAutoInstallable(packageName: string) {
   const entry = catalogByPackage[packageName];
   if (!entry) return false;
-  return ["aptRepository", "stableDownloadEndpoint", "releaseApi", "versionEndpoint", "zipDeb"].includes(entry.source.kind);
+  return ["aptRepository", "stableDownloadEndpoint", "releaseApi", "versionEndpoint", "zipDeb", "tarGz"].includes(entry.source.kind);
 }
 
 // 只有带 .desktop 启动项的图形应用才提供「打开」；CLI 工具（category === "cli"）没有可启动入口。
@@ -2561,11 +2521,11 @@ export default function App() {
       </section>
     </main> : page === "tasks" ? <TasksPage snapshot={batchTasks.snapshot} error={batchTasks.error} jobs={downloadJobs} onSnapshot={batchTasks.apply} onRefresh={() => void batchTasks.refresh()} onRetry={(batch) => void openBatchPicker(batch)} onDownloads={showDownloadsPage}/> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "firmware" ? <FirmwarePage/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {batchPicker && <BatchUpdatePicker candidates={batchPicker.candidates} skipped={batchPicker.skipped} onClose={() => setBatchPicker(null)} onStarted={(snapshot) => { batchTasks.apply(snapshot); setBatchPicker(null); setPage("tasks"); }}/> }
-    {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
+    {updatePackage && catalogByPackage[updatePackage.packageName]?.source.kind === "tarGz" ? <ArchiveDrawer application={catalogByPackage[updatePackage.packageName]} installedVersion={updatePackage.installedVersion} job={jobOf(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onChanged={() => { void refresh(); void refreshInstallable(); }} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)}/> : updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
-    {removalPackage && <RemovalDialog item={removalPackage} onClose={() => { setRemovalPackage(null); setVariantSwitchTarget(null); }} onRemoved={() => { void refresh(); if (variantSwitchTarget) finishVariantSwitch(); }}/>}
+    {removalPackage && catalogByPackage[removalPackage.packageName]?.source.kind === "tarGz" ? <ArchiveDrawer application={catalogByPackage[removalPackage.packageName]} installedVersion={removalPackage.installedVersion} remove job={jobOf(removalPackage.packageName)} onClose={() => setRemovalPackage(null)} onChanged={() => { setRemovalPackage(null); void refresh(); void refreshInstallable(); }} onEnqueue={() => {}} onCancelDownload={() => {}} onDismissDownload={() => dismissPackageJob(removalPackage.packageName)}/> : removalPackage && <RemovalDialog item={removalPackage} onClose={() => { setRemovalPackage(null); setVariantSwitchTarget(null); }} onRemoved={() => { void refresh(); if (variantSwitchTarget) finishVariantSwitch(); }}/>}
     {installOffer && (
-      <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} variantPicker={variantPicker} variantSwitch={variantSwitch} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
+      catalogByPackage[installOffer.packageName]?.source.kind === "tarGz" ? <ArchiveDrawer application={catalogByPackage[installOffer.packageName]} installedVersion={null} job={jobOf(installOffer.packageName)} onClose={() => setInstallOffer(null)} onChanged={() => { void refresh(); void refreshInstallable(); }} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)}/> : <InstallDrawer offer={installOffer} job={jobOf(installOffer.packageName)} variantPicker={variantPicker} variantSwitch={variantSwitch} onEnqueue={() => enqueuePackage(installOffer.packageName, installOffer.applicationId, installOffer.candidateVersion)} onCancelDownload={() => cancelPackageJob(installOffer.packageName)} onDismissDownload={() => dismissPackageJob(installOffer.packageName)} onClose={() => setInstallOffer(null)} onInstalled={() => { void refresh(); void refreshInstallable(); }} onLaunch={() => launchApp(installOffer.packageName)}/>
     )}
     {selectedDevTool && (
       <DevToolDrawer tool={selectedDevTool} onClose={() => setSelectedDevTool(null)} onChanged={() => void loadDevTools()}/>

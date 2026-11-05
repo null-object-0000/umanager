@@ -16,6 +16,10 @@ const DPKG_QUERY_BIN: &str = "/usr/bin/dpkg-query";
 /// The package name originates from the signed catalog (resolved by
 /// `application_id` in the command layer), not from free-form user input.
 pub fn launch(app: &Application) -> Result<(), String> {
+    if app.is_user_archive() {
+        let path = crate::user_archive::desktop_path(app)?;
+        return launch_desktop_file(&path.to_string_lossy(), &app.display_name);
+    }
     let listing = list_package_files(&app.package_name)?;
     let desktop = select_desktop_file(&listing)
         .ok_or_else(|| format!("{} 未提供可启动的 .desktop 启动项", app.display_name))?;

@@ -320,3 +320,13 @@ LLM 是**用户自带的可选服务**，不参与任何 feed 信任判断，只
 主程序仍只通过后台队列下载，逐次校验 HTTPS 与允许域名，先核对 ZIP 大小和 SHA-256，再在用户权限下限量流式提取到固定临时路径。缓存只保留已按大小、SHA-256、包名、版本、架构复核的 DEB，特权 helper 不接触 ZIP。取消或失败清理两层临时文件。
 
 这是 feed v2 / v3 的兼容字段扩展，操作计划仍为 v2，特权授权链不变。旧目录解析器将 `zipDeb` 反序列化为 `Unknown`，不允许自动安装；新主程序必须搭配新版 helper 才能授权该源。
+
+## 用户目录 tar.gz 桌面应用
+
+`SourceSpec::TarGz` 由签名 catalog 配置官方页面、精确域名白名单、版本化链接前后缀、归档内主程序与图标路径。CI 的 `scripts/tar-source.mjs` 从官方 HTML 选择唯一的架构/产品下载链接，对重定向逐跳核对 HTTPS 与精确域名，流式限制大小后计算 SHA-256；相同版本化链接可复用上次签名 feed 元数据。App 仍只消费签名 feed，不抓取官网。
+
+下载复用 `download_queue` → `source_engine::download_and_verify`。tar.gz 的包名是目录中的应用标识（Antigravity App 使用 `antigravity-app`，避免与旧 APT `antigravity` 混淆），格式验证改为归档结构、`resources/app/package.json`（或只读解析 `resources/app.asar` 内的 `package.json`）版本与主程序 ELF 架构。解压限制 4 GiB / 100000 项，拒绝路径穿越、绝对路径、重复成员、硬链接、设备/FIFO、绝对或含 `..` 目标的符号链接与通过链接父目录写入；清除 setuid/setgid 位，不执行安装脚本。
+
+`user_archive.rs` 使用独立 `ArchivePlan` 格式（schemaVersion 1，不改变 feed/DEB plan v2），ID 为 payload SHA-256，0600 写入后只读、用户归属校验、15 分钟有效。准备阶段复核已下载文件，用户核对并再次点击确认后，执行阶段重查当前签名目录、feed、原安装版本/摘要及缓存；复制至 staging 后再验 SHA-256，解压完成才切换桌面入口与安装记录。安装到 `~/.local/share/umanager/apps/<applicationId>/<sha256>/`，通过 `installed.json` 识别；旧版本保留供仍在运行的进程使用。卸载只移除该专用程序目录和 UManager 桌面入口，个人数据保留。
+
+整个生命周期无特权，复用应用内 `MUTATION_LOCK` 防并发变更；DEB 计划入口和 helper 均排除 `TarGz`，批量 DEB 更新也排除它。旧客户端将新 source kind 解析为 Unknown 并拒绝自动安装。

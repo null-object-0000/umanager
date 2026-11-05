@@ -25,7 +25,7 @@ export interface ScanResult {
 }
 
 export interface CatalogSource {
-  kind: "aptRepository" | "stableDownloadEndpoint" | "releaseApi" | "browserImport" | "versionEndpoint" | "zipDeb";
+  kind: "aptRepository" | "stableDownloadEndpoint" | "releaseApi" | "browserImport" | "versionEndpoint" | "zipDeb" | "tarGz";
   [key: string]: unknown;
 }
 
@@ -683,3 +683,17 @@ export interface BatchTask {
   reviewId: string | null;
 }
 export interface BatchSnapshot { revision: number; batches: BatchTask[]; storageError?: string | null }
+
+export interface ArchivePlan {
+  planId: string;
+  installPath: string;
+  payload: {
+    schemaVersion: number;
+    applicationId: string;
+    remove: boolean;
+    version: string;
+    sha256: string;
+    installedVersion: string | null;
+    expiresAtUnixSeconds: number;
+  };
+}

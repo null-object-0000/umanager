@@ -335,7 +335,7 @@ fn feed_details(
                 passed: true,
             },
             Evidence {
-                label: "Debian 软件包名".to_owned(),
+                label: if app.is_user_archive() { "应用标识" } else { "Debian 软件包名" }.to_owned(),
                 actual: entry.package_name.clone(),
                 expected: app.package_name.clone(),
                 passed: entry.package_name == app.package_name,
@@ -363,7 +363,8 @@ fn feed_plan(
         SourceKind::OfficialWebsite
     };
     let version_hash = format!("{:x}", Sha256::digest(entry.version.as_bytes()));
-    let file_name = format!("{}-{}.deb", entry.package_name, &version_hash[..16]);
+    let extension = if app.is_user_archive() { "tar.gz" } else { "deb" };
+    let file_name = format!("{}-{}.{extension}", entry.package_name, &version_hash[..16]);
     let target_path = cache_dir
         .join("downloads")
         .join(&file_name)
@@ -429,6 +430,9 @@ fn validate_feed_entry_for_app(
             "元数据源中 {} 的包名或架构与软件源不一致",
             app.display_name
         ));
+    }
+    if app.is_user_archive() && (entry.size == 0 || entry.size > 1024 * 1024 * 1024 || !crate::zip_deb::valid_digest(&entry.sha256)) {
+        return Err("tar.gz 签名元数据无效".into());
     }
     match (&app.source, &entry.archive) {
         (SourceSpec::ZipDeb { .. }, Some(archive)) => {
@@ -767,7 +771,7 @@ async fn download_plan_file(
         return result;
     }
     let (size, sha256) = download_blob_file(app, plan, path, progress, cancel).await?;
-    let metadata = inspect_deb(path).await?;
+    let metadata = inspect_artifact(app, plan, path, cancel).await?;
     validate_downloaded_metadata(plan, &metadata)?;
     Ok((size, sha256, metadata))
 }
@@ -871,7 +875,7 @@ async fn download_blob_file(
 }
 
 async fn verify_plan_file(
-    _app: &Application,
+    app: &Application,
     plan: &DownloadPlan,
     path: &Path,
     progress: Option<&ProgressCallback>,
@@ -916,7 +920,7 @@ async fn verify_plan_file(
     if !sha256.eq_ignore_ascii_case(expected) {
         return Err("缓存安装包 SHA-256 与元数据源记录不一致".to_owned());
     }
-    let metadata = inspect_deb(path).await?;
+    let metadata = inspect_artifact(app, plan, path, cancel).await?;
     validate_downloaded_metadata(plan, &metadata)?;
     Ok((size, sha256, metadata))
 }
@@ -929,6 +933,19 @@ fn validate_downloaded_metadata(plan: &DownloadPlan, metadata: &DebMetadata) -> 
         return Err("安装包 .deb 元数据与下载计划不一致".to_owned());
     }
     Ok(())
+}
+
+async fn inspect_artifact(app: &Application, plan: &DownloadPlan, path: &Path, cancel: &CancelCheck) -> Result<DebMetadata, String> {
+    if app.is_user_archive() {
+        let app = app.clone();
+        let path = path.to_owned();
+        let version = plan.version.clone();
+        let canceled = cancel.clone();
+        tokio::task::spawn_blocking(move || crate::user_archive::validate_archive_cancellable(&app, &path, &version, &canceled))
+            .await.map_err(|e| format!("归档校验任务失败：{e}"))??;
+        return Ok(DebMetadata { package: plan.package_name.clone(), version: plan.version.clone(), architecture: plan.architecture.clone() });
+    }
+    inspect_deb(path).await
 }
 
 async fn inspect_deb(path: &Path) -> Result<DebMetadata, String> {
@@ -969,6 +986,7 @@ fn read_deb_field(path: &Path, field: &str) -> Result<String, String> {
 // ---------------------------------------------------------------------------
 
 fn installed_package_version_optional(app: &Application) -> Result<Option<String>, String> {
+    if app.is_user_archive() { return crate::user_archive::installed_version(app); }
     let output = clean_command(DPKG_QUERY_BIN)
         .args([
             "-W",

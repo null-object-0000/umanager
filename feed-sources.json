@@ -13,6 +13,32 @@
   },
   "applications": [
     {
+      "applicationId": "antigravity",
+      "packageName": "antigravity-app",
+      "displayName": "Google Antigravity",
+      "vendor": "Google",
+      "architecture": "amd64",
+      "description": "Google 官方 AI 智能体桌面应用，集中启动、监控与协调编程智能体。使用官网新版 tar.gz，安装到当前用户目录，无需管理员权限。",
+      "homepage": "https://antigravity.google/download",
+      "icon": "antigravity",
+      "accentColor": "#4285f4",
+      "removable": true,
+      "source": {
+        "kind": "tarGz",
+        "officialPageUrl": "https://antigravity.google/download",
+        "officialPageHosts": [
+          "antigravity.google"
+        ],
+        "downloadHosts": [
+          "storage.googleapis.com"
+        ],
+        "downloadUrlPrefix": "https://storage.googleapis.com/antigravity-public/antigravity-hub/",
+        "downloadUrlSuffix": "/linux-x64/Antigravity.tar.gz",
+        "executable": "Antigravity-x64/antigravity",
+        "iconPath": "Antigravity-x64/resources/app.asar:icon.png"
+      }
+    },
+    {
       "applicationId": "wecomlite",
       "packageName": "wecomlite",
       "displayName": "企微 Lite",

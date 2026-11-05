@@ -452,7 +452,7 @@ pub async fn start_batch_update(
         let application = catalog
             .by_application_id(&id)
             .filter(|a| {
-                a.is_auto_installable() && a.application_id != crate::installation::APPLICATION_ID
+                a.is_auto_installable() && !a.is_user_archive() && a.application_id != crate::installation::APPLICATION_ID
             })
             .ok_or_else(|| format!("{id} 不支持批量更新；UManager 自更新需单独确认"))?;
         if !packages.insert(application.package_name.clone()) {

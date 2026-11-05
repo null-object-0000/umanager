@@ -35,3 +35,7 @@ transparent 256×256 mark:
 | Asset | Source | SHA-256 |
 | --- | --- | --- |
 | `hermes.png` | `https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/assets/icon.png` | `0bbeae9f5347ebaa48242fcbdf9eb456c1c71b0d6bc59ec651706fcf54ea2c68` |
+
+## Google Antigravity
+
+`antigravity.png` was copied unchanged from `icon.png` inside the official Antigravity App 2.29.0 Linux x64 archive’s `resources/app.asar` on 2026-11-05. Source: `https://antigravity.google/download`. SHA-256: `b27f0e4a6f14f491ba31bb24533a1f43c677362b12a0744a53fdd09d7c785317`.

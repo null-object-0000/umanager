@@ -72,10 +72,35 @@ pub fn scan(catalog: &Catalog) -> Result<ScanResult, String> {
         return Err(command_error("dpkg-query", &output));
     }
 
-    let installed = parse_dpkg_query(&String::from_utf8_lossy(&output.stdout));
+    let mut packages = managed_packages(catalog, &String::from_utf8_lossy(&output.stdout));
+    let mut warnings = masked_user_unit_warnings(&catalog.applications);
+    for app in catalog.applications.iter().filter(|a| a.is_user_archive()) {
+        match crate::user_archive::installed_version(app) {
+            Ok(Some(version)) => packages.push(ManagedPackage {
+                package_name: app.package_name.clone(), display_name: app.display_name.clone(),
+                vendor: app.vendor.clone(), installed_version: version, candidate_version: None,
+                architecture: app.architecture.clone(), source_kind: SourceKind::OfficialWebsite,
+                source_url: app.homepage.clone(), update_state: UpdateState::Unknown,
+                homepage: app.homepage.clone(), version_updated_at_unix_seconds: None,
+                version_updated_at_source: None,
+            }),
+            Ok(None) => {},
+            Err(e) => warnings.push(format!("{}：{e}", app.display_name)),
+        }
+    }
+    Ok(ScanResult {
+        packages,
+        scanned_at_unix_seconds: unix_timestamp_now(),
+        warnings,
+    })
+}
+
+fn managed_packages(catalog: &Catalog, output: &str) -> Vec<ManagedPackage> {
+    let installed = parse_dpkg_query(output);
     let definitions: HashMap<_, _> = catalog
         .applications
         .iter()
+        .filter(|application| !application.is_user_archive())
         .map(|application| (application.package_name.as_str(), application))
         .collect();
     let mut packages = Vec::new();
@@ -102,11 +127,7 @@ pub fn scan(catalog: &Catalog) -> Result<ScanResult, String> {
 
     packages.sort_by(|left, right| left.display_name.cmp(&right.display_name));
 
-    Ok(ScanResult {
-        packages,
-        scanned_at_unix_seconds: unix_timestamp_now(),
-        warnings: masked_user_unit_warnings(&catalog.applications),
-    })
+    packages
 }
 
 /// Reports every managed application whose own systemd user service is still

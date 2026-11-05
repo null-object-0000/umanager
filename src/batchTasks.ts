@@ -16,7 +16,7 @@ export function batchCandidates(scan: ScanResult, catalog: CatalogApplication[],
   // Use raw installed packages, preserving independently installed variants.
   return scan.packages.flatMap((pkg) => {
     const app = catalog.find((a) => a.packageName === pkg.packageName);
-    return app && app.applicationId !== "umanager" && app.source.kind !== "browserImport"
+    return app && app.applicationId !== "umanager" && app.source.kind !== "browserImport" && app.source.kind !== "tarGz"
       && pkg.updateState === "updateAvailable" && pkg.candidateVersion && (!allowed || allowed.has(app.applicationId))
       ? [{ applicationId: app.applicationId, package: pkg }] : [];
   });

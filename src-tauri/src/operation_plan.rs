@@ -67,6 +67,7 @@ pub async fn create_install_plan(
     app: &Application,
     cache_dir: PathBuf,
 ) -> Result<PlanArtifact, String> {
+    if app.is_user_archive() { return Err("用户归档应用请使用归档安装计划".into()); }
     let verified = source_engine::verify_cached(app, &cache_dir).await?;
     let missing_dependencies =
         crate::dependency_check::dependency_gap(Path::new(&verified.plan.target_path));
@@ -181,7 +182,7 @@ pub fn create_removal_plan(
 ) -> Result<RemovalPlanArtifact, String> {
     let application = catalog
         .by_package_name(package_name)
-        .filter(|item| item.removable)
+        .filter(|item| item.removable && !item.is_user_archive())
         .ok_or_else(|| "该软件包不在 UManager 卸载白名单中".to_owned())?;
     let scan = scanner::scan(catalog)?;
     let package = scan

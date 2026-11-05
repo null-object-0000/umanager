@@ -237,6 +237,20 @@ pub struct Application {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SourceSpec {
+    /// Official tar.gz desktop application installed without privileges in the
+    /// current user's UManager directory. Older clients treat this as Unknown.
+    #[serde(rename_all = "camelCase")]
+    TarGz {
+        official_page_url: String,
+        official_page_hosts: Vec<String>,
+        download_hosts: Vec<String>,
+        /// CI selects the unique link between this prefix and suffix.
+        download_url_prefix: String,
+        download_url_suffix: String,
+        /// Relative paths inside the archive, including its top-level directory.
+        executable: String,
+        icon_path: String,
+    },
     /// Official ZIP containing exactly one DEB. Older clients deserialize this
     /// as Unknown and cannot offer an unsafe direct ZIP installation.
     #[serde(rename_all = "camelCase")]
@@ -439,9 +453,14 @@ impl Application {
             SourceSpec::AptRepository { .. }
                 | SourceSpec::StableDownloadEndpoint { .. }
                 | SourceSpec::ZipDeb { .. }
+                | SourceSpec::TarGz { .. }
                 | SourceSpec::ReleaseApi { .. }
                 | SourceSpec::VersionEndpoint { .. }
         )
+    }
+
+    pub fn is_user_archive(&self) -> bool {
+        matches!(self.source, SourceSpec::TarGz { .. })
     }
 
     /// Whether the entry is downloaded straight from a vendor website rather than
@@ -451,6 +470,7 @@ impl Application {
             self.source,
             SourceSpec::StableDownloadEndpoint { .. }
                 | SourceSpec::ZipDeb { .. }
+                | SourceSpec::TarGz { .. }
                 | SourceSpec::ReleaseApi { .. }
                 | SourceSpec::VersionEndpoint { .. }
         )
@@ -482,7 +502,8 @@ impl Application {
             SourceSpec::AptRepository {
                 repository_hosts, ..
             } => repository_hosts.iter().map(String::as_str).collect(),
-            SourceSpec::ZipDeb { download_hosts, .. }
+            SourceSpec::TarGz { download_hosts, .. }
+            | SourceSpec::ZipDeb { download_hosts, .. }
             | SourceSpec::StableDownloadEndpoint { download_hosts, .. } => {
                 download_hosts.iter().map(String::as_str).collect()
             }

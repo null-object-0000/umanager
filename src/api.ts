@@ -849,3 +849,12 @@ export async function runScript(scriptId: string, actionId: string, onProgress?:
 export function stopScript(scriptId: string): Promise<boolean> {
   return invoke<boolean>("stop_script", { scriptId });
 }
+
+export async function prepareArchiveOperation(applicationId: string, remove: boolean): Promise<import("./types").ArchivePlan> {
+  if (isMock()) throw new Error("浏览器预览不执行归档安装，请在桌面应用中操作");
+  return invoke("prepare_archive_operation", { applicationId, remove });
+}
+export async function executeArchiveOperation(planId: string): Promise<string> {
+  if (isMock()) throw new Error("浏览器预览不执行归档安装");
+  return invoke("execute_archive_operation", { planId });
+}

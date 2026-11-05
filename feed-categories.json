@@ -13,6 +13,7 @@
     "applications": {
       "vscode": "dev-tools",
       "codebuddy-ide": "ai-tools",
+      "antigravity": "ai-tools",
       "github-cli": "dev-tools",
       "chatgpt": "ai-tools",
       "google-chrome": "browser",
