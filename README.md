@@ -23,9 +23,12 @@ UManager 是基于 [Tauri 2](https://tauri.app/)（Rust 后端 + React 前端）
 - 安装串行执行；系统存在未完成的软件包操作、依赖未满足、检测到声明的冲突或执行失败时，停止后续安装。已成功的项目保留结果，不自动回滚；「重新检查未完成项」重新读取本机与签名源状态，让你选择仍需更新的项目建立新批次。
 - 本机保留最近最多 100 批记录（总记录限制 8 MiB，优先淘汰较旧记录并裁剪日志），包括版本、下载来源、SHA-256、结果与操作日志。程序重启后，未完成批次显示中断，必须重新检查和确认，不恢复安装授权。结束一个尚未安装的批次会保留共享下载，可在「下载」页单独管理。
 
+UManager 不内置剪贴板管理能力；请自行安装独立的剪贴板管理工具。
+
 **开发环境**
 
 - 运行时工具链：Node.js（nvm）与 Rust（rustup）的检测、安装、切换、卸载，全程无 root；
+- Node.js 每个已安装版本均可展开查看全局 npm 包（包名、版本、安装位置及异常），支持刷新。各版本的全局包独立，切换默认版本不会迁移包；卸载旧版本前可先核对包列表。
 - CLI AI 编程工具：Claude Code、OpenCode、Pi、Codex CLI、DeepSeek Harness、Hermes Agent，识别 npm / 官方安装器 / PATH 来源并安装、更新、卸载。
 
 **固件更新**
@@ -106,7 +109,7 @@ sudo apt install ./UManager_0.1.0_amd64.deb
 ```bash
 # 系统依赖
 sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+  libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
 # 运行时（Node 用 nvm，Rust 用 rustup）
 nvm install && nvm use

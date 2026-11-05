@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Minimal capability set for the UManager application window",
-  "windows": ["main", "clipboard-panel"],
+  "windows": ["main"],
   "permissions": ["core:default"]
 }

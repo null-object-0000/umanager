@@ -287,7 +287,7 @@ fn detect_state_sync(tool: &DevelopmentTool, feed_entry: Option<crate::feed::Fee
         .map(|path| classify_install_kind(tool, &home, path, npm_available));
     let version = binary
         .as_ref()
-        .and_then(|path| capture_tool_version(tool, path, feed_entry.as_ref()))
+        .and_then(|path| capture_tool_version(tool, path, &home, feed_entry.as_ref()))
         .or_else(|| {
             if install_kind.as_deref() == Some("npmGlobal") && npm_available {
                 tool.npm_package
@@ -534,11 +534,11 @@ fn npm_installed_version(home: &Path, package: &str) -> Option<String> {
 fn capture_tool_version(
     tool: &DevelopmentTool,
     path: &Path,
+    home: &Path,
     feed_entry: Option<&crate::feed::FeedToolEntry>,
 ) -> Option<String> {
-    let output = Command::new(path)
+    let output = tool_binary_command(path, home)
         .arg("--version")
-        .env("LC_ALL", "C")
         .output()
         .ok()?;
     if !output.status.success() {
@@ -546,6 +546,37 @@ fn capture_tool_version(
     }
     let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     version_from_output(&tool.tool_id, &text, feed_entry)
+}
+
+/// Desktop launchers do not source nvm's shell setup. A CLI's `env node`
+/// shebang needs its own bin directory first, then the selected npm runtime
+/// (also covers custom npm prefixes), just as installation does.
+fn tool_binary_command(path: &Path, home: &Path) -> Command {
+    let mut dirs = Vec::new();
+    if let Some(dir) = path.parent() {
+        dirs.push(dir.to_path_buf());
+    }
+    if let Some(npm) = resolve_npm(home)
+        && let Some(dir) = npm.parent()
+        && !dirs.iter().any(|existing| existing == dir)
+    {
+        dirs.push(dir.to_path_buf());
+    }
+    let mut runtime_path = std::ffi::OsString::new();
+    for dir in dirs {
+        runtime_path.push(dir);
+        runtime_path.push(":");
+    }
+    runtime_path.push(SAFE_SYSTEM_PATH);
+    let mut command = Command::new(path);
+    command
+        .env_clear()
+        .env("PATH", runtime_path)
+        .env("HOME", home)
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .env("LANGUAGE", "C");
+    command
 }
 
 fn version_from_output(
@@ -669,19 +700,8 @@ fn binary_self_command(
 ) -> Result<Command, String> {
     let binary = find_tool_binary(tool, home)
         .ok_or_else(|| format!("未检测到已安装的 {}", tool.display_name))?;
-    let bin_dir = binary
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("/usr/bin"));
-    let mut command = Command::new(&binary);
-    command
-        .args(args)
-        .env_clear()
-        .env("PATH", format!("{}:{SAFE_SYSTEM_PATH}", bin_dir.display()))
-        .env("HOME", home)
-        .env("LC_ALL", "C")
-        .env("LANG", "C")
-        .env("LANGUAGE", "C");
+    let mut command = tool_binary_command(&binary, home);
+    command.args(args);
     apply_proxy_environment(&mut command);
     Ok(command)
 }
@@ -1001,7 +1021,7 @@ fn verify_installed_version(
 ) -> Result<(), String> {
     let Some(target) = target else { return Ok(()) };
     let installed = find_tool_binary(tool, home)
-        .and_then(|path| capture_tool_version(tool, &path, feed_entry));
+        .and_then(|path| capture_tool_version(tool, &path, home, feed_entry));
     // npm can intentionally switch to a lower version line; vendor updaters
     // may already have advanced beyond the feed snapshot.
     let result = verify_version(installed.as_deref(), target, matches!(tool.installer, DevToolInstaller::Npm) && tool.update.is_none());
@@ -1225,6 +1245,38 @@ fn tail_summary(output: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_node_cli_version_without_shell_path_setup() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir()
+            .join(format!("umanager-cli-runtime-test-{}", std::process::id()));
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let cli = bin.join("dsh");
+        // Simulate an npm CLI and its adjacent runtime without changing the
+        // test process PATH or depending on an installed Node.js.
+        std::fs::write(&cli, "#!/usr/bin/env node\n").unwrap();
+        let node = bin.join("node");
+        std::fs::write(
+            &node,
+            "#!/bin/sh\n[ \"$2\" = --version ] || exit 1\nprintf '0.2.1-rc.5\n'\n",
+        ).unwrap();
+        for path in [&cli, &node] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let tool = dsh_tool(Some("next"));
+        assert_eq!(
+            capture_tool_version(&tool, &cli, &root, None).as_deref(),
+            Some("0.2.1-rc.5"),
+        );
+        // An unsuccessful CLI must still fail verification, even if it prints
+        // the expected version before exiting.
+        std::fs::write(&node, "#!/bin/sh\nprintf '0.2.1-rc.5\n'\nexit 1\n").unwrap();
+        assert_eq!(capture_tool_version(&tool, &cli, &root, None), None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn extracts_numeric_versions() {

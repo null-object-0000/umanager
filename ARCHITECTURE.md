@@ -30,7 +30,7 @@ UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），�
 
 ## 2. 核心架构：软件信息只依赖签名 feed
 
-后台资源占用：剪贴板监视器在 X11/XWayland 下通过 XFixes 等待变化，空闲时不定时读取或哈希图片；不支持事件或连接中断时回退到 800ms 轮询。快捷面板按需创建，隐藏 30 秒后销毁 WebView，再次唤出时重建；主窗口仍保留托盘恢复行为。面板使用独立的前端懒加载入口，不加载主界面与 Markdown 渲染模块。历史变化只广播 revision，可见订阅者合并通知后读取历史，隐藏页面不读取；恢复可见/焦点时补同步。图片编码与缩略图处理借用原始像素，持久化历史以缓冲流写入，避免复制完整历史及中间 JSON 字符串。
+后台常驻仅保留托盘恢复主窗口与退出入口；关闭主窗口会收起到托盘，下载等后台任务继续运行。UManager 不再内置剪贴板历史、监视器、快捷面板或全局热键。
 
 历史版本中，UManager 在用户机器上抓取官网、调用 GitHub Releases API、解析本机 `apt-cache policy` 来获知候选版本。这些逻辑已全部移除。现在的模型是：
 
@@ -75,7 +75,7 @@ https://null-object-0000.github.io/umanager/feed.json.sig
 - `selfUpdate`：UManager 自更新来源。
 - `developmentTools`：CLI 开发工具（Claude Code / OpenCode / Pi / Codex / DSH / Hermes）的最新版本；`npmPackage` 可为空（非 npm 分发的工具，版本由 `feed-sources.json` 的 `toolVersionOverrides` 解析）。
 
-CLI 工具的更新结果会在命令退出后重新检测本机版本；低于签名 feed 的目标版本或无法检测时，不报告更新成功。npm 版本线切换要求精确匹配目标版本。uv 的版本覆盖源使用官方自更新索引（`astral-sh/versions` 的 `uv.ndjson`），只发布同时具备 x86_64 / aarch64 Linux 构件的正式版本，避免 GitHub Release 已出现而自更新索引尚未同步时反复提示更新。自更新命令同时传入 feed 的目标版本。
+CLI 工具的更新结果会在命令退出后重新检测本机版本；低于签名 feed 的目标版本或无法检测时，不报告更新成功。版本检测与自更新命令的 PATH 依次包含工具所在目录、当前选定 npm 的目录和固定系统目录，保证桌面启动时也能解析 nvm 安装的 Node.js。npm 版本线切换要求精确匹配目标版本。uv 的版本覆盖源使用官方自更新索引（`astral-sh/versions` 的 `uv.ndjson`），只发布同时具备 x86_64 / aarch64 Linux 构件的正式版本，避免 GitHub Release 已出现而自更新索引尚未同步时反复提示更新。自更新命令同时传入 feed 的目标版本。
 
 Hermes 的本机版本标签依赖本地 git tag；拉取标签失败可能导致代码已更新而版本号仍旧。CI 在 `developmentTools.hermes` 中附带可选的 `versionCommit`（将发布 tag 解析成完整提交 SHA，随 feed 签名；这是 v2 的向后兼容可选字段）。App 仅当运行中的 Hermes CLI 报告的本机提交与该 SHA 匹配时，使用 feed 的发布版本作为已安装版本；旧 feed 或不匹配时保留 CLI 版本检测结果。GUI 使用 `hermes update --yes` 适配关闭的 stdin，不强制切换分支或丢弃本地改动。
 
@@ -276,7 +276,7 @@ Polkit 授权使用 `auth_admin_keep`：一次「dry-run」特权复核会在当
 
 ## 15. GNOME 扩展
 
-自 v0.11 起 UManager **不再内置任何 GNOME 扩展及其管理能力**。GNOME Shell 扩展（如中国节假日日历、农历等）由用户通过 extensions.gnome.org 或对应仓库自行安装、启停，不经过 UManager。UManager 仅保留「软件 / 更新」「开发环境」「维护脚本」「剪贴板」「设置」等功能页。
+自 v0.11 起 UManager **不再内置任何 GNOME 扩展及其管理能力**。GNOME Shell 扩展（如中国节假日日历、农历等）由用户通过 extensions.gnome.org 或对应仓库自行安装、启停，不经过 UManager。UManager 仅保留「软件 / 更新」「开发环境」「维护脚本」「设置」等功能页。
 
 ## Windows 应用与 Wine（企业微信试点）
 

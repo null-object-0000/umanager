@@ -13,6 +13,27 @@
   },
   "applications": [
     {
+      "applicationId": "wecomlite",
+      "packageName": "wecomlite",
+      "displayName": "企微 Lite",
+      "vendor": "WeComLite contributors",
+      "architecture": "amd64",
+      "description": "面向 Ubuntu 的非官方企业微信桌面客户端，支持聊天、图片与文件收发、桌面通知。项目仍在开发中。",
+      "homepage": "https://github.com/null-object-0000/WeComLite",
+      "icon": "wecomlite",
+      "accentColor": "#2878ff",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/null-object-0000/WeComLite/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "WeComLite-{tagVersion}-linux-amd64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
       "applicationId": "github-cli",
       "packageName": "gh",
       "displayName": "GitHub CLI",

@@ -44,6 +44,95 @@ pub struct DevRelease {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NodeGlobalPackages {
+    pub node_version: String,
+    pub prefix: String,
+    pub packages: Vec<NodeGlobalPackage>,
+    pub problems: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeGlobalPackage {
+    pub name: String,
+    pub version: Option<String>,
+    pub path: String,
+    pub linked: bool,
+}
+
+/// Inspect exactly one installed nvm version, independent of the default
+/// alias, inherited NVM_BIN, and any prefix configured in ~/.npmrc.
+pub async fn list_node_global_packages(version: String) -> Result<NodeGlobalPackages, String> {
+    let (toolchain, home, _) = prepare("nodejs")?;
+    let versions = expand_path(&toolchain.versions_directory)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut command = node_global_packages_command(&versions, &version, &home)?;
+        let output = command.output().map_err(|error| format!("无法读取全局包：{error}"))?;
+        let prefix = versions.join(&version);
+        let result = parse_node_global_packages(&output.stdout, &version, &prefix)?;
+        // npm ls can return ELSPROBLEMS while providing a useful partial tree.
+        // Retain that tree with its diagnostics, but never turn other errors
+        // into an apparently empty, successful package listing.
+        if !output.status.success() && result.problems.is_empty() {
+            return Err(format!("读取全局包失败：{}", tail_summary(&String::from_utf8_lossy(&output.stderr))));
+        }
+        Ok(result)
+    }).await.map_err(|error| format!("全局包读取任务异常结束：{error}"))?
+}
+
+fn node_global_packages_command(versions: &Path, version: &str, home: &Path) -> Result<Command, String> {
+    let parts: Vec<_> = version.strip_prefix('v').unwrap_or("").split('.').collect();
+    if parts.len() != 3 || parts.iter().any(|part| part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit())) {
+        return Err("请选择已安装的完整 Node.js 版本".to_owned());
+    }
+    let prefix = versions.join(version);
+    let bin = prefix.join("bin");
+    let node = bin.join("node");
+    let npm = bin.join("npm");
+    if !node.is_file() || !npm.is_file() {
+        return Err(format!("Node.js {version} 未安装或缺少 npm"));
+    }
+    let mut command = Command::new(node);
+    command.arg(npm)
+        .args(["ls", "--global", "--depth=0", "--json", "--long", "--offline", "--prefix"])
+        .arg(&prefix)
+        .env_clear()
+        .env("HOME", home)
+        .env("PATH", format!("{}:{SAFE_SYSTEM_PATH}", bin.display()))
+        .env("LC_ALL", "C")
+        .current_dir(home)
+        .stdin(Stdio::null());
+    Ok(command)
+}
+
+fn parse_node_global_packages(output: &[u8], version: &str, prefix: &Path) -> Result<NodeGlobalPackages, String> {
+    let value: serde_json::Value = serde_json::from_slice(output)
+        .map_err(|error| format!("无法解析 npm 全局包列表：{error}"))?;
+    if !value.is_object() || value.get("error").is_some() && value.get("dependencies").is_none() {
+        return Err("npm 未返回有效的全局包列表".to_owned());
+    }
+    let mut packages = Vec::new();
+    if let Some(dependencies) = value.get("dependencies") {
+        let dependencies = dependencies.as_object().ok_or("npm 全局包列表格式异常")?;
+        for (name, entry) in dependencies {
+            packages.push(NodeGlobalPackage {
+                name: name.clone(),
+                version: entry.get("version").and_then(|v| v.as_str()).map(str::to_owned),
+                path: entry.get("path").and_then(|v| v.as_str()).map(str::to_owned)
+                    .unwrap_or_else(|| prefix.join("lib/node_modules").join(name).to_string_lossy().into_owned()),
+                linked: entry.get("link").and_then(|v| v.as_bool()).unwrap_or(false),
+            });
+        }
+    }
+    packages.sort_by(|a, b| a.name.cmp(&b.name));
+    let problems = value.get("problems").and_then(|v| v.as_array())
+        .map(|items| items.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+        .unwrap_or_default();
+    Ok(NodeGlobalPackages { node_version: version.to_owned(), prefix: prefix.to_string_lossy().into_owned(), packages, problems })
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DevOperationReport {
     pub toolchain_id: String,
     pub action: String,
@@ -714,6 +803,54 @@ fn tail_summary(output: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_packages_preserve_scopes_links_and_partial_tree_diagnostics() {
+        let result = parse_node_global_packages(br#"{
+            "dependencies": {
+                "npm": {"version": "11.17.0"},
+                "@example/cli": {"version": "1.2.3-rc.1"},
+                "local-cli": {"version": "0.1.0", "link": true, "path": "/work/local-cli"},
+                "broken-cli": {"missing": true}
+            },
+            "problems": ["missing: broken-cli@*"]
+        }"#, "v24.22.1", Path::new("/nvm/versions/node/v24.22.1")).unwrap();
+        assert_eq!(result.packages.len(), 4);
+        assert_eq!(result.packages[0].name, "@example/cli");
+        assert_eq!(result.packages[0].version.as_deref(), Some("1.2.3-rc.1"));
+        assert!(result.packages[0].path.ends_with("lib/node_modules/@example/cli"));
+        assert!(result.packages[2].linked);
+        assert_eq!(result.packages[2].path, "/work/local-cli");
+        assert_eq!(result.packages[1].version, None);
+        assert_eq!(result.problems, vec!["missing: broken-cli@*"]);
+        assert!(parse_node_global_packages(b"{}", "v24.22.1", Path::new("/nvm")).unwrap().packages.is_empty());
+        for output in [b"garbage".as_slice(), b"[]", br#"{"error":{"code":"EACCES"}}"#, br#"{"dependencies":[]}"#] {
+            assert!(parse_node_global_packages(output, "v24.22.1", Path::new("/nvm")).is_err());
+        }
+    }
+
+    #[test]
+    fn global_packages_use_requested_runtime_and_prefix() {
+        let root = std::env::temp_dir().join(format!("umanager-global-packages-test-{}", std::process::id()));
+        for version in ["v22.23.2", "v24.22.1"] {
+            let bin = root.join(version).join("bin");
+            fs::create_dir_all(&bin).unwrap();
+            fs::write(bin.join("node"), "").unwrap();
+            fs::write(bin.join("npm"), "").unwrap();
+        }
+        for version in ["v22.23.2", "v24.22.1"] {
+            let command = node_global_packages_command(&root, version, &root).unwrap();
+            assert_eq!(command.get_program(), root.join(version).join("bin/node"));
+            let args: Vec<_> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+            assert_eq!(args[0], root.join(version).join("bin/npm").to_string_lossy());
+            assert_eq!(&args[1..8], ["ls", "--global", "--depth=0", "--json", "--long", "--offline", "--prefix"]);
+            assert_eq!(args[8], root.join(version).to_string_lossy());
+        }
+        for version in ["../v24.22.1", "v24.22.1/../../bin", "--help", "24", "v24.22", "v99.0.0"] {
+            assert!(node_global_packages_command(&root, version, &root).is_err());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn parses_lts_lines() {

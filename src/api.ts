@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { clipboardUpdates } from "./clipboardUpdates";
-import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogAiMode, ChangelogTranslation, ClipboardEntry, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, SessionInfo, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogAiMode, ChangelogTranslation, DevOperationProgress, DevOperationReport, DevRelease, NodeGlobalPackages, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DownloadResult, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LlmTranslateDelta, LocalDebInspection, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptDefinition, ScriptProgressEvent, ScriptRunReport, TranslationSection, VersionUpdatedAtSource, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 
 const isMock = () => import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
@@ -710,6 +709,21 @@ export function getDevToolchainState(toolchainId: string): Promise<DevToolchainS
   return invoke<DevToolchainState>("get_dev_toolchain_state", { toolchainId });
 }
 
+export function getNodeGlobalPackages(version: string): Promise<NodeGlobalPackages> {
+  if (isMock()) {
+    const prefix = `/home/user/.nvm/versions/node/${version}`;
+    const packages = version === mockDevState.defaultVersion
+      ? [{ name: "npm", version: "11.17.0", path: `${prefix}/lib/node_modules/npm`, linked: false }]
+      : [
+        { name: "@deepseek-ai/dsh", version: "0.2.1-rc.5", path: `${prefix}/lib/node_modules/@deepseek-ai/dsh`, linked: false },
+        { name: "@openai/codex", version: "0.149.1", path: `${prefix}/lib/node_modules/@openai/codex`, linked: false },
+        { name: "npm", version: "11.17.0", path: `${prefix}/lib/node_modules/npm`, linked: false },
+      ];
+    return Promise.resolve({ nodeVersion: version, prefix, packages, problems: [] });
+  }
+  return invoke<NodeGlobalPackages>("get_node_global_packages", { version });
+}
+
 export function getDevReleases(toolchainId: string): Promise<DevRelease[]> {
   if (isMock()) return Promise.resolve(toolchainId === "rust" ? mockRustReleases : mockDevReleases);
   return invoke<DevRelease[]>("get_dev_releases", { toolchainId });
@@ -835,85 +849,3 @@ export async function runScript(scriptId: string, actionId: string, onProgress?:
 export function stopScript(scriptId: string): Promise<boolean> {
   return invoke<boolean>("stop_script", { scriptId });
 }
-
-const mockClipboardHistory: ClipboardEntry[] = [
-  { id: 1, kind: "image", pinned: true, capturedAtMs: Date.now() - 60_000, imageWidth: 1200, imageHeight: 800, imageByteCount: 180_000, contentHash: "demo", imagePreview: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" },
-  { id: 2, kind: "text", text: "dpkg --compare-versions 2.0-1 lt 2.0-2", charCount: 40, pinned: false, capturedAtMs: Date.now() - 180_000 },
-  { id: 3, kind: "text", text: "共有 3 条剪贴板记录（演示数据）", charCount: 18, pinned: false, capturedAtMs: Date.now() - 600_000 },
-];
-
-export function listClipboardHistory(): Promise<ClipboardEntry[]> {
-  if (isMock()) return Promise.resolve(mockClipboardHistory);
-  return invoke<ClipboardEntry[]>("list_clipboard_history");
-}
-
-export function getClipboardHistoryRevision(): Promise<number> {
-  if (isMock()) return Promise.resolve(1);
-  return invoke<number>("clipboard_history_revision");
-}
-
-export function copyClipboardEntry(id: number): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("copy_clipboard_entry", { id });
-}
-
-export function getClipboardImage(id: number): Promise<string> {
-  if (isMock()) return Promise.resolve(mockClipboardHistory.find((entry) => entry.id === id)?.imagePreview ?? "");
-  return invoke<string>("get_clipboard_image", { id });
-}
-
-export function dragClipboardImage(id: number): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("drag_clipboard_image", { id });
-}
-
-export function hideClipboardPanel(): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("hide_clipboard_panel");
-}
-
-export function getClipboardHotkey(): Promise<string> {
-  if (isMock()) return Promise.resolve("Super+V");
-  return invoke<string>("get_clipboard_hotkey");
-}
-
-export function setClipboardHotkey(hotkey: string): Promise<string> {
-  if (isMock()) return Promise.resolve(hotkey);
-  return invoke<string>("set_clipboard_hotkey", { hotkey });
-}
-
-export function getSessionInfo(): Promise<SessionInfo> {
-  if (isMock()) return Promise.resolve({ kind: "x11", waylandDisplay: null, display: ":0", sessionType: "x11", globalHotkeySupported: true });
-  return invoke<SessionInfo>("get_session_info");
-}
-
-export function setClipboardEntryPinned(id: number, pinned: boolean): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("set_clipboard_entry_pinned", { id, pinned });
-}
-
-export function deleteClipboardEntry(id: number): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("delete_clipboard_entry", { id });
-}
-
-export function clearClipboardHistory(): Promise<void> {
-  if (isMock()) return Promise.resolve();
-  return invoke<void>("clear_clipboard_history");
-}
-
-export async function onClipboardHistoryChanged(callback: (entries: ClipboardEntry[]) => void): Promise<() => void> {
-  if (isMock()) return () => {};
-  const updates = clipboardUpdates(listClipboardHistory, () => document.visibilityState === "visible", callback);
-  const refresh = () => { void updates.refresh(); };
-  const unlisten = await listen<number>("clipboard-history-changed", refresh);
-  document.addEventListener("visibilitychange", refresh);
-  // 监听建立后再同步一次，覆盖首次加载与注册监听之间的变更。
-  refresh();
-  return () => {
-    updates.dispose();
-    unlisten();
-    document.removeEventListener("visibilitychange", refresh);
-  };
-}
-

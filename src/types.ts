@@ -447,6 +447,20 @@ export interface DevRelease {
   recommended: boolean;
 }
 
+export interface NodeGlobalPackage {
+  name: string;
+  version: string | null;
+  path: string;
+  linked: boolean;
+}
+
+export interface NodeGlobalPackages {
+  nodeVersion: string;
+  prefix: string;
+  packages: NodeGlobalPackage[];
+  problems: string[];
+}
+
 export interface DevOperationReport {
   toolchainId: string;
   action: string;
@@ -524,33 +538,6 @@ export interface DevToolProgress {
   stream: "system" | "stdout" | "stderr";
   message: string;
 }
-
-export type ClipboardKind = "text" | "image";
-
-export interface ClipboardEntry {
-  id: number;
-  kind: ClipboardKind;
-  text?: string | null;
-  charCount?: number | null;
-  pinned: boolean;
-  capturedAtMs: number;
-  contentHash?: string | null;
-  imageWidth?: number | null;
-  imageHeight?: number | null;
-  imageByteCount?: number | null;
-  imagePreview?: string | null;
-}
-
-export type SessionKind = "wayland" | "x11" | "unknown";
-
-export interface SessionInfo {
-  kind: SessionKind;
-  waylandDisplay: string | null;
-  display: string | null;
-  sessionType: string | null;
-  globalHotkeySupported: boolean;
-}
-
 
 // Windows 应用（Wine）管理：状态、设置与操作计划，与 windows_apps.rs 的
 // camelCase 序列化保持一致。安装包授权仅来自签名 feed 的 windowsApplications。

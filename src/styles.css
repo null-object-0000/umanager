@@ -1382,6 +1382,18 @@ nav { display: grid; gap: 2px; }
 .dev-badge.installed { color: var(--text-2); background: rgba(0, 0, 0, 0.05); }
 .dev-sub-label { color: var(--text-3); font-size: var(--fs-sm); }
 .dev-version-actions { display: flex; flex: none; gap: 8px; }
+.dev-installed-version { border-bottom: 1px solid var(--hairline); }
+.dev-installed-version:last-child { border-bottom: 0; }
+.dev-installed-version > .dev-version-row { border-bottom: 0; flex-wrap: wrap; }
+.node-global-packages { margin: 0 0 14px; padding: 16px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--card); }
+.node-global-packages > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.node-package-prefix { color: var(--text-3); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.node-package-list { list-style: none; margin: 0; padding: 0; }
+.node-package-list li { padding: 10px 0; border-top: 1px solid var(--hairline); }
+.node-package-list li > div { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.node-package-list li > div code { font-weight: 600; overflow-wrap: anywhere; }
+.node-package-list li > div span { color: var(--text-2); font: var(--fs-sm) var(--font-mono); }
+.node-package-path { display: block; margin-top: 5px; color: var(--text-3); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .dev-action-button {
   min-height: 30px;
   padding: 0 13px;
@@ -1530,142 +1542,6 @@ nav { display: grid; gap: 2px; }
 .script-menu.sort-menu .sort-menu-check { display: inline-grid; place-items: center; width: 14px; height: 14px; flex: none; color: var(--text); }
 .script-menu.sort-menu .sort-menu-check .ui-icon { width: 13px; height: 13px; stroke-width: 2.4; }
 .script-system-lines { display: grid; gap: 4px; padding: 11px 15px; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.6; border-top: 1px solid var(--hairline); }
-
-/* =============================================================================
-   Clipboard page
-   ========================================================================== */
-
-.clipboard-panel { overflow: auto; }
-.clipboard-count { color: var(--text-3); font-size: var(--fs-base); }
-.clipboard-hint { color: var(--text-3); font-size: var(--fs-base); line-height: 1.5; }
-.clip-more { position: relative; display: inline-flex; }
-.clip-more-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 13px;
-  color: var(--text-2);
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  font-size: var(--fs-base);
-  font-weight: 550;
-  white-space: nowrap;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.clip-more-button:hover { background: rgba(0, 0, 0, 0.06); color: var(--text); }
-.clip-more-button .ui-icon { width: 15px; height: 15px; }
-.clipboard-settings {
-  margin: 4px 2px 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  background: #fff;
-}
-.clipboard-settings .clipboard-hotkey-row { padding-top: 0; padding-bottom: 12px; }
-.clipboard-settings .clipboard-hint { margin: 0 0 12px; }
-.clipboard-settings .clipboard-session-note { margin: 0; }
-.clipboard-list { padding: 0 2px 16px; }
-.clip-entry {
-  padding: 16px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-card);
-  background: #fff;
-  box-shadow: var(--shadow-card);
-  margin-top: 14px;
-}
-.clip-entry:first-child { margin-top: 0; }
-.clip-entry.pinned { border-color: rgba(0, 122, 255, 0.3); background: #fbfdff; }
-.clip-entry-meta { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
-.clip-time { color: var(--text-3); font-size: var(--fs-xs); }
-.clip-chars { color: var(--text-4); font-size: var(--fs-xs); }
-.clip-text { margin: 0; padding: 11px 13px; color: var(--text-2); border-radius: var(--radius-sm); background: rgba(0, 0, 0, 0.03); font-family: var(--font-mono); font-size: var(--fs-base); line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow: auto; }
-.clip-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
-.clip-action-group { display: flex; align-items: center; gap: 4px; }
-.clip-action-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 88px;
-  height: 30px;
-  padding: 0 16px;
-  color: #fff;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  font-size: var(--fs-base);
-  font-weight: 600;
-  white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(0, 113, 227, 0.28);
-  transition: background 0.12s ease, transform 0.12s ease;
-}
-.clip-action-primary:hover:not(:disabled) { background: var(--accent-hover); }
-.clip-action-primary:active:not(:disabled) { transform: scale(0.97); }
-.clip-action-primary:disabled { background: var(--accent); opacity: 0.5; box-shadow: none; }
-.clip-action-subtle {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  padding: 0 11px;
-  color: var(--text-2);
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  font-size: var(--fs-base);
-  font-weight: 550;
-  white-space: nowrap;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.clip-action-subtle:hover:not(:disabled) { background: rgba(0, 0, 0, 0.06); color: var(--text); }
-.clip-action-subtle.danger { color: var(--red-text); }
-.clip-action-subtle.danger:hover:not(:disabled) { background: var(--red-soft); }
-.clip-action-subtle:disabled { color: var(--text-4); }
-.clip-image-thumb { display: block; width: 100%; max-width: 260px; padding: 0; border: 1px solid var(--hairline); border-radius: var(--radius-sm); overflow: hidden; background: rgba(0, 0, 0, 0.03); cursor: grab; }
-.clip-image-thumb:active { cursor: grabbing; }
-.clip-image-thumb img { display: block; width: 100%; height: auto; object-fit: contain; pointer-events: none; }
-.clip-drag-hint { color: var(--yellow-text); background: var(--yellow-soft); border-radius: var(--radius-pill); padding: 2px 8px; font-size: var(--fs-xs); font-weight: 600; }
-.clip-image-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 32px; background: rgba(0, 0, 0, 0.4); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
-.clip-image-dialog { display: flex; flex-direction: column; gap: 14px; width: min(920px, 100%); max-height: calc(100vh - 64px); padding: 18px; border-radius: var(--radius-card); background: #fff; box-shadow: var(--shadow-float); }
-.clip-image-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.clip-image-head > div { display: flex; flex-direction: column; gap: 3px; }
-.clip-image-head strong { font-size: var(--fs-md); color: var(--text); }
-.clip-image-head span { color: var(--text-3); font-size: var(--fs-sm); }
-.clip-image-body { display: grid; place-items: center; min-height: 180px; overflow: auto; border-radius: var(--radius-sm); background: rgba(0, 0, 0, 0.03); }
-.clip-image-body img { display: block; max-width: 100%; max-height: calc(100vh - 260px); height: auto; }
-.clipboard-hotkey-row { display: flex; align-items: center; gap: 8px; padding: 12px 2px; border-bottom: 1px solid var(--hairline); }
-.clipboard-hotkey-row > span { color: var(--text-2); font-size: var(--fs-base); white-space: nowrap; }
-.clipboard-hotkey-input { width: 170px; height: 32px; padding: 0 10px; border: 1px solid var(--hairline-strong); border-radius: var(--radius-sm); font-size: var(--fs-base); color: var(--text); outline: 0; background: #fff; }
-.clipboard-hotkey-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.clip-hotkey-save { min-width: 0; height: 30px; padding: 0 12px; }
-.clip-session-badge { padding: 3px 9px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 700; }
-.clip-session-badge.x11 { color: var(--green-text); background: var(--green-soft); }
-.clip-session-badge.wayland { color: var(--red-text); background: var(--red-soft); }
-.clip-session-badge.unknown { color: var(--yellow-text); background: var(--yellow-soft); }
-.clipboard-session-note { margin: 0 2px 12px; padding: 12px 14px; border-radius: var(--radius-sm); font-size: var(--fs-base); line-height: 1.6; color: var(--yellow-text); background: var(--yellow-soft); }
-.clipboard-session-note.wayland { color: var(--red-text); background: var(--red-soft); }
-.clipboard-session-note code { margin: 0 3px; padding: 1px 5px; border-radius: 4px; font-family: var(--font-mono); font-size: var(--fs-xs); background: rgba(0, 0, 0, 0.06); color: var(--text-2); }
-
-/* =============================================================================
-   Quick clipboard panel window
-   ========================================================================== */
-
-.clip-panel { position: fixed; inset: 0; display: flex; flex-direction: column; background: #fafafa; user-select: none; -webkit-user-select: none; }
-.clip-panel input, .clip-panel textarea { user-select: text; -webkit-user-select: text; }
-.clip-panel-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 12px 8px; border-bottom: 1px solid var(--hairline); background: rgba(250, 250, 252, 0.85); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
-.clip-panel-top strong { font-size: var(--fs-md); color: var(--text); }
-.clip-panel-search { width: 160px; }
-.clip-panel-list { flex: 1; overflow: auto; padding: 6px 8px 10px; }
-.clip-panel-empty { padding: 34px 12px; text-align: center; color: var(--text-3); font-size: var(--fs-sm); }
-.clip-panel-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer; }
-.clip-panel-item:hover { background: rgba(0, 0, 0, 0.05); }
-.clip-panel-item.copied { background: var(--green-soft); }
-.clip-panel-item.text .clip-panel-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--fs-base); }
-.clip-panel-item.image { cursor: grab; }
-.clip-panel-item.image:active { cursor: grabbing; }
-.clip-panel-thumb { width: 64px; height: 48px; object-fit: cover; border: 1px solid var(--hairline); border-radius: var(--radius-xs); background: rgba(0, 0, 0, 0.03); cursor: grab; pointer-events: none; -webkit-user-drag: none; }
-.clip-panel-item:active .clip-panel-thumb { cursor: grabbing; }
-.clip-panel-dim { color: var(--text-3); font-size: var(--fs-xs); }
 
 /* =============================================================================
    Toast notice

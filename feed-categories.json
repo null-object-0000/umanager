@@ -21,6 +21,7 @@
       "slack": "chat",
       "1password": "system",
       "wechat": "chat",
+      "wecomlite": "chat",
       "qq": "chat",
       "wemeet": "office",
       "obsidian": "office",

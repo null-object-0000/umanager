@@ -1,9 +1,6 @@
 mod zip_deb;
 mod background;
 mod batch_tasks;
-mod clipboard_history;
-#[cfg(target_os = "linux")]
-mod clipboard_watch;
 mod dependency_check;
 mod dev_cli_tools;
 mod dev_tools;
@@ -17,9 +14,7 @@ mod launcher;
 mod local_deb;
 mod network;
 mod operation_plan;
-mod panel;
 mod scanner;
-mod session;
 mod scripts;
 mod source_engine;
 mod systemd_user_units;
@@ -184,6 +179,11 @@ async fn get_dev_toolchain_state(
     toolchain_id: String,
 ) -> Result<dev_tools::DevToolchainState, String> {
     dev_tools::detect_state(toolchain_id).await
+}
+
+#[tauri::command]
+async fn get_node_global_packages(version: String) -> Result<dev_tools::NodeGlobalPackages, String> {
+    dev_tools::list_node_global_packages(version).await
 }
 
 #[tauri::command]
@@ -746,7 +746,6 @@ fn notify_download_complete(title: String, body: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             match app.state::<local_deb::LocalDebState>().receive_arguments(
                 argv.iter().skip(1).map(std::ffi::OsString::from),
@@ -760,13 +759,8 @@ pub fn run() {
                 Ok(false) => {}
                 Err(error) => eprintln!("无法接收本地安装包：{error}"),
             }
-            if argv.iter().any(|arg| arg == panel::TOGGLE_ARG) {
-                panel::toggle(app);
-            } else {
-                // 用户点 dock/桌面图标启动第二个实例（普通启动）时，恢复并聚焦主窗口，
-                // 否则「关闭即隐藏到托盘」后点图标会毫无反应。
-                background::show_window(app);
-            }
+            // 再次启动时恢复并聚焦主窗口。
+            background::show_window(app);
         }))
         .manage(local_deb::LocalDebState::from_process_arguments())
         .setup(|app| {
@@ -776,14 +770,7 @@ pub fn run() {
             translation::initialize(app.handle());
             feed::initialize(app.handle());
             dev_cli_tools::initialize(app.handle());
-            clipboard_history::initialize(app.handle());
             background::initialize(app.handle())?;
-            if std::env::args().any(|arg| arg == panel::TOGGLE_ARG) {
-                if let Some(main_window) = app.get_webview_window("main") {
-                    let _ = main_window.hide();
-                }
-                panel::toggle(app.handle());
-            }
             Ok(())
         })
         .on_window_event(background::handle_window_event)
@@ -825,6 +812,7 @@ pub fn run() {
             fetch_app_icon,
             get_dev_toolchains,
             get_dev_toolchain_state,
+            get_node_global_packages,
             get_dev_releases,
             install_dev_version,
             set_dev_default_version,
@@ -859,18 +847,6 @@ pub fn run() {
             run_removal_dry_run,
             remove_managed_package,
             notify_download_complete,
-            session::get_session_info,
-            panel::hide_clipboard_panel,
-            background::get_clipboard_hotkey,
-            background::set_clipboard_hotkey,
-            clipboard_history::list_clipboard_history,
-            clipboard_history::clipboard_history_revision,
-            clipboard_history::copy_clipboard_entry,
-            clipboard_history::get_clipboard_image,
-            clipboard_history::set_clipboard_entry_pinned,
-            clipboard_history::delete_clipboard_entry,
-            clipboard_history::clear_clipboard_history,
-            clipboard_history::drag_clipboard_image
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UManager");

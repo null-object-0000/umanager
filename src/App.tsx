@@ -16,8 +16,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { scanRemovalCleanup, cancelDownload, clearClipboardHistory, copyClipboardEntry, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, deleteClipboardEntry, dragClipboardImage, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getClipboardHotkey, getClipboardImage, getDevReleases, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSessionInfo, getSoftwareCatalog, getWindowsState, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listClipboardHistory, listScripts, notifyDownloadComplete, onClipboardHistoryChanged, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setClipboardEntryPinned, setClipboardHotkey, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
-import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, ClipboardEntry, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, SessionInfo, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
+import { scanRemovalCleanup, cancelDownload, createLocalDebOperationPlan, createOperationPlan, createRemovalOperationPlan, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getDevReleases, getNodeGlobalPackages, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSoftwareCatalog, getWindowsState, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, installPackage, launchApplication, launchWindowsApplication, listScripts, notifyDownloadComplete, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runOperationDryRun, runRemovalDryRun, scanPackages, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import type { CleanupScan, CleanupSelection, ApplicationDetails, CatalogApplication, CategoryCatalog, ChangelogTranslation, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, NodeGlobalPackages, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { aiButtonLabel, aiMode, canRegenerate, formatCachedOrigin, regenerateButtonLabel, shouldWarnMissingSummary } from "./changelogTranslation";
 import type { AiActionState } from "./changelogTranslation";
 import { activeJobCount, findJob, installActionLabel, isActiveStatus, jobPercent, jobProgress, jobStatusLabel, queuedPosition, sortJobs } from "./downloadQueue";
@@ -51,7 +51,7 @@ import wpsIcon from "./assets/app-icons/wps.svg?no-inline";
 import umanagerLogo from "./assets/umanager-logo.png";
 
 type Filter = "all" | "installed" | "updates" | "installable";
-type Page = "tasks" | "firmware" | "installed" | "updates" | "downloads" | "dev" | "scripts" | "clipboard" | "settings";
+type Page = "tasks" | "firmware" | "installed" | "updates" | "downloads" | "dev" | "scripts" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
 const iconAssets: Record<string, string> = { vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
@@ -99,7 +99,7 @@ function appearance(packageName: string) {
   };
 }
 
-function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "download" | "back" | "clipboard" | "settings" | "search" | "shield" | "dev" | "script" | "external" | "more" | "chevrons" | "check" }) {
+function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "download" | "back" | "settings" | "search" | "shield" | "dev" | "script" | "external" | "more" | "chevrons" | "check" }) {
   const paths = {
     apps: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     source: <><path d="M4 7h16M6 3h12l2 4-2 4H6L4 7l2-4Z"/><path d="M7 11v10m10-10v10M4 21h16"/></>,
@@ -107,7 +107,6 @@ function Icon({ name }: { name: "apps" | "source" | "history" | "update" | "down
     update: <><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></>,
     download: <><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></>,
     back: <><path d="M15 5l-7 7 7 7"/></>,
-    clipboard: <><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></>,
@@ -1482,7 +1481,36 @@ function DevToolchainRow({ toolchain, onOpen }: { toolchain: DevToolchain; onOpe
   </article>;
 }
 
+function NodeGlobalPackagesPanel({ version }: { version: string }) {
+  const [result, setResult] = useState<NodeGlobalPackages | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setResult(null); setError(null);
+    getNodeGlobalPackages(version).then((value) => {
+      if (active) setResult(value);
+    }).catch((reason) => {
+      if (active) setError(String(reason));
+    });
+    return () => { active = false; };
+  }, [version, revision]);
+  return <section className="node-global-packages" aria-label={`${version} 全局包`} aria-live="polite">
+    <header><strong>{version} 的全局包{result ? ` · ${result.packages.length}` : ""}</strong><button className="ghost-link" disabled={!result && !error} onClick={() => setRevision((value) => value + 1)}>{!result && !error ? "读取中…" : "刷新"}</button></header>
+    {error && <div className="inline-error">{error}</div>}
+    {result && <>
+      <p className="node-package-prefix">安装目录：<code>{result.prefix}/lib/node_modules</code></p>
+      {result.problems.length > 0 && <div className="inline-error">部分包存在异常：{result.problems.join("；")}</div>}
+      {result.packages.length === 0 ? <p className="dev-empty">此版本下尚无全局包。</p> : <ul className="node-package-list">{result.packages.map((pkg) => <li key={pkg.name}>
+        <div><code>{pkg.name}</code><span>{pkg.version ?? "版本未知"}{pkg.linked ? " · 本地链接" : ""}</span></div>
+        <code className="node-package-path">{pkg.path}</code>
+      </li>)}</ul>}
+    </>}
+  </section>;
+}
+
 function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; onClose: () => void }) {
+  const [packagesVersion, setPackagesVersion] = useState<string | null>(null);
   const [state, setState] = useState<DevToolchainState | null>(null);
   const [releases, setReleases] = useState<DevRelease[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -1501,7 +1529,7 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
   useEffect(() => { void refresh(); }, [toolchain.toolchainId]);
 
   const run = async (version: string, action: (onProgress: (event: DevOperationProgress) => void) => Promise<DevOperationReport>) => {
-    setBusy(version); setError(null); setEvents([]);
+    setBusy(version); setError(null); setEvents([]); setPackagesVersion(null);
     try {
       await action((event) => setEvents((current) => [...current.slice(-199), event]));
       await refresh();
@@ -1535,16 +1563,20 @@ function DevToolchainDrawer({ toolchain, onClose }: { toolchain: DevToolchain; o
 
       {state?.managerFound && <div style={{ marginTop: 22 }}>
         <h3 className="dev-section-heading">已安装版本</h3>
-        {state.installedVersions.length === 0 ? <p className="dev-empty">尚未安装任何版本。</p> : state.installedVersions.map((version) => <div key={version.version} className="dev-version-row">
+        {toolchain.toolchainId === "nodejs" && <p className="dev-empty">每个 Node.js 版本有独立的全局包目录。切换默认版本后，原来的包仍保留在旧版本中；卸载旧版本会一并删除其中的包。</p>}
+        {state.installedVersions.length === 0 ? <p className="dev-empty">尚未安装任何版本。</p> : state.installedVersions.map((version) => <div key={version.version} className="dev-installed-version"><div className="dev-version-row">
           <div className="dev-version-name">
             <code>{version.version}</code>
             {version.isDefault && <span className="dev-badge default">默认</span>}
             {version.isLts && version.ltsName && <span className="dev-badge lts">LTS {version.ltsName}</span>}
           </div>
           <div className="dev-version-actions">
+            {toolchain.toolchainId === "nodejs" && <button className="dev-action-button" disabled={busy !== null} aria-expanded={packagesVersion === version.version} onClick={() => setPackagesVersion((current) => current === version.version ? null : version.version)}>{packagesVersion === version.version ? "收起全局包" : "全局包"}</button>}
             {!version.isDefault && <button className="dev-action-button" disabled={busy !== null} onClick={() => void run(version.version, (onProgress) => setDevDefaultVersion(toolchain.toolchainId, version.version, onProgress))}>设为默认</button>}
             {!version.isDefault && <button className="dev-action-button danger" disabled={busy !== null} onClick={() => void run(version.version, (onProgress) => uninstallDevVersion(toolchain.toolchainId, version.version, onProgress))}>卸载</button>}
           </div>
+        </div>
+        {packagesVersion === version.version && <NodeGlobalPackagesPanel version={version.version}/>}
         </div>)}
       </div>}
 
@@ -1854,220 +1886,6 @@ function ScriptsPage() {
   </main>;
 }
 
-
-function ClipboardPage() {
-  const [entries, setEntries] = useState<ClipboardEntry[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [pendingId, setPendingId] = useState<number | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const [previewEntry, setPreviewEntry] = useState<ClipboardEntry | null>(null);
-  const [hotkey, setHotkey] = useState<string | null>(null);
-  const [hotkeyDraft, setHotkeyDraft] = useState("");
-  const [hotkeySaving, setHotkeySaving] = useState(false);
-  const [hotkeySaved, setHotkeySaved] = useState(false);
-  const [session, setSession] = useState<SessionInfo | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    listClipboardHistory()
-      .then((list) => { if (active) setEntries(list); })
-      .catch((reason) => { if (active) setError(String(reason)); })
-      .finally(() => { if (active) setLoading(false); });
-    let unlisten: (() => void) | null = null;
-    onClipboardHistoryChanged((list) => { if (active) setEntries(list); })
-      .then((fn) => { if (active) unlisten = fn; else fn(); }).catch(() => {});
-    getClipboardHotkey().then((value) => { if (active) { setHotkey(value); setHotkeyDraft(value); } }).catch(() => {});
-    getSessionInfo().then((info) => { if (active) setSession(info); }).catch(() => {});
-    return () => { active = false; unlisten?.(); };
-  }, []);
-
-  // 主窗口关闭到托盘再恢复时，也重新拉取最新剪贴板历史。
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-    let active = true;
-    let unlistenFocus: (() => void) | null = null;
-    const reload = () =>
-      listClipboardHistory()
-        .then((list) => { if (active) { setEntries(list); setLoading(false); } })
-        .catch((reason) => { if (active) setError(String(reason)); });
-    getCurrentWebviewWindow()
-      .onFocusChanged(({ payload }) => { if (payload) reload(); })
-      .then((fn) => { if (active) unlistenFocus = fn; else fn(); })
-      .catch(() => {});
-    return () => { active = false; unlistenFocus?.(); };
-  }, []);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuOpen]);
-
-  const copy = async (entry: ClipboardEntry) => {
-    setError(null);
-    try {
-      await copyClipboardEntry(entry.id);
-      setCopiedId(entry.id);
-      window.setTimeout(() => setCopiedId((current) => (current === entry.id ? null : current)), 1300);
-    } catch (reason) {
-      setError(String(reason));
-    }
-  };
-
-  const togglePin = async (entry: ClipboardEntry) => {
-    setError(null); setPendingId(entry.id);
-    try { await setClipboardEntryPinned(entry.id, !entry.pinned); } catch (reason) { setError(String(reason)); }
-    finally { setPendingId(null); }
-  };
-
-  const remove = async (entry: ClipboardEntry) => {
-    setError(null); setPendingId(entry.id);
-    try { await deleteClipboardEntry(entry.id); } catch (reason) { setError(String(reason)); }
-    finally { setPendingId(null); }
-  };
-
-  const dragOut = (entry: ClipboardEntry) => {
-    setError(null);
-    dragClipboardImage(entry.id).catch((reason) => setError(String(reason)));
-  };
-
-  const saveHotkey = async () => {
-    const value = hotkeyDraft.trim();
-    if (!value || value === hotkey) return;
-    setHotkeySaving(true); setHotkeySaved(false); setError(null);
-    try {
-      const saved = await setClipboardHotkey(value);
-      setHotkey(saved); setHotkeyDraft(saved); setHotkeySaved(true);
-      window.setTimeout(() => setHotkeySaved(false), 1500);
-    } catch (reason) {
-      setError(String(reason));
-    } finally {
-      setHotkeySaving(false);
-    }
-  };
-
-  const clearAll = async () => {
-    if (!confirmClear) {
-      setConfirmClear(true);
-      window.setTimeout(() => setConfirmClear(false), 3000);
-      return;
-    }
-    setError(null);
-    try { await clearClipboardHistory(); } catch (reason) { setError(String(reason)); }
-    finally { setConfirmClear(false); }
-  };
-
-  const ordered = useMemo(() => {
-    const list = entries ?? [];
-    return [...list.filter((entry) => entry.pinned), ...list.filter((entry) => !entry.pinned)];
-  }, [entries]);
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return ordered;
-    return ordered.filter((entry) => {
-      const haystack = entry.kind === "image"
-        ? `图片 ${entry.imageWidth ?? 0}x${entry.imageHeight ?? 0}`
-        : (entry.text ?? "");
-      return haystack.toLowerCase().includes(needle);
-    });
-  }, [ordered, query]);
-
-  return <main className="workspace clipboard-workspace">
-    <header className="workspace-header"><div><h1>剪贴板</h1><p>自动记录 · 托盘常驻，Alt+Shift+V 随时唤出</p></div><div className="header-actions"><span className="clipboard-count">{entries ? `${entries.length} 条` : ""}</span><label className="store-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索剪贴板"/></label><div className="clip-more" ref={menuRef}><button className="clip-more-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><Icon name="more"/><span>更多</span></button>{menuOpen && <div className="script-menu" role="menu"><button role="menuitem" onClick={() => { setMenuOpen(false); setSettingsOpen((open) => !open); }}><Icon name="settings"/>面板设置</button><button role="menuitem" className="danger" disabled={!entries || entries.length === 0} onClick={() => { if (confirmClear) setMenuOpen(false); void clearAll(); }}>{confirmClear ? "再点一次确认清空" : "清空历史"}</button></div>}</div></div></header>
-    <section className="software-panel clipboard-panel">
-      {settingsOpen && <div className="clipboard-settings">
-        <div className="clipboard-hotkey-row">
-          <span>全局热键唤出面板</span>
-          {session && <span className={`clip-session-badge ${session.kind}`}>{session.globalHotkeySupported ? "X11 可用" : session.kind === "wayland" ? "Wayland 受限" : "未识别会话"}</span>}
-          <input className="clipboard-hotkey-input" value={hotkeyDraft} onChange={(event) => setHotkeyDraft(event.target.value)} disabled={hotkeySaving} spellCheck={false}/>
-          <button className="secondary-button clip-hotkey-save" onClick={() => void saveHotkey()} disabled={hotkeySaving || !hotkeyDraft.trim() || hotkeyDraft.trim() === hotkey}>{hotkeySaved ? "已保存 ✓" : "保存热键"}</button>
-        </div>
-        <p className="clipboard-hint">本机轮询读取、内容不上传，最多 500 条；关闭窗口会收起到托盘，全局热键 Alt+Shift+V 唤出。</p>
-        {session && session.kind !== "x11" && <div className={`clipboard-session-note ${session.kind}`}>{session.kind === "wayland"
-          ? <>检测到 <b>Wayland</b> 会话：应用内全局热键不生效，请到<b>系统设置 → 键盘 → 查看及自定义快捷键 → 自定义快捷键</b>绑定 <b>Super+V</b> → 命令 <code>umanager --toggle-clipboard-panel</code>（由 GNOME 调用本应用）。快捷面板已切换为 XWayland 后端，会定位在右上角托盘旁。</>
-          : <>未识别到 X11/Wayland 会话，全局热键可能不可用；建议用系统自定义快捷键绑定 <code>umanager --toggle-clipboard-panel</code>。</>}</div>}
-      </div>}
-      {error && <div className="message error"><strong>剪贴板操作失败</strong><span>{error}</span></div>}
-      {loading && !entries && <div className="empty-state"><span className="loader"/><p>正在读取剪贴板历史…</p></div>}
-      {entries && entries.length === 0 && <div className="empty-state"><p>还没有记录。复制文本或截图后会自动出现在这里。</p></div>}
-      {entries && entries.length > 0 && visible.length === 0 && <div className="empty-state"><p>没有匹配的记录</p></div>}
-      <div className="clipboard-list">
-        {visible.map((entry) => <div className={`clip-entry ${entry.pinned ? "pinned" : ""}`} key={entry.id}>
-          <div className="clip-entry-meta">
-            <span className="clip-time">{new Date(entry.capturedAtMs).toLocaleString("zh-CN", { hour12: false })}</span>
-            <span className="clip-chars">{entry.kind === "image" ? `${entry.imageWidth ?? 0}×${entry.imageHeight ?? 0} · ${formatBytes(entry.imageByteCount ?? 0)}` : `${entry.charCount ?? 0} 字符`}</span>
-            {entry.kind === "image" && <span className="clip-drag-hint">拖动=发送文件</span>}
-            {entry.pinned && <span className="status-badge upToDate">已置顶</span>}
-          </div>
-          {entry.kind === "image"
-            ? <button className="clip-image-thumb" draggable onDragStart={(event) => { event.preventDefault(); dragOut(entry); }} onClick={() => setPreviewEntry(entry)} title="拖动到聊天窗口或文件管理器即可发送/保存；点击查看大图"><img loading="lazy" decoding="async" draggable={false} src={entry.imagePreview ?? ""} alt="剪贴板图片"/></button>
-            : <pre className="clip-text">{entry.text}</pre>}
-          <div className="clip-actions">
-            <button className="clip-action-primary" disabled={pendingId === entry.id} onClick={() => void copy(entry)}>{copiedId === entry.id ? "已复制 ✓" : entry.kind === "image" ? "复制图片" : "复制"}</button>
-            <div className="clip-action-group">
-              <button className="clip-action-subtle" disabled={pendingId === entry.id} onClick={() => void togglePin(entry)}>{entry.pinned ? "取消置顶" : "置顶"}</button>
-              <button className="clip-action-subtle danger" disabled={pendingId === entry.id} onClick={() => void remove(entry)}>删除</button>
-            </div>
-          </div>
-        </div>)}
-      </div>
-    </section>
-    {previewEntry && <ClipboardImageDialog entry={previewEntry} onClose={() => setPreviewEntry(null)} onCopied={() => setCopiedId(previewEntry.id)}/>}
-  </main>;
-}
-
-function ClipboardImageDialog({ entry, onClose, onCopied }: { entry: ClipboardEntry; onClose: () => void; onCopied: () => void }) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    setSrc(null); setError(null);
-    getClipboardImage(entry.id)
-      .then((dataUrl) => { if (active) setSrc(dataUrl); })
-      .catch((reason) => { if (active) setError(String(reason)); });
-    return () => { active = false; };
-  }, [entry.id]);
-
-  const copyFull = async () => {
-    setError(null);
-    try {
-      await copyClipboardEntry(entry.id);
-      setCopied(true); onCopied();
-      window.setTimeout(() => setCopied(false), 1300);
-    } catch (reason) {
-      setError(String(reason));
-    }
-  };
-
-  const focusRef = useModalFocus<HTMLElement>(onClose, true);
-  return <section className="clip-image-overlay" role="dialog" aria-modal="true" aria-label="剪贴板图片" ref={focusRef} tabIndex={-1}>
-    <div className="clip-image-dialog">
-      <header className="clip-image-head">
-        <div><strong>剪贴板图片</strong><span>{entry.imageWidth ?? 0}×{entry.imageHeight ?? 0} · {formatBytes(entry.imageByteCount ?? 0)}</span></div>
-        <button className="dev-action-button danger-ghost" onClick={onClose}>关闭</button>
-      </header>
-      {error && <div className="message error"><strong>无法加载图片</strong><span>{error}</span></div>}
-      <div className="clip-image-body">{src ? <img src={src} alt="剪贴板图片"/> : <span className="loader"/>}</div>
-      <div className="clip-actions"><button className="dev-action-button" onClick={() => void copyFull()}>{copied ? "已复制 ✓" : "复制图片"}</button></div>
-    </div>
-  </section>;
-}
 
 // ---------------------------------------------------------------------------
 // 「下载」页：后台下载队列的完整视图。安装 / 更新是两阶段的——这里只负责第一阶段
@@ -2576,10 +2394,6 @@ export default function App() {
     setPage("firmware");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
   };
-  const showClipboardPage = () => {
-    setPage("clipboard");
-    setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
-  };
   const showSettingsPage = () => {
     setPage("settings");
     setUpdatePackage(null); setRemovalPackage(null); setInstallOffer(null); setSelectedDevTool(null);
@@ -2680,7 +2494,6 @@ export default function App() {
         <button className={`nav-item ${page === "firmware" ? "active" : ""}`} onClick={showFirmwarePage}><Icon name="shield"/>固件更新</button>
         <button className={`nav-item ${page === "scripts" ? "active" : ""}`} onClick={showScriptsPage}><Icon name="script"/>维护脚本</button>
         <button className={`nav-item ${page === "dev" ? "active" : ""}`} onClick={showDevToolsPage}><Icon name="dev"/>开发环境</button>
-        <button className={`nav-item ${page === "clipboard" ? "active" : ""}`} onClick={showClipboardPage}><Icon name="clipboard"/>剪贴板</button>
       </nav>
       <div className="sidebar-spacer"/>
       <button className={`nav-item settings ${page === "settings" ? "active" : ""}`} onClick={showSettingsPage}><Icon name="settings"/>设置</button>
@@ -2746,7 +2559,7 @@ export default function App() {
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
             : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
-    </main> : page === "tasks" ? <TasksPage snapshot={batchTasks.snapshot} error={batchTasks.error} jobs={downloadJobs} onSnapshot={batchTasks.apply} onRefresh={() => void batchTasks.refresh()} onRetry={(batch) => void openBatchPicker(batch)} onDownloads={showDownloadsPage}/> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "firmware" ? <FirmwarePage/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : page === "clipboard" ? <ClipboardPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
+    </main> : page === "tasks" ? <TasksPage snapshot={batchTasks.snapshot} error={batchTasks.error} jobs={downloadJobs} onSnapshot={batchTasks.apply} onRefresh={() => void batchTasks.refresh()} onRetry={(batch) => void openBatchPicker(batch)} onDownloads={showDownloadsPage}/> : page === "downloads" ? <DownloadsPage jobs={downloadJobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/> : page === "firmware" ? <FirmwarePage/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {batchPicker && <BatchUpdatePicker candidates={batchPicker.candidates} skipped={batchPicker.skipped} onClose={() => setBatchPicker(null)} onStarted={(snapshot) => { batchTasks.apply(snapshot); setBatchPicker(null); setPage("tasks"); }}/> }
     {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
