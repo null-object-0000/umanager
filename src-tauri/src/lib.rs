@@ -1,3 +1,4 @@
+pub mod archive_launcher;
 mod user_archive;
 mod zip_deb;
 mod background;

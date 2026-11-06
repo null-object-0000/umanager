@@ -180,6 +180,12 @@ Ubuntu 启用非特权用户命名空间限制时，直接从桌面或托盘启�
 
 未启用该限制的系统不修改策略。配置失败会让 `.deb` 安装明确报错，可修复 AppArmor 后执行 `sudo dpkg --configure u-manager` 重试。规则保留原有管理员自定义文件；本地覆盖放在 `/etc/apparmor.d/local/umanager-antigravity-app`、`/etc/apparmor.d/local/umanager-antigravity-ide`。卸载 UManager 时保留规则，避免影响仍保留的 Antigravity；便携运行或源码开发不会自动配置系统规则。
 
+### Antigravity 启动代理与 Dock 图标（v0.17.2）
+
+App、IDE 的桌面入口通过独立的普通用户启动适配器运行，副本保存在 `~/.local/share/umanager/bin/`；不经过 UManager 窗口或单实例逻辑，卸载 UManager 后也能继续启动已安装的应用。每次启动优先保留显式 HTTP/HTTPS 代理环境，其次读取 UManager 已启用的网络代理，最后读取 GNOME 手动 HTTP/HTTPS 系统代理。不会写死 `7890`，不会更改系统代理、节点或全局环境；保留已有 `NO_PROXY` 并补入 `localhost`、`127.0.0.1`、`::1`，确保本地界面直连。自动 PAC 和仅配置在系统中的 SOCKS 代理不转换为环境变量，可在 UManager 中显式填写代理地址。
+
+首次打开新版 UManager 会更新已安装 Antigravity 的受管启动入口，之后安装、更新都使用同样的入口。另生成隐藏的产品 ID 匹配入口与 `StartupWMClass`，让 Dock 正确关联归档内的官方图标；应用菜单不增加重复项。保留同名第三方入口，卸载只删除 UManager 自己的匹配入口。不会改写厂商程序或个人登录数据。
+
 ### Antigravity App、CLI 与 IDE
 
 三个产品分别管理，版本与更新日志各自从官方来源采集并签名发布，详情页可查看对应产品、对应版本的说明与官网日志链接。App 和 IDE 使用用户目录 tar.gz 安装流程；IDE 读取 `product.json` 的 `ideVersion`，不把基础编辑器版本当成产品版本。IDE 的 `tarGzV2` 元数据需要包含产品版本校验支持的新客户端，旧客户端会拒绝自动安装。

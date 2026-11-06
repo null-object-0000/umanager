@@ -39,7 +39,7 @@ fn safe_id(id: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
-fn home() -> Result<PathBuf, String> {
+pub(crate) fn home() -> Result<PathBuf, String> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("无法确定用户目录")?);
     let uid = fs::metadata("/proc/self").map_err(err)?.uid();
     let meta = fs::symlink_metadata(&home).map_err(err)?;
@@ -49,7 +49,7 @@ fn home() -> Result<PathBuf, String> {
     Ok(home)
 }
 // Reject symlinks in all managed path ancestors, including XDG directories.
-fn check_path(home: &Path, path: &Path) -> Result<(), String> {
+pub(crate) fn check_path(home: &Path, path: &Path) -> Result<(), String> {
     let relative = path.strip_prefix(home).map_err(|_| "路径不在用户目录内")?;
     let uid = fs::metadata(home).map_err(err)?.uid();
     let mut cursor = home.to_path_buf();
@@ -597,6 +597,7 @@ pub async fn execute_archive_operation(
             return Err("卸载目标与安装记录不一致".into());
         }
         // Never remove vendor data outside this dedicated UManager app root.
+        crate::archive_launcher::remove_icon_alias(&home, &application.application_id)?;
         if target.exists() {
             fs::remove_file(target).map_err(err)?;
         }
@@ -609,6 +610,7 @@ pub async fn execute_archive_operation(
     }
     let input = PathBuf::from(verified.plan.target_path);
     tauri::async_runtime::spawn_blocking(move || {
+        crate::archive_launcher::ensure_installed(&home, &application.application_id)?;
         install(&home, &root, &target, &application, &input, &plan.payload)
     })
     .await
@@ -633,7 +635,7 @@ fn validate_desktop(home: &Path, app: &Application) -> Result<(), String> {
     }
 }
 
-fn atomic_write(home: &Path, path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_write(home: &Path, path: &Path, bytes: &[u8]) -> Result<(), String> {
     check_path(home, path)?;
     let temp = path.with_extension("umanager-new");
     check_path(home, &temp)?;
@@ -745,6 +747,7 @@ fn install(
             desktop_quote(&destination.join(executable))?,
             app.application_id
         );
+        let text = crate::archive_launcher::prepare_desktop(home, &text, &app.application_id)?;
         fs::create_dir_all(desktop.parent().ok_or("启动项目录无效")?).map_err(err)?;
         let previous_desktop = fs::read(desktop).ok();
         atomic_write(home, desktop, text.as_bytes())?;
@@ -766,6 +769,11 @@ fn install(
                 Ok(()) => error,
                 Err(rollback) => format!("{error}；启动项回滚失败：{rollback}"),
             });
+        }
+        if let Err(error) =
+            crate::archive_launcher::sync_icon_alias(home, &app.application_id, &text)
+        {
+            eprintln!("桌面图标关联：{error}");
         }
         // Keep previous versions: running processes may still need their resources.
         Ok(())
@@ -910,7 +918,7 @@ mod tests {
         assert!(
             fs::read_to_string(desktop)
                 .unwrap()
-                .contains(&desktop_quote(&executable).unwrap())
+                .contains("--launch-antigravity antigravity\n")
         );
         fs::remove_dir_all(home).unwrap();
     }

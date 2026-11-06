@@ -1,6 +1,6 @@
 [package]
 name = "umanager"
-version = "0.17.1"
+version = "0.17.2"
 description = "A read-only first Ubuntu manager for vendor .deb applications"
 authors = ["UManager contributors"]
 edition = "2024"
@@ -36,3 +36,5 @@ url = "2"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
 serde_json = "1"
+
+umanager-launcher = { path = "../crates/umanager-launcher" }

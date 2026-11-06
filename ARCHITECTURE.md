@@ -338,3 +338,9 @@ Antigravity 三条产品线的日志页面虽使用不同 `tab` 参数，HTML �
 `tarGzV2` 是 `TarGz` 的兼容别名，允许签名目录指定归档内产品版本文件与字段（`versionPath` / `versionField`），新客户端规范化为现有 tar.gz UI 类型；旧客户端按 Unknown 拒绝安装。IDE 使用 `resources/app/product.json` 的 `ideVersion`，其包内 `package.json.version` 是基础编辑器版本，不能用于产品版本校验。
 
 Antigravity 的 AppArmor 兼容策略由 UManager DEB 的 `packaging/postinst` 在 `configure` 阶段调用独立、root-only 的 `/usr/libexec/umanager-apparmor configure` 安装，既有计划 helper 与下载队列不增加特权入口。策略编译进该程序，固定覆盖 App/IDE 的用户目录、产品主程序及恰好 64 位十六进制版本目录；只授予 `userns`，不改 sysctl、沙箱参数或 setuid。检测到活动的命名空间限制后，先检查 root 策略目录与文件、拒绝自定义文件和链接、对两个暂存策略执行固定 argv 的 `apparmor_parser -Q -K`，全部通过后原子替换并 `-r -K` 加载。重复 configure 幂等；验证失败不替换文件，加载失败使 dpkg configure 失败且允许重试。旧系统无活动限制时不写入不兼容语法。策略跨 Antigravity 版本生效，并在卸载 UManager 后保留以支持独立安装的应用。
+
+`crates/umanager-launcher` 是独立的无特权 Rust 启动程序（不链接 Tauri），随 DEB 安装到 `/usr/libexec/umanager-antigravity-launcher`。`archive_launcher.rs` 在安装归档或打开新版 UManager 时，将已编译程序原子复制到当前用户的 `~/.local/share/umanager/bin/`，随后同步旧受管桌面入口；UManager 被卸载后，用户副本和已安装应用仍能独立启动。不会执行 tar.gz 内的安装脚本。
+
+启动程序只接受 `--launch-antigravity <固定产品 ID>`，从当前用户固定受管目录读取有大小限制的 installed.json，校验 64 位十六进制摘要、路径所有权并拒绝符号链接，再以 CommandExt::exec 启动 App/IDE 的固定主程序。参数不接受任意程序路径或额外 Chromium 开关；没有 shell、特权入口、网络请求或元数据抓取。代理优先级为已有环境 → UManager network.json → GNOME 手动代理；gsettings 使用固定路径和 argv，本地回环始终合并进 NO_PROXY。
+
+安装和迁移使用同一个桌面入口生成器。图标关联通过 `<产品 ID>.desktop` 的 NoDisplay 隐藏别名及 StartupWMClass 完成，保留 umanager-* 原入口，不修改签名归档。匹配入口随安装版本更新图标路径，删除时检查受管标记，同名第三方文件不覆盖。迁移无特权、可重复执行，启动不经过 UManager GUI 或单实例插件。
