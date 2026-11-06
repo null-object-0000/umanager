@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+# dpkg already runs this hook as root. No desktop-supplied paths or arguments.
+case "${1:-}" in
+    configure)
+        exec /usr/libexec/umanager-apparmor configure
+        ;;
+esac

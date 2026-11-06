@@ -12,3 +12,8 @@ serde_json = "1"
 sha2 = "0.10"
 umanager-catalog = { path = "../umanager-catalog" }
 umanager-plan = { path = "../umanager-plan" }
+
+# Invoked only by the UManager DEB's postinst, never by the download queue.
+[[bin]]
+name = "umanager-apparmor"
+path = "src/apparmor_main.rs"

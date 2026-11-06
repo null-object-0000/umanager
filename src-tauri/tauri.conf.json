@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "UManager",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "identifier": "io.github.umanager.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -49,8 +49,10 @@
     "linux": {
       "deb": {
         "desktopTemplate": "../packaging/UManager.desktop.hbs",
+        "postInstallScript": "../packaging/postinst",
         "files": {
           "/usr/libexec/umanager-helper": "../crates/umanager-helper/target/release/umanager-helper",
+          "/usr/libexec/umanager-apparmor": "../crates/umanager-helper/target/release/umanager-apparmor",
           "/usr/share/polkit-1/actions/io.github.umanager.install-verified-deb.policy": "../packaging/io.github.umanager.install-verified-deb.policy"
         }
       }

@@ -172,7 +172,13 @@ Google Antigravity 使用官网新版 Linux x64 tar.gz（Antigravity App），�
 
 tar.gz 与 `.deb` 共用软件详情页、下载进度与安装入口。在详情中点击「获取」下载，完成后点击「安装」复核并锁定计划，核对目录和版本，再点击「确认安装」。安装在 `~/.local/share/umanager/apps/antigravity/`，桌面启动项位于 `~/.local/share/applications/umanager-antigravity.desktop`。全程以普通用户执行，无需 Polkit，不运行归档内的安装脚本。更新、启动和卸载也在软件商店管理；旧版本保留到卸载，以免影响正在运行的程序，卸载保留应用个人数据。
 
-此能力需要包含 `tarGz` 支持的新版 UManager，并等待 CI 发布新版签名 feed；旧客户端会把该来源识别为不支持。它不参与 `.deb` 批量更新，也不接管自行解压或旧 APT 安装的 Antigravity。官方应用自身的系统依赖与 Electron 沙箱要求仍需满足，UManager 不关闭沙箱或更改系统安全策略。
+此能力需要包含 `tarGz` 支持的新版 UManager，并等待 CI 发布新版签名 feed；旧客户端会把该来源识别为不支持。它不参与 `.deb` 批量更新，也不接管自行解压或旧 APT 安装的 Antigravity。官方应用自身的系统依赖仍需满足；Electron 沙箱的 AppArmor 兼容处理见下文。
+
+### Antigravity AppArmor 兼容修复（v0.17.1）
+
+Ubuntu 启用非特权用户命名空间限制时，直接从桌面或托盘启动 Antigravity 可能被 AppArmor 阻止。安装或升级 UManager 的 `.deb` 时，会在已有管理员授权中自动安装并加载 App、IDE 的专用规则；规则匹配 UManager 管理目录下的主程序与 64 位 SHA-256 版本目录，后续安装、更新 Antigravity 无需重复授权或修复。只允许 Chromium 沙箱需要的 `userns`，不关闭沙箱、不关闭全局限制、不给 `chrome-sandbox` 设置 setuid。CLI 不需要此规则。
+
+未启用该限制的系统不修改策略。配置失败会让 `.deb` 安装明确报错，可修复 AppArmor 后执行 `sudo dpkg --configure u-manager` 重试。规则保留原有管理员自定义文件；本地覆盖放在 `/etc/apparmor.d/local/umanager-antigravity-app`、`/etc/apparmor.d/local/umanager-antigravity-ide`。卸载 UManager 时保留规则，避免影响仍保留的 Antigravity；便携运行或源码开发不会自动配置系统规则。
 
 ### Antigravity App、CLI 与 IDE
 

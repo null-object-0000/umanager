@@ -1,0 +1,9 @@
+# UManager managed AppArmor profile v1. Use local/umanager-antigravity-ide for local overrides.
+# Only the known Antigravity executable in UManager's SHA-256 version directories.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile umanager-antigravity-ide "@{HOME}/.local/share/umanager/apps/antigravity-ide/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/Antigravity IDE/antigravity-ide" flags=(unconfined) {
+  userns,
+  include if exists <local/umanager-antigravity-ide>
+}
