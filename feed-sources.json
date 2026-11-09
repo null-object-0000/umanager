@@ -1125,7 +1125,7 @@
       "displayName": "DeepSeek Harness",
       "vendor": "DeepSeek",
       "architecture": "amd64",
-      "description": "DeepSeek Harness（dsh）的桌面客户端 Linux 构建：agent 工作区、插件、终端与文件编辑，跟随官方 release 版本。由社区打包，非官方发行。",
+      "description": "DeepSeek Harness（dsh）的桌面客户端 Linux 构建：agent 工作区、插件、终端与文件编辑，跟随官方 release 版本。由社区打包，非官方发行；图片粘贴与上传已适配 Linux。",
       "homepage": "https://github.com/deepseek-ai/deepseek-harness",
       "icon": "deepseek-harness",
       "accentColor": "#4d6bfe",
