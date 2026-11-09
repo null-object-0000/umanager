@@ -118,12 +118,18 @@ export function selectReleaseNotesRelease(payload, tagPrefix) {
  * "latest" can point at a release candidate. When no exact tag matches, fall
  * back to the first non-draft, non-prerelease release under the prefix.
  *
+ * `requireExactVersion` drops that fallback: a tool whose GitHub Releases lag
+ * npm (vibe-usage publishes 0.14.x on npm while its last release is v0.10.21)
+ * must not show an older release's notes under a newer version. Such a tool
+ * gets notes again automatically once the matching release is published.
+ *
  * @param {unknown} payload
  * @param {string} [tagPrefix]
  * @param {string} [version]
+ * @param {{ requireExactVersion?: boolean }} [options]
  * @returns {object|null}
  */
-export function selectToolRelease(payload, tagPrefix, version) {
+export function selectToolRelease(payload, tagPrefix, version, options = {}) {
   const releases = Array.isArray(payload) ? payload : [payload];
   const prefix = tagPrefix || "";
   const targetTag = version ? `${prefix}${version}` : "";
@@ -135,6 +141,7 @@ export function selectToolRelease(payload, tagPrefix, version) {
     );
     if (exact) return exact;
   }
+  if (options.requireExactVersion) return null;
   return (
     releases.find((release) => {
       if (!release || typeof release !== "object") return false;

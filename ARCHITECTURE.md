@@ -229,7 +229,7 @@ npm run update-feed
 | Hermes Agent | —（git/Python） | 官方脚本 `https://hermes-agent.nousresearch.com/install.sh`，更新 `hermes update`、卸载 `hermes uninstall --yes` | `hermes` |
 | Vibe Usage | `@vibe-cafe/vibe-usage` | npm 全局 | `vibe-usage` |
 
-Vibe Usage 的 GitHub Releases 长期滞后于 npm（release 停在 v0.10.x，npm 已到 0.14.x），而 `selectToolRelease` 在找不到精确 tag 时会回退到最新 release，会把旧版本说明挂到新版本上，因此刻意不为它配置 `toolReleaseNotesOverrides`（无更新日志好过错误日志）。
+Vibe Usage 的 GitHub Releases 滞后于 npm（当前 release 停在 v0.10.21，npm 已到 0.14.x），因此它的 `toolReleaseNotesOverrides` 额外设置 `requireExactVersion: true`：feed 生成器只在存在与该版本精确对应的 release 时才附带更新日志，否则留空（`selectToolRelease` 的默认回退「找不到就用最新 release」对其他工具保留，如 Codex）；上游补发 release 后无需改代码即可自动生效。
 
 检测同时识别三种安装来源：npm 全局、官方安装器（`~/.local/bin` / `~/.opencode/bin`）与 PATH 上的可执行文件；最新版本统一从签名 feed 读取（npm 工具走 npm registry，非 npm 工具由 `feed-sources.json` 的 `toolVersionOverrides` 从厂商 GitHub Releases 解析，如 Hermes 从发布标题 `Hermes Agent v0.21.0 …` 提取版本）。`curlScript` 型安装以当前用户身份执行厂商官方域名上的 HTTPS 安装脚本，UManager 只固定 URL 与参数，不接收任意 shell，但无法证明脚本内容与发布者身份。
 

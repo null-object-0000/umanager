@@ -194,6 +194,18 @@ describe("selectToolRelease", () => {
     expect(selectToolRelease(releases, "rust-v", "0.151.0")).toEqual({ tag_name: "rust-v0.152.1", draft: false, prerelease: false });
   });
 
+  it("returns null without an exact tag when requireExactVersion is set", () => {
+    // vibe-usage publishes 0.14.x on npm but its GitHub Releases stop at
+    // v0.10.21: an older release must never be shown under a newer version.
+    const releases = [
+      { tag_name: "v0.10.21", draft: false, prerelease: false },
+      { tag_name: "v0.10.16", draft: false, prerelease: false },
+    ];
+    expect(selectToolRelease(releases, "v", "0.14.9", { requireExactVersion: true })).toBeNull();
+    expect(selectToolRelease(releases, "v", "0.10.21", { requireExactVersion: true }))
+      .toEqual({ tag_name: "v0.10.21", draft: false, prerelease: false });
+  });
+
   it("returns null for empty input", () => {
     expect(selectToolRelease(null, "v", "1.0.0")).toBeNull();
     expect(selectToolRelease([], "v", "1.0.0")).toBeNull();

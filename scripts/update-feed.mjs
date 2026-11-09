@@ -1607,7 +1607,9 @@ function releaseNotesFromSource(source, tool, config, version) {
     if (!releaseNotes && !releaseNotesUrl) return null;
     return { releaseNotes, releaseNotesUrl };
   }
-  const release = selectToolRelease(source.payload, config.tagPrefix, version);
+  const release = selectToolRelease(source.payload, config.tagPrefix, version, {
+    requireExactVersion: config.requireExactVersion === true,
+  });
   if (!release) return null;
   const releaseNotesUrl =
     typeof release.html_url === "string" && /^https:\/\//.test(release.html_url)
