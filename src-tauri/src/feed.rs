@@ -489,7 +489,11 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
             let may_spawn = guard
                 .last_background_refresh_unix_seconds
                 .is_none_or(|last| now.saturating_sub(last) >= BACKGROUND_REFRESH_BACKOFF.as_secs());
-            let spawn = (stale || missing_sources > 0) && may_spawn;
+            // During a cold fetch the thin central is cached before its sources.
+            // Other startup callers must wait for that fetch, otherwise they
+            // observe an empty applications map and report missing versions.
+            let usable = merged_feed_is_usable(&feed);
+            let spawn = usable && (stale || missing_sources > 0) && may_spawn;
             if spawn {
                 guard.last_background_refresh_unix_seconds = Some(now);
             }
@@ -505,7 +509,9 @@ pub async fn load(catalog: &Catalog) -> Result<Feed, String> {
                     }
                 });
             }
-            return Ok(feed);
+            if usable {
+                return Ok(feed);
+            }
         }
     }
 
@@ -2149,6 +2155,39 @@ mod tests {
 
         // A v2 central has no registry, so it never asks for a source refresh.
         assert_eq!(missing_registered_sources(&test_state(Vec::new()), &test_feed(&[])), 0);
+    }
+
+    #[test]
+    fn concurrent_cold_reader_waits_for_source_fetch() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build().unwrap()
+            .block_on(async {
+                let catalog = Catalog::load().unwrap();
+                let url = config(&catalog).unwrap().url.clone();
+                let mut central = test_feed(&[]);
+                central.sources = vec![test_source_info("common", COMMON_KEY)];
+                let mut state = test_state(Vec::new());
+                state.cache.insert(url, CachedFeed {
+                    fetched_at_unix_seconds: unix_timestamp_now(),
+                    feed: central,
+                });
+                let previous = std::mem::replace(&mut *state_lock().lock().unwrap(), state);
+                // Simulate fetch_and_store having cached the central while its
+                // source request is still in flight under the fetch lock.
+                let in_flight = fetch_lock().lock().await;
+                let reader = load(&catalog);
+                tokio::pin!(reader);
+                let premature = tokio::time::timeout(Duration::from_millis(25), &mut reader).await;
+                state_lock().lock().unwrap().sources.insert(
+                    "common".to_owned(), cached_source(COMMON_KEY, &[("vscode", "1.95.0")]),
+                );
+                drop(in_flight);
+                let outcome = reader.await;
+                *state_lock().lock().unwrap() = previous;
+                assert!(premature.is_err(), "reader returned a thin central before source fetch completed");
+                assert_eq!(outcome.unwrap().applications["vscode"].version, "1.95.0");
+            });
     }
 
     /// A v3 central carries no applications of its own, so an empty merged map

@@ -59,6 +59,18 @@ pub struct ScanResult {
     pub(crate) warnings: Vec<String>,
 }
 
+/// Detect the installed UManager package even when this process is a portable
+/// or development binary. Executable ownership only controls self-removal; it
+/// must not hide an installed package from update checks.
+pub(crate) fn catalog_with_self_update(mut catalog: Catalog) -> Catalog {
+    if let Some(source) = catalog.self_update_source()
+        && !catalog.applications.iter().any(|app| app.package_name == source.package_name)
+    {
+        catalog.applications.push(source.to_application());
+    }
+    catalog
+}
+
 /// Lists which managed applications are installed locally. Candidate versions,
 /// update state and the official source URL are no longer resolved here — the
 /// caller fills them from the central metadata feed.
@@ -212,6 +224,22 @@ fn unix_timestamp_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_installed_self_update_without_executable_ownership() {
+        let catalog = catalog_with_self_update(Catalog::load().unwrap());
+        let catalog = catalog_with_self_update(catalog);
+        let packages = managed_packages(&catalog, concat!(
+            "u-manager\t0.14.2\tamd64\tinstall ok installed\t\n",
+            "code\t1.134.0-1\tamd64\tinstall ok installed\t\n",
+        ));
+        let own: Vec<_> = packages.iter().filter(|p| p.package_name == "u-manager").collect();
+        assert_eq!(own.len(), 1);
+        assert_eq!(own[0].installed_version, "0.14.2");
+        assert_eq!(own[0].display_name, "UManager");
+        assert!(managed_packages(&catalog, "u-manager\t0.14.2\tamd64\tdeinstall ok config-files\t\n").is_empty());
+        assert!(managed_packages(&catalog, "").is_empty());
+    }
 
     #[test]
     fn parses_installed_packages_and_ignores_other_states() {

@@ -47,7 +47,7 @@ pub(crate) fn require_application(catalog: &Catalog, application_id: &str) -> Re
 
 #[tauri::command]
 async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, String> {
-    let catalog = feed::effective_catalog().await?;
+    let catalog = scanner::catalog_with_self_update(feed::effective_catalog().await?);
     let scan_catalog = catalog.clone();
     let mut result = tauri::async_runtime::spawn_blocking(move || scanner::scan(&scan_catalog))
         .await
@@ -92,48 +92,6 @@ async fn scan_packages(app: tauri::AppHandle) -> Result<scanner::ScanResult, Str
         }
     }
 
-    // UManager itself is a managed package too: surface it in the store so its
-    // self-update goes through the same "软件 / 更新" flow as every other app.
-    if let Some(self_app) = catalog
-        .self_update_source()
-        .map(umanager_catalog::SelfUpdateSource::to_application)
-    {
-        let detected = tauri::async_runtime::spawn_blocking(installation::detect)
-            .await
-            .ok()
-            .and_then(|outcome| outcome.ok());
-        if let Some(info) = detected.filter(|info| info.can_self_remove) {
-            if !result
-                .packages
-                .iter()
-                .any(|item| item.package_name == self_app.package_name)
-            {
-                match source_engine::load_details(&self_app, &cache_dir).await {
-                    Ok(details) => {
-                        result.packages.push(scanner::ManagedPackage {
-                            package_name: self_app.package_name.clone(),
-                            display_name: self_app.display_name.clone(),
-                            vendor: self_app.vendor.clone(),
-                            installed_version: info.package_version.unwrap_or_default(),
-                            candidate_version: details.candidate_version.clone(),
-                            architecture: self_app.architecture.clone(),
-                            source_kind: details.source_kind,
-                            source_url: Some(details.source_url.clone()),
-                            update_state: details.update_state,
-                            homepage: self_app.homepage.clone(),
-                            version_updated_at_unix_seconds: details
-                                .version_updated_at_unix_seconds,
-                            version_updated_at_source: details.version_updated_at_source,
-                        });
-                        result
-                            .packages
-                            .sort_by(|left, right| left.display_name.cmp(&right.display_name));
-                    }
-                    Err(error) => result.warnings.push(format!("UManager 更新检查失败：{error}")),
-                }
-            }
-        }
-    }
     Ok(result)
 }
 

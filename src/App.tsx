@@ -1946,9 +1946,10 @@ export default function App() {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
+  const updateCheckRef = useRef(false);
   const refresh = async () => {
     setScanning(true); setError(null);
-    try { setResult(await scanPackages()); } catch (reason) { setError(String(reason)); } finally { setScanning(false); }
+    try { setResult(await scanPackages()); } catch (reason) { setError(String(reason)); } finally { if (!updateCheckRef.current) setScanning(false); }
   };
   const batchTasks = useBatchTasks(() => { void refresh(); });
   const [batchPicker, setBatchPicker] = useState<{ candidates: BatchCandidate[]; skipped: number } | null>(null);
@@ -2190,7 +2191,26 @@ export default function App() {
       setInstallOffer(deb.offer);
     }
   };
-  const refreshAll = () => { void refresh(); void refreshInstallable(); void loadDevTools(); void loadCategories(); void loadWindowsState(); };
+  const refreshAll = async () => {
+    if (updateCheckRef.current) return;
+    updateCheckRef.current = true;
+    setScanning(true); setError(null);
+    try {
+      // Manual checks must finish refreshing the signed feed before any reader
+      // scans candidates. The normal read path intentionally serves cached data.
+      const status = await refreshFeed();
+      await Promise.all([
+        refresh(), refreshInstallable(), loadDevTools(), loadWindowsState(),
+        getCategories().then(setCategoryCatalog).catch(() => setCategoryCatalog(null)),
+      ]);
+      if (status.lastError) setError(`软件信息源刷新失败：${status.lastError}`);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      updateCheckRef.current = false;
+      setScanning(false);
+    }
+  };
   const handleWindowsAction = (action: WindowsRowAction, settingsOverride?: WindowsSettings) => {
     if (windowsBusy || windowsPlan || windowsState?.busy) {
       // 下载/校验期间会持续数分钟，再点一次不是错误，只是当前操作还没结束。
