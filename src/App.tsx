@@ -48,6 +48,7 @@ import dshIcon from "./assets/app-icons/dsh.svg?no-inline";
 import hermesIcon from "./assets/app-icons/hermes.png";
 import uvIcon from "./assets/app-icons/uv.svg?no-inline";
 import pnpmIcon from "./assets/app-icons/pnpm.svg?no-inline";
+import vibeUsageIcon from "./assets/app-icons/vibe-usage.svg?no-inline";
 import wineIcon from "./assets/app-icons/wine.svg?no-inline";
 import wecomIcon from "./assets/app-icons/wecom.png";
 import feishuIcon from "./assets/app-icons/feishu.png";
@@ -57,7 +58,7 @@ import umanagerLogo from "./assets/umanager-logo.png";
 type Filter = "all" | "installed" | "updates" | "installable";
 type Page = "tasks" | "firmware" | "installed" | "updates" | "downloads" | "dev" | "scripts" | "settings";
 const sourceText = { officialRepository: "官方 APT 仓库", officialWebsite: "官网直连", localPackage: "本地 .deb" } as const;
-const iconAssets: Record<string, string> = { antigravity: antigravityIcon, vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
+const iconAssets: Record<string, string> = { antigravity: antigravityIcon, vscode: vscodeIcon, "google-chrome": chromeIcon, chatgpt: chatgptIcon, flclash: flclashIcon, wechat: wechatIcon, wemeet: wemeetIcon, wps: wpsIcon, nodejs: nodejsIcon, rust: rustIcon, claude: claudeIcon, opencode: opencodeIcon, pi: piIcon, codex: codexIcon, dsh: dshIcon, hermes: hermesIcon, uv: uvIcon, pnpm: pnpmIcon, "vibe-usage": vibeUsageIcon, wine: wineIcon, "github-cli": githubCliIcon, feishu: feishuIcon, umanager: umanagerLogo };
 const fallbackIconKey: Record<string, string> = { code: "vscode", "google-chrome-stable": "google-chrome", chatgpt: "chatgpt", flclash: "flclash", wechat: "wechat", wemeet: "wemeet", "wps-office": "wps", "u-manager": "umanager" };
 const fallbackColors: Record<string, string> = { code: "#2b78bd", "google-chrome-stable": "#4285f4", chatgpt: "#171918", flclash: "#7c5ce5", wechat: "#22ad38", wemeet: "#2878ff" };
 

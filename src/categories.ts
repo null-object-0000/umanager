@@ -51,6 +51,7 @@ const FALLBACK_DEV_TOOL_BY_ID: Record<string, string> = {
   hermes: "ai-tools",
   uv: "dev-tools",
   pnpm: "dev-tools",
+  "vibe-usage": "ai-tools",
 };
 
 function categoryLabel(catalog: CategoryCatalog | null, id: string | null | undefined): string {

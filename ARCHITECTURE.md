@@ -227,6 +227,7 @@ npm run update-feed
 | Codex CLI | `@openai/codex` | npm 全局 | `codex` |
 | DeepSeek Harness | `@deepseek-ai/dsh` | npm 全局 | `dsh` |
 | Hermes Agent | —（git/Python） | 官方脚本 `https://hermes-agent.nousresearch.com/install.sh`，更新 `hermes update`、卸载 `hermes uninstall --yes` | `hermes` |
+| Vibe Usage | `@vibe-cafe/vibe-usage` | npm 全局 | `vibe-usage` |
 
 检测同时识别三种安装来源：npm 全局、官方安装器（`~/.local/bin` / `~/.opencode/bin`）与 PATH 上的可执行文件；最新版本统一从签名 feed 读取（npm 工具走 npm registry，非 npm 工具由 `feed-sources.json` 的 `toolVersionOverrides` 从厂商 GitHub Releases 解析，如 Hermes 从发布标题 `Hermes Agent v0.21.0 …` 提取版本）。`curlScript` 型安装以当前用户身份执行厂商官方域名上的 HTTPS 安装脚本，UManager 只固定 URL 与参数，不接收任意 shell，但无法证明脚本内容与发布者身份。
 

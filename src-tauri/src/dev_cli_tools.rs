@@ -1350,7 +1350,7 @@ mod tests {
     #[test]
     fn embedded_tools_are_configured() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 9);
+        assert_eq!(catalog.development_tools.len(), 10);
         assert!(catalog.by_tool_id("antigravity-cli").is_some());
         assert!(catalog.by_tool_id("claude-code").is_some());
         assert!(catalog.by_tool_id("opencode").is_some());
@@ -1360,6 +1360,7 @@ mod tests {
         assert!(catalog.by_tool_id("hermes").is_some());
         assert!(catalog.by_tool_id("uv").is_some());
         assert!(catalog.by_tool_id("pnpm").is_some());
+        assert!(catalog.by_tool_id("vibe-usage").is_some());
     }
 
     #[test]

@@ -77,7 +77,8 @@
       "dsh": "ai-tools",
       "hermes": "ai-tools",
       "uv": "dev-tools",
-      "pnpm": "dev-tools"
+      "pnpm": "dev-tools",
+      "vibe-usage": "ai-tools"
     }
   }
 }

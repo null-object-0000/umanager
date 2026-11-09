@@ -1169,6 +1169,10 @@
     "pnpm": {
       "releaseApiUrl": "https://api.github.com/repos/pnpm/pnpm/releases?per_page=30",
       "tagPrefix": "v"
+    },
+    "vibe-usage": {
+      "releaseApiUrl": "https://api.github.com/repos/vibe-cafe/vibe-usage/releases?per_page=30",
+      "tagPrefix": "v"
     }
   },
   "toolVersionOverrides": {

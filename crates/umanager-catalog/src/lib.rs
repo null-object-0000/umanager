@@ -593,7 +593,7 @@ mod tests {
     #[test]
     fn development_tools_are_configuration_driven() {
         let catalog = Catalog::load().unwrap();
-        assert_eq!(catalog.development_tools.len(), 9);
+        assert_eq!(catalog.development_tools.len(), 10);
         let codex = catalog.by_tool_id("codex").unwrap();
         assert_eq!(codex.binary_name, "codex");
         assert_eq!(codex.npm_package.as_deref(), Some("@openai/codex"));
@@ -646,6 +646,16 @@ mod tests {
             pnpm.update,
             Some(DevToolUpdate::SelfCommand { ref args }) if args == &["self-update".to_owned()]
         ));
+        let vibe_usage = catalog.by_tool_id("vibe-usage").unwrap();
+        assert_eq!(vibe_usage.binary_name, "vibe-usage");
+        assert_eq!(
+            vibe_usage.npm_package.as_deref(),
+            Some("@vibe-cafe/vibe-usage")
+        );
+        assert_eq!(vibe_usage.dist_tag.as_deref(), Some("latest"));
+        assert!(matches!(vibe_usage.installer, DevToolInstaller::Npm));
+        assert!(matches!(vibe_usage.uninstall, DevToolUninstall::Npm));
+        assert!(vibe_usage.update.is_none());
     }
 
     #[test]

@@ -29,7 +29,7 @@ UManager 不内置剪贴板管理能力；请自行安装独立的剪贴板管�
 
 - 运行时工具链：Node.js（nvm）与 Rust（rustup）的检测、安装、切换、卸载，全程无 root；
 - Node.js 每个已安装版本均可展开查看全局 npm 包（包名、版本、安装位置及异常），支持刷新。各版本的全局包独立，切换默认版本不会迁移包；卸载旧版本前可先核对包列表。
-- CLI AI 编程工具：Claude Code、OpenCode、Pi、Codex CLI、DeepSeek Harness、Hermes Agent，识别 npm / 官方安装器 / PATH 来源并安装、更新、卸载。
+- CLI 工具：Claude Code、OpenCode、Pi、Codex CLI、DeepSeek Harness、Hermes Agent 等 AI 编程 CLI，以及 uv、pnpm 与 Vibe Usage（AI 编码工具用量追踪，命令 `vibe-usage`），识别 npm / 官方安装器 / PATH 来源并安装、更新、卸载。
 
 **固件更新**
 
