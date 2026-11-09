@@ -1118,6 +1118,27 @@
         "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
         "allowPrerelease": false
       }
+    },
+    {
+      "applicationId": "deepseek-harness-desktop",
+      "packageName": "deepseek-harness",
+      "displayName": "DeepSeek Harness",
+      "vendor": "DeepSeek",
+      "architecture": "amd64",
+      "description": "DeepSeek Harness（dsh）的桌面客户端 Linux 构建：agent 工作区、插件、终端与文件编辑，跟随官方 release 版本。由社区打包，非官方发行。",
+      "homepage": "https://github.com/deepseek-ai/deepseek-harness",
+      "icon": "deepseek-harness",
+      "accentColor": "#4d6bfe",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/null-object-0000/dsh-desktop/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "deepseek-harness-{tagVersion}-linux-amd64-unsigned.deb",
+        "stripTagPrefix": "dsh-v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": true
+      }
     }
   ],
   "releaseNotesOverrides": {
