@@ -1122,10 +1122,10 @@
     {
       "applicationId": "deepseek-harness-desktop",
       "packageName": "deepseek-harness",
-      "displayName": "DeepSeek Harness",
+      "displayName": "DeepSeek Harness Desktop",
       "vendor": "DeepSeek",
       "architecture": "amd64",
-      "description": "DeepSeek Harness（dsh）的桌面客户端 Linux 构建：agent 工作区、插件、终端与文件编辑，跟随官方 release 版本。由社区打包，非官方发行；图片粘贴与上传已适配 Linux。",
+      "description": "DeepSeek Harness（dsh）的桌面客户端 Linux 构建：agent 工作区、插件、终端与文件编辑，跟随官方 release 版本。由社区打包，非官方发行；图片粘贴与上传已适配 Linux。与同名的 CLI 工具不同，这里是带图形界面的 Desktop 版。",
       "homepage": "https://github.com/deepseek-ai/deepseek-harness",
       "icon": "deepseek-harness",
       "accentColor": "#4d6bfe",
