@@ -47,6 +47,7 @@ on:
     paths:
       - "src-tauri/resources/vendors.json"
       - "feed-sources.json"
+      - "feed-categories.json"
       - "scripts/update-feed.mjs"
       - "scripts/tar-source.mjs"
       - "scripts/antigravity-changelog.mjs"
