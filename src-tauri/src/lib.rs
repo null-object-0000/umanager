@@ -222,7 +222,7 @@ async fn install_dev_tool(
     let progress: dev_cli_tools::DevToolProgressCallback = std::sync::Arc::new(move |payload| {
         let _ = event_app.emit("dev-tool-progress", payload);
     });
-    dev_cli_tools::install(tool_id, progress).await
+    dev_cli_tools::install(&app, tool_id, progress).await
 }
 
 #[tauri::command]
@@ -234,7 +234,7 @@ async fn update_dev_tool(
     let progress: dev_cli_tools::DevToolProgressCallback = std::sync::Arc::new(move |payload| {
         let _ = event_app.emit("dev-tool-progress", payload);
     });
-    dev_cli_tools::update(tool_id, progress).await
+    dev_cli_tools::update(&app, tool_id, progress).await
 }
 
 #[tauri::command]

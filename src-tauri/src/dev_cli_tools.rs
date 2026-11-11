@@ -141,6 +141,7 @@ fn target_version_for(
 }
 
 pub async fn install(
+    app: &AppHandle,
     tool_id: String,
     progress: DevToolProgressCallback,
 ) -> Result<DevToolReport, String> {
@@ -150,9 +151,11 @@ pub async fn install(
     let persisted_channel = selected_channel(&tool.tool_id);
     let feed_entry = feed_tool_entry(&tool).await;
     let target_version = target_version_for(feed_entry.as_ref(), persisted_channel.as_deref());
+    let staging_dir = updater_staging_dir(app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let home = user_home()?;
         let mut command = install_command(&tool, &home, target_version.as_deref())?;
+        apply_staging_environment(&mut command, &staging_dir);
         let output = run_streaming(&mut command, &tool.tool_id, &format!("开始安装 {}（{}）", tool.display_name, installer_label(&tool)), Some(&progress))?;
         verify_installed_version(&tool, &home, feed_entry.as_ref(), target_version.as_deref(), &progress)?;
         operation_finished(&tool.tool_id, &progress, Ok(()));
@@ -168,6 +171,7 @@ pub async fn install(
 }
 
 pub async fn update(
+    app: &AppHandle,
     tool_id: String,
     progress: DevToolProgressCallback,
 ) -> Result<DevToolReport, String> {
@@ -175,9 +179,11 @@ pub async fn update(
     let persisted_channel = selected_channel(&tool.tool_id);
     let feed_entry = feed_tool_entry(&tool).await;
     let target_version = target_version_for(feed_entry.as_ref(), persisted_channel.as_deref());
+    let staging_dir = updater_staging_dir(app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let home = user_home()?;
         let (mut command, label) = update_command(&tool, &home, target_version.as_deref())?;
+        apply_staging_environment(&mut command, &staging_dir);
         let output = run_streaming(&mut command, &tool.tool_id, &format!("开始更新 {}（{}）", tool.display_name, label), Some(&progress))?;
         verify_installed_version(&tool, &home, feed_entry.as_ref(), target_version.as_deref(), &progress)?;
         operation_finished(&tool.tool_id, &progress, Ok(()));
@@ -1077,6 +1083,30 @@ fn apply_proxy_environment(command: &mut Command) {
     }
 }
 
+/// Vendor installers stage downloads in `$TMPDIR` (Codex's `install.sh` uses
+/// `mktemp -d` and then `tar -xzf` there). On Ubuntu `/tmp` is a tmpfs with a
+/// per-user quota, so a nearly full `/tmp` makes those installers fail with
+/// `curl: (23) Failure writing output to destination` even though the download
+/// host is reachable. Point the vendors at the app cache dir instead: it lives
+/// on the same disk as the final install, so a successful update is never
+/// blocked by tmpfs headroom. Created lazily; a failure to create it leaves the
+/// inherited `TMPDIR` untouched rather than aborting the operation.
+fn updater_staging_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法确定 UManager 缓存目录：{error}"))?;
+    let staging_dir = cache_dir.join("tool-staging");
+    std::fs::create_dir_all(&staging_dir)
+        .map_err(|error| format!("无法创建工具暂存目录：{error}"))?;
+    Ok(staging_dir)
+}
+
+/// Point a vendor installer/self-updater at the disk-backed staging dir.
+fn apply_staging_environment(command: &mut Command, staging_dir: &Path) {
+    command.env("TMPDIR", staging_dir);
+}
+
 fn user_home() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -1263,6 +1293,39 @@ mod tests {
         assert!(args.contains(".local/bin/agy"));
         assert!(!args.contains(".config"));
         assert!(!args.contains("antigravity-app"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn installer_and_self_update_stage_in_the_app_cache_dir_not_tmp() {
+        // Regression: Codex's `install.sh` stages its tarball under `$TMPDIR`.
+        // Ubuntu's `/tmp` is a tmpfs with a per-user quota, so a full `/tmp`
+        // made the updater die with `curl: (23) Failure writing output to
+        // destination` even with a healthy network. Every install/update
+        // command must therefore carry an explicit disk-backed TMPDIR.
+        let tool = Catalog::load().unwrap().by_tool_id("codex").unwrap().clone();
+        let root = std::env::temp_dir().join(format!("umanager-staging-env-test-{}", std::process::id()));
+        let staging = root.join("tool-staging");
+        std::fs::create_dir_all(root.join(".local/bin")).unwrap();
+        std::fs::write(root.join(".local/bin/codex"), b"test binary; never executed").unwrap();
+
+        let (mut update, _) = update_command(&tool, &root, Some("0.167.1")).unwrap();
+        apply_staging_environment(&mut update, &staging);
+        assert_eq!(
+            update.get_envs().find(|(key, _)| *key == "TMPDIR").and_then(|(_, value)| value),
+            Some(std::ffi::OsStr::new(staging.as_os_str())),
+            "self-update must stage in the disk-backed app cache dir"
+        );
+        assert_eq!(update.get_args().collect::<Vec<_>>(), ["update"]);
+
+        let mut install = install_command(&tool, &root, Some("0.167.1")).unwrap();
+        apply_staging_environment(&mut install, &staging);
+        assert_eq!(
+            install.get_envs().find(|(key, _)| *key == "TMPDIR").and_then(|(_, value)| value),
+            Some(std::ffi::OsStr::new(staging.as_os_str())),
+            "npm install must not inherit a quota-limited /tmp either"
+        );
+
         std::fs::remove_dir_all(root).unwrap();
     }
 
