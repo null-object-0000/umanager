@@ -611,22 +611,18 @@ fn chat_completions_url(base_url: &str) -> Result<String, String> {
     }
 }
 
-/// Only `https://` endpoints are trusted in general. `http://` is allowed only
-/// for loopback hosts (Ollama / vLLM running locally), where the API key — if
-/// any — never leaves the machine over the network.
+/// LLM 服务地址允许 `http://` 与 `https://`，且 `http://` 不限于本机。
+///
+/// 用户可能把 OpenAI 兼容服务部署在内网机器、自建 New API / LiteLLM 网关或
+/// 局域网中转站上，这些地址常常只有 `http://`（没有 TLS 终止或使用私有网络）。
+/// 因此这里只拒绝「不是 http/https 的协议」（`file://`、`ftp://` 等），
+/// 不再按主机名限制明文地址：服务地址由用户自己填写、凭据只发往该地址，
+/// 是否使用 TLS 由用户的部署环境决定，而不是由 App 强制。
 fn ensure_safe_endpoint(url: &reqwest::Url) -> Result<(), String> {
-    let scheme = url.scheme();
-    if scheme == "https" {
+    if matches!(url.scheme(), "http" | "https") {
         return Ok(());
     }
-    if scheme == "http"
-        && url
-            .host_str()
-            .is_some_and(|host| host == "localhost" || host == "::1" || host.starts_with("127."))
-    {
-        return Ok(());
-    }
-    Err("LLM 服务地址必须为 https://（本地服务可使用 http://localhost 或 http://127.0.0.1）".to_owned())
+    Err("LLM 服务地址必须为 http:// 或 https://".to_owned())
 }
 
 fn build_client() -> Result<reqwest::Client, String> {
@@ -694,12 +690,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn safe_endpoints_accept_https_and_loopback_http() {
+    fn safe_endpoints_accept_any_http_or_https_host() {
+        // https 任意主机。
         assert!(ensure_safe_endpoint(&reqwest::Url::parse("https://api.deepseek.com/v1").unwrap()).is_ok());
+        assert!(ensure_safe_endpoint(&reqwest::Url::parse("https://relay.example.com/v1").unwrap()).is_ok());
+        // 本机回环 http（Ollama / vLLM）。
         assert!(ensure_safe_endpoint(&reqwest::Url::parse("http://localhost:11434/v1").unwrap()).is_ok());
         assert!(ensure_safe_endpoint(&reqwest::Url::parse("http://127.0.0.1:8000/v1").unwrap()).is_ok());
-        assert!(ensure_safe_endpoint(&reqwest::Url::parse("http://example.com/v1").unwrap()).is_err());
+        assert!(ensure_safe_endpoint(&reqwest::Url::parse("http://[::1]:8000/v1").unwrap()).is_ok());
+        // 非本机 http 同样允许：内网服务、自建网关、局域网中转站。
+        assert!(ensure_safe_endpoint(&reqwest::Url::parse("http://192.168.1.50:8080/v1").unwrap()).is_ok());
+        assert!(ensure_safe_endpoint(&reqwest::Url::parse("http://10.0.0.2:8000/v1").unwrap()).is_ok());
+        assert!(ensure_safe_endpoint(&reqwest::Url::parse("http://example.com/v1").unwrap()).is_ok());
+        // 只拒绝既不是 http 也不是 https 的协议。
         assert!(ensure_safe_endpoint(&reqwest::Url::parse("ftp://example.com").unwrap()).is_err());
+        assert!(ensure_safe_endpoint(&reqwest::Url::parse("file:///etc/passwd").unwrap()).is_err());
+    }
+
+    #[test]
+    fn chat_completions_url_keeps_plain_http_scheme() {
+        // 非 https 地址原样保留 scheme，不被改写成 https。
+        assert_eq!(
+            chat_completions_url("http://192.168.1.50:8080/v1").unwrap(),
+            "http://192.168.1.50:8080/v1/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url("http://relay.example.com/v1/").unwrap(),
+            "http://relay.example.com/v1/chat/completions"
+        );
+        // 已带 /chat/completions 时不重复追加。
+        assert_eq!(
+            chat_completions_url("http://192.168.1.50:8080/v1/chat/completions").unwrap(),
+            "http://192.168.1.50:8080/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn sanitize_accepts_remote_plain_http_endpoint() {
+        // 保存配置时也不再拦截非本机 http 地址。
+        let settings = LlmSettings {
+            enabled: true,
+            base_url: "http://192.168.1.50:8080/v1".to_owned(),
+            api_key: "sk-test".to_owned(),
+            model: "deepseek-chat".to_owned(),
+        };
+        let sanitized = sanitize(settings).expect("remote http endpoint is accepted");
+        assert_eq!(sanitized.base_url, "http://192.168.1.50:8080/v1");
     }
 
     #[test]
@@ -898,11 +934,22 @@ mod tests {
     /// 极简假服务，返回 `(base_url, 命中次数)`。`summary_fails` 为真时对总结请求
     /// 返回 HTTP 500，用于验证「总结失败不影响译文」。
     fn spawn_mock_llm(summary_fails: bool) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        spawn_mock_llm_on("127.0.0.1", summary_fails)
+    }
+
+    /// 与 `spawn_mock_llm` 相同，但可指定监听地址。
+    ///
+    /// 用于「LLM 上游是非 loopback 的 http 地址」这类回归测试：绑定到本机网卡的真实
+    /// IPv4（而不是 127.0.0.1），从而证明非本机明文地址也能完成真实请求。
+    fn spawn_mock_llm_on(
+        bind_host: &str,
+        summary_fails: bool,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
         use std::io::{BufRead, BufReader, Read, Write};
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
 
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock llm");
+        let listener = std::net::TcpListener::bind((bind_host, 0)).expect("bind mock llm");
         let port = listener.local_addr().unwrap().port();
         let hits = Arc::new(AtomicUsize::new(0));
         let counter = hits.clone();
@@ -946,7 +993,7 @@ mod tests {
             }
         });
 
-        (format!("http://127.0.0.1:{port}/v1"), hits)
+        (format!("http://{bind_host}:{port}/v1"), hits)
     }
 
     fn sse_response(chunks: &[&str]) -> String {
@@ -1046,6 +1093,75 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 4);
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// 本机能枚举到的非 loopback 私有 IPv4（模拟内网机器）；拿不到时返回 None，
+    /// 用例自行回退，保证只有 loopback 的环境（容器/CI）不会失败。
+    fn non_loopback_private_ipv4() -> Option<String> {
+        let output = std::process::Command::new("hostname").arg("-I").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .find(|candidate| {
+                let mut parts = candidate.split('.');
+                let (Some(a), Some(b), Some(_c), Some(_d)) = (parts.next(), parts.next(), parts.next(), parts.next())
+                else {
+                    return false;
+                };
+                let Ok(a) = a.parse::<u8>() else { return false };
+                let Ok(b) = b.parse::<u8>() else { return false };
+                // 只取 RFC 1918 私有地址，避免依赖公网可达性。
+                a == 10 || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168)
+            })
+            .map(str::to_owned)
+    }
+
+    /// 非 https（非本机 http）服务地址必须能真实完成请求：翻译与「测试连接」两条
+    /// 路径都要正常工作，而不是在协议检查处被拦下。
+    #[test]
+    fn plain_http_intranet_endpoint_completes_real_requests() {
+        let Some(host) = non_loopback_private_ipv4() else {
+            eprintln!("跳过：本机没有可用的非 loopback 私有 IPv4 地址");
+            return;
+        };
+        let (base_url, hits) = spawn_mock_llm_on(&host, false);
+        assert!(
+            base_url.starts_with(&format!("http://{host}:")),
+            "测试上游必须是非 loopback 的 http 地址，实际 {base_url}"
+        );
+        let settings = mock_settings(base_url.clone());
+
+        // 1) 保存/使用前的配置校验接受该地址。
+        let sanitized = sanitize(settings.clone()).expect("远端 http 地址应通过配置校验");
+        assert_eq!(sanitized.base_url, base_url);
+
+        // 2) 拼接出的请求地址保留 http scheme。
+        let endpoint = chat_completions_url(&settings.base_url).expect("endpoint 可用");
+        assert!(endpoint.starts_with("http://"), "scheme 不得被改写为 https：{endpoint}");
+        assert!(endpoint.ends_with("/chat/completions"), "{endpoint}");
+
+        // 3) 真实发起流式请求（mock 服务只实现了 SSE，故走流式路径）并拿到内容。
+        let emitted = std::sync::Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let emit: Emit = {
+            let sink = emitted.clone();
+            std::sync::Arc::new(move |delta: LlmTranslateDelta| {
+                sink.lock().unwrap().push((delta.section, delta.delta));
+            })
+        };
+        let result = tauri::async_runtime::block_on(translate_and_store(
+            &settings,
+            None,
+            "req-http",
+            "release notes",
+            true,
+            TranslationMode::Summarize,
+            &emit,
+        ))
+        .expect("非本机 http 地址的请求应当成功");
+        assert_eq!(result.summary.as_deref(), Some("- 修复启动崩溃"));
+        assert!(hits.load(std::sync::atomic::Ordering::SeqCst) >= 1, "上游必须真的收到请求");
     }
 
     #[test]

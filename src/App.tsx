@@ -827,10 +827,10 @@ function LlmSettingsPanel() {
     {!loading && <>
       <div className="network-proxy-form">
         <label className="plan-confirmation proxy-toggle"><input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false); }} /><span>启用 LLM 翻译与归纳</span></label>
-        <label className="proxy-url-field"><span>服务地址</span><input value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setSaved(false); }} placeholder="https://api.deepseek.com/v1" disabled={!enabled} spellCheck={false} aria-label="LLM 服务地址"/></label>
+        <label className="proxy-url-field"><span>服务地址</span><input value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setSaved(false); }} placeholder="https://api.deepseek.com/v1 或 http://192.168.1.50:8080/v1" disabled={!enabled} spellCheck={false} aria-label="LLM 服务地址"/></label>
         <label className="proxy-url-field"><span>API Key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setSaved(false); }} placeholder="sk-…（本地服务可留空）" disabled={!enabled} spellCheck={false} aria-label="LLM API Key"/></label>
         <label className="proxy-url-field"><span>模型</span><input value={model} onChange={(event) => { setModel(event.target.value); setSaved(false); }} placeholder="deepseek-chat" disabled={!enabled} spellCheck={false} aria-label="LLM 模型名称"/></label>
-        <p className="proxy-hint">兼容任何 OpenAI 风格接口：DeepSeek、Moonshot、OpenAI、Ollama 等。服务地址填 API 根路径（通常以 <code>/v1</code> 结尾），App 会请求 <code>/chat/completions</code>。API Key 仅保存在本机，只发给你填写的服务地址。</p>
+        <p className="proxy-hint">兼容任何 OpenAI 风格接口：DeepSeek、Moonshot、OpenAI、Ollama 等。服务地址填 API 根路径（通常以 <code>/v1</code> 结尾），App 会请求 <code>/chat/completions</code>。支持 <code>http://</code> 与 <code>https://</code>：内网机器、自建 New API / LiteLLM 网关或局域网中转站可直接填 <code>http://</code> 地址（不限于本机）。API Key 仅保存在本机，只发给你填写的服务地址。</p>
         {error && <div className="inline-error">{error}</div>}
         {testResult && <div className="inline-note">{testResult}</div>}
         <div className="proxy-actions">
