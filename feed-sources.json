@@ -1120,6 +1120,27 @@
       }
     },
     {
+      "applicationId": "wowtype",
+      "packageName": "wowtype",
+      "displayName": "WowType",
+      "vendor": "Gloridust",
+      "architecture": "amd64",
+      "description": "基于 fcitx5 的开源拼音输入法，支持整句输入、按键纠错、离线语音输入与翻译。仅支持 Ubuntu 26.04（amd64），需先安装并启用 fcitx5；首次安装后在 Fcitx 5 配置中添加 WowType，升级后需重启 fcitx5 或注销重新登录。",
+      "homepage": "https://github.com/Gloridust/WowType",
+      "icon": "wowtype",
+      "accentColor": "#6366f1",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/Gloridust/WowType/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "wowtype_{tagVersion}_ubuntu26.04_amd64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
       "applicationId": "deepseek-harness-desktop",
       "packageName": "deepseek-harness",
       "displayName": "DeepSeek Harness Desktop",
