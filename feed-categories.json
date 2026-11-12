@@ -53,6 +53,7 @@
       "flclash": "network",
       "localsend": "network",
       "bitwarden": "system",
+      "wowtype": "system",
       "umanager": "system",
       "qq-music": "media",
       "wine": "dev-tools",
