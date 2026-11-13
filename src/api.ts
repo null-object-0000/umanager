@@ -179,6 +179,21 @@ export function restartApp(): Promise<void> {
   return invoke<void>("restart_app");
 }
 
+/**
+ * 用户确认「退出 UManager」后调用。没有可用托盘时，关闭窗口会先被后端拦下并
+ * 发 `close-requested`，界面问完用户后再走这里；被未结束的任务拦住时会抛错。
+ */
+export function confirmClose(): Promise<void> {
+  if (isMock()) return Promise.resolve();
+  return invoke<void>("confirm_close");
+}
+
+/** 用户选择「继续使用」：作废后端那次关闭转交留下的兜底退出计时器。 */
+export function cancelClose(): Promise<void> {
+  if (isMock()) return Promise.resolve();
+  return invoke<void>("cancel_close_confirmation").catch(() => {});
+}
+
 export function notifyDownloadComplete(title: string, body: string): Promise<void> {
   if (isMock()) return Promise.resolve();
   return invoke<void>("notify_download_complete", { title, body });

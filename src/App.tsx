@@ -20,14 +20,17 @@ import { useModalFocus } from "./useModalFocus";
 import antigravityIcon from "./assets/app-icons/antigravity.png";
 import { ArchiveRemovalDialog } from "./ArchiveRemovalDialog";
 import { useSoftwareInstall } from "./useSoftwareInstall";
-import { scanRemovalCleanup, cancelDownload, createLocalDebOperationPlan, createRemovalOperationPlan, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getDevReleases, getNodeGlobalPackages, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSoftwareCatalog, getWindowsState, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, launchApplication, launchWindowsApplication, listScripts, notifyDownloadComplete, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runRemovalDryRun, scanPackages, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
+import { scanRemovalCleanup, cancelDownload, createLocalDebOperationPlan, createRemovalOperationPlan, enqueueDownload, getDownloadSettings, listDownloads, onDownloadQueueChanged, removeDownload, setDownloadSettings, executeWindowsOperation, getAppIcon, getCategories, getApplicationDetails, getCachedChangelogTranslation, getDevReleases, getNodeGlobalPackages, getDevToolchains, getDevToolchainState, getDevTools, getDevToolState, getDownloadPlan, confirmClose as apiConfirmClose, cancelClose as apiCancelClose, getFeedSourceStatuses, getFeedStatus, getInstallableApplications, getInstallationInfo, getLlmSettings, getNetworkSettings, getPendingLocalDeb, getSoftwareCatalog, getWindowsState, importPendingLocalDeb, installDevTool, installDevVersion, installLocalDeb, launchApplication, launchWindowsApplication, listScripts, notifyDownloadComplete, openExternalUrl, prepareWindowsOperation, refreshFeed, removeManagedPackage, restartApp, runLocalDebDryRun, runRemovalDryRun, scanPackages, setDevDefaultVersion, setDevToolChannel, setLlmSettings, setNetworkSettings, runScript, stopScript, stopWindowsApplication, testLlmConnection, translateChangelog, uninstallDevTool, uninstallDevVersion, updateDevTool } from "./api";
 import type { CleanupScan, CleanupSelection, ApplicationDetails, ArchivePlan, CatalogApplication, CategoryCatalog, ChangelogTranslation, DependencyGap, DevOperationProgress, DevOperationReport, DevRelease, NodeGlobalPackages, DevTool, DevToolchain, DevToolchainState, DevToolProgress, DevToolReport, DevToolState, DownloadJob, DownloadPlan, DownloadProgress, DownloadQueueSettings, DryRunReport, FeedSourceStatus, FeedStatus, InstallableApplication, InstallationInfo, LlmSettings, LocalDebInspection, ManagedPackage, NetworkSettings, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent, RemovalExecutionReport, RemovalPlanArtifact, ScanResult, ScriptAction, ScriptDefinition, ScriptProgressEvent, UpdateState, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { aiButtonLabel, aiMode, canRegenerate, formatCachedOrigin, regenerateButtonLabel, shouldWarnMissingSummary } from "./changelogTranslation";
 import type { AiActionState } from "./changelogTranslation";
 import { activeJobCount, findJob, installActionLabel, isActiveStatus, jobPercent, jobProgress, jobStatusLabel, queuedPosition, sortJobs } from "./downloadQueue";
 import { debCategory, devToolCategory, orderedCategories, windowsCategory } from "./categories";
 import { aptInstallCommand, aptPackageNames } from "./dependencyGap";
+import { CloseConfirmDialog } from "./CloseConfirmDialog";
 import { readSortMode, sortModeLabels, sortSoftwareItems } from "./model";
+import { hasPendingWork, summarizePendingWork } from "./closeBehavior";
+import type { CloseSummary } from "./closeBehavior";
 import type { SortMode } from "./model";
 import { conflictingVariant, foldVariantCandidates, groupVariants, isSwitchableGroup, variantLabelOf, variantSelectionKey } from "./variants";
 import { VersionDate } from "./VersionDate";
@@ -1954,6 +1957,30 @@ export default function App() {
   };
   const batchTasks = useBatchTasks(() => { void refresh(); });
   const [batchPicker, setBatchPicker] = useState<{ candidates: BatchCandidate[]; skipped: number } | null>(null);
+  // 关闭窗口：后端拦下关闭并发 close-requested。这里讲清楚还有多少没结束的
+  // 任务，再回传给后端退出。
+  const [closePromptState, setClosePromptState] = useState<CloseSummary | null>(null);
+  const closeRequestRef = useRef(false);
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen("close-requested", () => {
+      if (disposed) return;
+      const summary = summarizePendingWork(batchTasks.snapshot, downloadJobs);
+      if (hasPendingWork(summary)) { setClosePromptState(summary); return; }
+      // 没有未完成的工作：不必再拦一次，直接走后端的收尾。
+      if (closeRequestRef.current) return;
+      closeRequestRef.current = true;
+      void apiConfirmClose().catch((reason) => { setClosePromptState(summary); setNotice(String(reason)); });
+    }).then((off) => { if (disposed) off(); else stop = off; }).catch(() => {});
+    return () => { disposed = true; stop?.(); };
+  }, [batchTasks.snapshot, downloadJobs]);
+  const closeConfirmed = async () => {
+    if (closeRequestRef.current) return;
+    closeRequestRef.current = true;
+    try { await apiConfirmClose(); }
+    catch (reason) { closeRequestRef.current = false; setClosePromptState(null); setNotice(String(reason)); }
+  };
   const [batchChecking, setBatchChecking] = useState(false);
   const batchCheckingRef = useRef(false);
   const openBatchPicker = async (previous?: BatchTask) => {
@@ -2519,6 +2546,7 @@ export default function App() {
     )}
     {windowsPlan && <WindowsConfirmDialog plan={windowsPlan} busy={windowsBusy} message={windowsMessage} running={windowsState?.running === true} onConfirm={() => void confirmWindows()} onCancel={() => { if (!windowsBusy) { setWindowsPlan(null); setWindowsMessage(""); } }}/>}
     {windowsOpen && windowsState && <WindowsDetailDrawer state={windowsState} busy={windowsBusy} message={windowsMessage} progress={windowsProgress} onAction={handleWindowsAction} onClose={() => setWindowsOpen(false)}/>}
+    {closePromptState && <CloseConfirmDialog summary={closePromptState} onConfirm={() => { setClosePromptState(null); void closeConfirmed(); }} onCancel={() => { closeRequestRef.current = false; setClosePromptState(null); void apiCancelClose(); }}/>}
     {notice && <div className="app-notice" role="status" onClick={() => setNotice(null)}><span>{notice}</span><button aria-label="关闭">×</button></div>}
   </div>;
 }

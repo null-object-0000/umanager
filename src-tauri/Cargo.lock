@@ -4341,7 +4341,7 @@ dependencies = [
 
 [[package]]
 name = "umanager"
-version = "0.18.2"
+version = "0.18.3"
 dependencies = [
  "base64 0.22.1",
  "flate2",

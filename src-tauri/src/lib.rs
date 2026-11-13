@@ -809,6 +809,8 @@ pub fn run() {
             run_removal_dry_run,
             remove_managed_package,
             notify_download_complete,
+            background::confirm_close,
+            background::cancel_close_confirmation,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UManager");

@@ -30,7 +30,7 @@ UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），�
 
 ## 2. 核心架构：软件信息只依赖签名 feed
 
-后台常驻仅保留托盘恢复主窗口与退出入口；关闭主窗口会收起到托盘，下载等后台任务继续运行。UManager 不再内置剪贴板历史、监视器、快捷面板或全局热键。
+后台常驻保留托盘图标（显示 / 退出）与「再次启动即恢复窗口」。关闭按钮**不再**把窗口藏进托盘：在 Linux 上 libayatana-appindicator 能加载并不代表图标可见（GNOME 未装 AppIndicator 扩展时图标永远不显示），隐藏后窗口再也叫不回来。现在关闭一律先发 `close-requested` 让界面确认（有未完成的下载/批量任务时讲清楚会中断什么），确认后走 `confirm_close` 退出；界面 30 秒不回应则兜底退出。UManager 不再内置剪贴板历史、监视器、快捷面板或全局热键。
 
 历史版本中，UManager 在用户机器上抓取官网、调用 GitHub Releases API、解析本机 `apt-cache policy` 来获知候选版本。这些逻辑已全部移除。现在的模型是：
 
