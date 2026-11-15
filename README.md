@@ -1,197 +1,71 @@
+<p align="center"><img src="src/assets/umanager-logo.png" width="88" alt="UManager"></p>
+
 # UManager
 
-更新数据源增加 EdgeOne 全球镜像（含中国大陆）：`https://updates.snewbie.site/umanager/v3/feed.json`。自 v0.18.4 起，客户端优先从镜像获取完整的 feed/签名对及图标，失败时回退 GitHub；公钥、签名校验、规范源身份和软件包下载校验不变。旧安装版需要升级后才会使用镜像。部署与验证说明见 [DESIGN-feed-mirror.md](DESIGN-feed-mirror.md)。
+**让 Ubuntu 的软件管理，简单一点。**
 
-自 v0.18.5 起，UManager 自身安装包也优先走同一 EdgeOne 镜像；网络或完整校验失败后自动从 GitHub 重新下载，取消下载会停止回退。其他软件的下载源不变，所有安装包继续校验大小、SHA256 和 `.deb` 包名/版本/架构。
+UManager 是面向 Ubuntu 的软件与开发环境管家。集中管理桌面应用、Node.js / Rust 工具链与 AI 编程 CLI，把安装、更新、卸载、下载进度和操作结果放在一个清楚的界面里。
 
-> 面向 Ubuntu 的个人软件管家：扫描、安装、更新、卸载来自厂商官网与官方仓库的 `.deb` 应用，支持签名校验与特权复核；官网 tar.gz 应用可安装到当前用户目录。
+[官网与下载](https://umanager.devtrends.site/) · [GitHub Releases](https://github.com/null-object-0000/umanager/releases) · [使用指南](docs/USER_GUIDE.md) · [反馈问题](https://github.com/null-object-0000/umanager/issues)
 
-UManager 是基于 [Tauri 2](https://tauri.app/)（Rust 后端 + React 前端）的桌面应用。软件信息只来自签名元数据源，系统级操作全部经 Polkit 特权 helper 执行，遵循「不可变计划 + 特权 dry-run + 再次确认」的安全模型。
+![UManager 软件商店开发预览](website/assets/app-preview.jpg)
 
-## 它能做什么
-
-**软件管理**
-
-- 扫描本机已安装的受管应用，区分 `.deb` 安装版 / 便携版 / 开发版；
-- 从厂商官网或官方仓库安装、更新、卸载 `.deb` 应用，按「全部 / 已安装 / 可更新」三个 Tab 浏览；
-- 下载时核对 HTTPS 精确域名、响应大小、SHA-256，以及 `.deb` 的包名 / 版本 / 架构；
-- 安装 / 更新分两阶段：安装包先进后台下载队列（可排队、可取消，并发数 1–3 可调），下载期间可以离开详情页去装别的软件或逛别的页面；下载校验完成后到「下载」页点「安装 / 更新」，才进入需要管理员授权的第二阶段；
-- 双击本地 `.deb` 即可用 UManager 打开安装；
-- 从 GitHub Release 校验并一键升级 UManager 自身。
-
-**批量更新与任务中心**
-
-- 在「更新」页点「批量更新 .deb」，重新检查并勾选本次更新的软件；第一版覆盖已安装的受管 `.deb`，UManager 自更新、CLI、Wine 应用与固件仍单独确认。
-- 安装包复用后台下载队列，下载期间可以离开页面或将主窗口收起到托盘。到「任务中心」查看进度；下载失败的项目保留原因，下载成功的项目可以统一授权复核。
-- 「授权并复核」为每个成功下载的项目建立不可变计划并逐项调用 helper，期间不安装。所有待安装项目通过复核后，核对版本清单、勾选确认，再点击「再次确认并安装」。汇总确认绑定确切的计划集合，计划过期需要重新复核。
-- 安装串行执行；系统存在未完成的软件包操作、依赖未满足、检测到声明的冲突或执行失败时，停止后续安装。已成功的项目保留结果，不自动回滚；「重新检查未完成项」重新读取本机与签名源状态，让你选择仍需更新的项目建立新批次。
-- 本机保留最近最多 100 批记录（总记录限制 8 MiB，优先淘汰较旧记录并裁剪日志），包括版本、下载来源、SHA-256、结果与操作日志。程序重启后，未完成批次显示中断，必须重新检查和确认，不恢复安装授权。结束一个尚未安装的批次会保留共享下载，可在「下载」页单独管理。
-
-UManager 不内置剪贴板管理能力；请自行安装独立的剪贴板管理工具。
-
-**开发环境**
-
-- 运行时工具链：Node.js（nvm）与 Rust（rustup）的检测、安装、切换、卸载，全程无 root；
-- Node.js 每个已安装版本均可展开查看全局 npm 包（包名、版本、安装位置及异常），支持刷新。各版本的全局包独立，切换默认版本不会迁移包；卸载旧版本前可先核对包列表。
-- CLI 工具：Claude Code、OpenCode、Pi、Codex CLI、DeepSeek Harness、Hermes Agent 等 AI 编程 CLI，以及 uv、pnpm 与 Vibe Usage（AI 编码工具用量追踪，命令 `vibe-usage`），识别 npm / 官方安装器 / PATH 来源并安装、更新、卸载。
-
-**固件更新**
-
-- 「工具 → 固件更新」通过系统 `/usr/bin/fwupdmgr` 读取设备、当前版本、可用更新及更新说明，无需 Snap；
-- 展示接电源、重启要求与设备限制，区分不支持、无可用更新和查询失败；
-- 「重新检查」使用 fwupd 已缓存的元数据；「联网刷新元数据」从已启用的固件源刷新元数据与签名，再自动重新检查设备和可用更新，不启用测试源、不下载或安装固件包。刷新期间禁用重复操作，失败时保留并标明旧结果，成功后显示本次联网刷新时间。缓存无更新不等于厂商没有新版本；未安装 fwupd 时显示缺失提示；
-- 按设备和目标版本创建 15 分钟有效的只读计划，核对后点击「授权并复核（不安装）」，管理员复核通过后再次勾选确认并更新。helper 执行前再次核对设备标识、当前版本、可信元数据、目标版本、来源与校验信息；状态变化时拒绝执行；
-- 固件由系统 fwupd 下载、校验与写入，不允许强制、降级、重装或全部设备更新，不自动重启或关机。更新中请勿断电、拔出设备或强制退出；失败后先重新检查设备状态，避免直接重复刷写。
-
-固件安装需要配套的新版本 `/usr/libexec/umanager-helper` 和 Polkit policy；只运行前端或沿用旧 helper 不能安装。浏览器开发预览中的授权和安装均为模拟，不访问真实硬件。
-
-**安全模型**
-
-- 软件信息只来自 Ed25519 签名的 feed，不在本机抓取官网或解析 APT 索引；
-- 特权动作走固定白名单、固定 argv 的 Polkit helper，不经过 shell；
-- 每次操作先 dry-run 复核，用户再次确认才执行；同一登录会话只弹一次管理员授权。
-
-### 可选的彻底清理
-
-卸载 `.deb` 应用时，默认仍保留个人数据、软件包配置及依赖。需要释放空间时，在卸载窗口开启「彻底清理」，点击「扫描残留并预览清单」，逐项勾选后锁定计划。管理员复核通过后，还需要再次确认才会开始删除。
-
-清单显示个人目录 / 安装包缓存的路径和实际占用、系统残留文件，以及可移除依赖的包名和版本。依赖必须同时满足：位于目标软件的已安装依赖链中、标记为自动安装、APT 预演允许移除。手动安装、共享、Essential / Protected 软件包及其他无关孤立依赖不会作为候选项。取消部分依赖后若会破坏剩余软件，复核将拒绝该清单。
-
-个人数据规则目前覆盖 Docker Desktop、VS Code、Chrome 稳定版和 Edge 稳定版；其他软件仅自动检测 UManager 中对应的 `.deb` 缓存，界面会提示未覆盖的范围。Docker 软件源 / 密钥只有在相关组件均不再保留时才允许删除。其余未知目录及软件源需另行检查，不按名称猜测删除。UManager 自卸载暂不提供清理自身数据的选项。
-
-数据删除无法撤销，请先退出目标软件并核对清单。清理计划有效期为 15 分钟；执行前再次核对依赖版本与目录身份，状态变化时需要重新扫描。个人文件始终以当前用户权限清理；软件包及审核过的系统文件由 helper 处理。部分清理失败会列出未删除的项目。厂商包自带的卸载 / purge 脚本也会运行，它们可能自行处理配置文件。
-
-## 支持的应用
-
-| 类别 | 应用 |
-|---|---|
-| 开发工具 | Visual Studio Code、GitHub CLI、Wine（Windows 兼容层） |
-| 浏览器 | Google Chrome、Microsoft Edge |
-| 聊天协作 | 微信、QQ、飞书、ChatGPT Desktop、钉钉（仅识别 / 卸载） |
-| 办公效率 | WPS Office、腾讯会议、腾讯文档、Obsidian、Bitwarden、FigCraft |
-| 网络 | FlClash、LocalSend |
-| 影音娱乐 | QQ 音乐 |
-
-> 应用清单由内置的 `vendors.json` 与 CI 签发的 feed 共同决定；新增应用无需升级 UManager。
+*实际前端的开发预览，版本、软件状态与数据仅作界面示意。*
 
 ## 安装
 
-面向 Ubuntu 22.04 及以上（amd64）。普通用户**无需克隆源码**，也不需要安装 Node.js 或 Rust。
+当前发布面向 **Ubuntu 22.04 及以上 · amd64（x86_64）**。普通用户无需克隆源码，也不需要安装 Node.js 或 Rust。
 
-1. 打开 [Releases](https://github.com/null-object-0000/umanager/releases) 页面；
-2. 下载最新的 `UManager_<版本>_amd64.deb`；
-3. 在下载目录执行：
+1. 前往 [官网下载页](https://umanager.devtrends.site/#download)，下载最新的 `UManager_<版本>_amd64.deb`；大陆用户可使用 EdgeOne 镜像，[GitHub Releases](https://github.com/null-object-0000/umanager/releases/latest) 保留备用。
+2. 在安装包所在目录运行（将文件名替换为实际下载的版本）：
 
-```bash
-sudo apt install ./UManager_*_amd64.deb
-```
+   ```bash
+   sudo apt install ./UManager_<版本>_amd64.deb
+   ```
 
-`apt` 会自动补装运行时依赖（`libwebkit2gtk-4.1-0`、`libgtk-3-0`）。
+3. 从应用菜单打开 **UManager**，或在终端运行 `umanager`。
 
-也可以直接命令行下载并安装（以 v0.1.0 为例，升级时替换版本号）：
+APT 会自动补装 WebKitGTK、GTK 等运行时依赖。已安装用户可在「软件 / 更新」检查并安装 UManager 新版；卸载可在「设置」操作，或执行 `sudo apt remove u-manager`。
 
-```bash
-wget https://github.com/null-object-0000/umanager/releases/download/v0.1.0/UManager_0.1.0_amd64.deb
-sudo apt install ./UManager_0.1.0_amd64.deb
-```
+## 主要能力
 
-安装后从应用菜单搜索 “UManager” 启动，或在终端运行 `umanager`。卸载入口在应用“设置”页，或执行 `sudo apt remove u-manager`。
+| 场景 | 可以做什么 |
+| --- | --- |
+| 桌面软件 | 识别已安装的受管应用，从厂商官网 / 官方仓库安装、更新与卸载；打开本地 `.deb` |
+| 下载与批量更新 | 后台队列可排队、可取消，支持批量更新受管 `.deb`；任务中心查看进度、确认清单与结果 |
+| 开发环境 | 管理 nvm / Node.js、rustup / Rust，查看各 Node 版本独立的全局 npm 包 |
+| AI 与 CLI 工具 | 管理 Claude Code、Codex CLI、OpenCode 等 AI 编程工具，以及 uv、pnpm 等开发 CLI |
+| Windows 应用 | 在独立 Wine 环境管理企业微信 Windows 版；安装与兼容性边界见使用指南 |
+| 归档应用与固件 | 部分官网 tar.gz 应用安装到用户目录；通过系统 fwupd 检查和更新支持的设备固件 |
 
-## 开发
+受管软件包括 VS Code、Chrome、微信、QQ、飞书、WPS、Apifox、LocalSend 等，具体支持范围与可用版本以客户端及签名数据源为准。它并非整个 APT 软件库的替代品，各类软件的安装方式和支持边界见 [使用指南](docs/USER_GUIDE.md)。
 
-面向贡献者。详细架构、数据流与关键不变量见 [ARCHITECTURE.md](ARCHITECTURE.md)；给 AI 编程 agent 的工作指引见 [AGENTS.md](AGENTS.md)。
+## 每次操作，看清再确认
 
-**环境要求**
+1. **先下载与校验**：核对 HTTPS 与允许域名、实际大小、SHA256，以及 `.deb` 的包名、版本和架构。
+2. **再授权复核**：系统级操作经 Polkit 专用 helper，创建不可变计划并执行 dry-run。
+3. **最后确认执行**：核对清单后再次确认。批量安装串行进行，失败时停止后续项目，不自动回滚已经完成的安装。
 
-- Ubuntu 22.04 或更新版本（amd64）；
-- Node.js 24.19.0 LTS（版本记录在 `.nvmrc`）+ npm 11/12（项目使用 `package-lock.json`，不混用 pnpm）；
-- Rust stable 工具链（`rust-toolchain.toml` 自动选择）；
-- Tauri 2 所需的 WebKitGTK 与 Linux 编译库。
+软件信息只来自 **Ed25519 签名 feed**，不在客户端临时抓取官网。下载不需要管理员权限；系统级安装、卸载等动作才进入授权流程。默认卸载保留个人数据，可选彻底清理必须先预览并确认清单。
 
-**快速开始**
+自 v0.18.4 起，更新数据与图标优先使用 EdgeOne 全球镜像（含中国大陆）；自 v0.18.5 起，UManager 自身安装包也优先使用镜像。网络或完整校验失败自动回退 GitHub，取消下载会停止回退。**受管软件继续使用各自官方来源**；镜像不改变公钥、签名、下载计划或校验。详见 [镜像设计说明](DESIGN-feed-mirror.md)。
 
-```bash
-# 系统依赖
-sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libssl-dev libayatana-appindicator3-dev librsvg2-dev
+## 文档与贡献
 
-# 运行时（Node 用 nvm，Rust 用 rustup）
-nvm install && nvm use
+- [使用指南](docs/USER_GUIDE.md)：批量更新、任务中心、彻底清理、Wine、固件与归档应用。
+- [开发指南](docs/DEVELOPMENT.md)：环境准备、开发、测试与构建。
+- [架构说明](ARCHITECTURE.md)：数据流、安全模型、签名 feed 与扩展应用。
+- [协作约定](AGENTS.md)：贡献者与 AI 编程 agent 的开发指引。
+- [发布记录](https://github.com/null-object-0000/umanager/releases)：版本、安装包与更新说明。
 
-# 启动开发环境
-npm ci
-npm run tauri dev
-```
+技术栈：**Tauri 2 · Rust · React · TypeScript**。欢迎通过 [Issues](https://github.com/null-object-0000/umanager/issues) 报告问题或讨论需求，通过 Pull Request 贡献改进。
 
-**测试与构建**
+## DevTrends 开发者工具
 
-```bash
-npm test
-npm run build
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path crates/umanager-plan/Cargo.toml
-cargo test --manifest-path crates/umanager-helper/Cargo.toml
-```
+UManager 属于 DevTrends 开发者产品系列：
 
-## 文档
+- [DevTrends](https://devtrends.site/)：发现全球开发者的新项目、新工具与新趋势。
+- [模型价格 · models-cn](https://models.devtrends.site/)：比较中国大模型官方 API 定价与能力，保留来源与更新信息。
+- [UManager](https://umanager.devtrends.site/)：管理 Ubuntu 软件、开发环境与 AI CLI。
 
-| 文档 | 面向 |
-|---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构、feed、数据流、安全不变量、新增应用方式 |
-| [AGENTS.md](AGENTS.md) | AI 编程 agent 与协作者的开发指引 |
-
-## Windows 应用（Wine）
-
-在「Windows 应用」页管理企业微信 Windows 版：检测已有安装、启动、安装、更新、卸载，以及修改专用 Wine 环境的配置。
-
-- 首次使用前准备 Wine 和 `fonts-noto-cjk`；Wine 可从 UManager 软件商店管理。
-- 自动沿用 `~/.local/share/wineprefixes/wecom`（若存在），否则在 `~/.local/share/umanager/windows/wecom` 创建独立环境。
-- 默认配置为 Windows 10、192 DPI、X11/XWayland、Tahoma 的 Noto Sans CJK SC 字体替换，以及标题栏修复。设置可在页面修改，不复制账号、聊天记录或整份注册表。
-- 安装/更新从签名 feed 获取官方 EXE 地址、版本、大小及 SHA-256；点「更新」后先下载并校验安装包（卡片按钮会变成进度环，下载期间可以继续使用企业微信），校验完成后再复核确认、打开官方向导。保持默认安装目录；安装器可能顺带启动企业微信，不必刻意退出，UManager 以磁盘上的实际安装版本判定完成。
-- 卸载运行官方卸载向导；聊天记录的保留选项由用户在向导中选择。UManager 保留 Wine 环境目录，不递归删除已有环境。
-- 安装、更新、卸载和配置均以普通用户运行，不使用 Polkit。下载校验阶段无需退出企业微信，但真正安装、卸载或应用配置前必须先退出；详情页提供「强制停止」，按 prefix 结束该 Wine 环境里的企业微信进程（可能丢失未发送的输入）。
-- 新安装和更新需要 CI 发布带 `windowsApplications` 的签名 feed；旧 feed 下仍可管理本机安装，但不会降级到本地抓取或执行未校验的安装包。
-
-开发构建额外需要 `gcc-mingw-w64-x86-64`，用于从源码编译随 App 内置的 Windows 标题栏辅助程序；可通过 `UMANAGER_MINGW_CC` 指定交叉编译器。最终用户不需要编译器。
-
-Wine 生命周期集成测试使用隔离显示和一次性环境中的专用测试 EXE，覆盖安装、更新、配置、卸载，不操作真实企业微信：
-
-```bash
-xvfb-run -a env WINEDLLOVERRIDES=winemenubuilder.exe=d \
-  cargo test --manifest-path src-tauri/Cargo.toml \
-  wine_install_update_configure_uninstall_lifecycle -- --ignored --nocapture
-```
-
-这项测试验证管理流程；企业微信官方安装向导，以及聊天、音视频、文件传输兼容性仍需真实应用验收。
-
-## ZIP 内的 DEB 安装包
-
-从 v0.14.1 起，Apifox 可直接从官方 CDN 安装和更新，无需手动解压。后台队列先按签名 feed 校验 ZIP 大小与 SHA-256，再提取唯一匹配的普通 DEB 文件，校验其大小、SHA-256、包名、版本和架构；支持取消，失败会清理临时文件。安装仍使用现有的不可变计划与特权 helper。
-
-这项能力需要 v0.14.1 的主程序及配套 helper。旧版本会将 `zipDeb` 源视为不支持，不会直接安装 ZIP。
-
-## 官网 tar.gz 应用
-
-Google Antigravity 使用官网新版 Linux x64 tar.gz（Antigravity App），不使用已停止更新的 1.x APT 仓库。后台下载队列校验签名 feed 中的地址、大小与 SHA-256，再检查归档路径、程序 ELF 架构与应用版本。
-
-tar.gz 与 `.deb` 共用软件详情页、下载进度与安装入口。在详情中点击「获取」下载，完成后点击「安装」复核并锁定计划，核对目录和版本，再点击「确认安装」。安装在 `~/.local/share/umanager/apps/antigravity/`，桌面启动项位于 `~/.local/share/applications/umanager-antigravity.desktop`。全程以普通用户执行，无需 Polkit，不运行归档内的安装脚本。更新、启动和卸载也在软件商店管理；旧版本保留到卸载，以免影响正在运行的程序，卸载保留应用个人数据。
-
-此能力需要包含 `tarGz` 支持的新版 UManager，并等待 CI 发布新版签名 feed；旧客户端会把该来源识别为不支持。它不参与 `.deb` 批量更新，也不接管自行解压或旧 APT 安装的 Antigravity。官方应用自身的系统依赖仍需满足；Electron 沙箱的 AppArmor 兼容处理见下文。
-
-### Antigravity AppArmor 兼容修复（v0.17.1）
-
-Ubuntu 启用非特权用户命名空间限制时，直接从桌面或托盘启动 Antigravity 可能被 AppArmor 阻止。安装或升级 UManager 的 `.deb` 时，会在已有管理员授权中自动安装并加载 App、IDE 的专用规则；规则匹配 UManager 管理目录下的主程序与 64 位 SHA-256 版本目录，后续安装、更新 Antigravity 无需重复授权或修复。只允许 Chromium 沙箱需要的 `userns`，不关闭沙箱、不关闭全局限制、不给 `chrome-sandbox` 设置 setuid。CLI 不需要此规则。
-
-未启用该限制的系统不修改策略。配置失败会让 `.deb` 安装明确报错，可修复 AppArmor 后执行 `sudo dpkg --configure u-manager` 重试。规则保留原有管理员自定义文件；本地覆盖放在 `/etc/apparmor.d/local/umanager-antigravity-app`、`/etc/apparmor.d/local/umanager-antigravity-ide`。卸载 UManager 时保留规则，避免影响仍保留的 Antigravity；便携运行或源码开发不会自动配置系统规则。
-
-### Antigravity 启动代理与 Dock 图标（v0.17.2）
-
-App、IDE 的桌面入口通过独立的普通用户启动适配器运行，副本保存在 `~/.local/share/umanager/bin/`；不经过 UManager 窗口或单实例逻辑，卸载 UManager 后也能继续启动已安装的应用。每次启动优先保留显式 HTTP/HTTPS 代理环境，其次读取 UManager 已启用的网络代理，最后读取 GNOME 手动 HTTP/HTTPS 系统代理。不会写死 `7890`，不会更改系统代理、节点或全局环境；保留已有 `NO_PROXY` 并补入 `localhost`、`127.0.0.1`、`::1`，确保本地界面直连。自动 PAC 和仅配置在系统中的 SOCKS 代理不转换为环境变量，可在 UManager 中显式填写代理地址。
-
-首次打开新版 UManager 会更新已安装 Antigravity 的受管启动入口，之后安装、更新都使用同样的入口。另生成隐藏的产品 ID 匹配入口与 `StartupWMClass`，让 Dock 正确关联归档内的官方图标；应用菜单不增加重复项。保留同名第三方入口，卸载只删除 UManager 自己的匹配入口。不会改写厂商程序或个人登录数据。
-
-### Antigravity App、CLI 与 IDE
-
-三个产品分别管理，版本与更新日志各自从官方来源采集并签名发布，详情页可查看对应产品、对应版本的说明与官网日志链接。App 和 IDE 使用用户目录 tar.gz 安装流程；IDE 读取 `product.json` 的 `ideVersion`，不把基础编辑器版本当成产品版本。IDE 的 `tarGzV2` 元数据需要包含产品版本校验支持的新客户端，旧客户端会拒绝自动安装。
-
-Antigravity CLI 出现在 AI 工具 / 开发环境中，命令为 `agy`，通过官方安装脚本安装到 `~/.local/bin/agy`，用 `agy update` 更新；卸载只移除该程序，保留个人配置。CLI 最新版本取自官方更新索引；若对应版本的更新日志尚未发布，只展示官网链接，不套用旧版本说明。
+由 [Super Newbie](https://www.snewbie.site/) 维护。

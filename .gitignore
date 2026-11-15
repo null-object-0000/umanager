@@ -1,6 +1,7 @@
 # JavaScript / Vite
 /node_modules/
 /dist/
+/website/dist/
 /coverage/
 /.vite/
 *.tsbuildinfo
