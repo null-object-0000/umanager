@@ -2,7 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 export async function resolvePublication(api, repository) {
-  const runs = await api("actions/workflows/update-feed.yml/runs?branch=main&status=completed&per_page=10");
+  // The dispatch job can still be finishing while its already completed merge
+  // job has published Pages. Trust that publication, not overall run status.
+  const runs = await api("actions/workflows/update-feed.yml/runs?branch=main&per_page=10");
   for (const run of runs.workflow_runs) {
     if (!Number.isSafeInteger(run.id) || run.id <= 0 || run.head_branch !== "main" || run.head_repository?.full_name !== repository || run.path !== ".github/workflows/update-feed.yml") continue;
     const jobs = await api(`actions/runs/${run.id}/jobs?per_page=100`);

@@ -1,10 +1,8 @@
 name: Mirror signed feed to EdgeOne
 
 on:
-  workflow_run:
-    workflows: [update-feed]
-    types: [completed]
-    branches: [main]
+  # Explicitly dispatched after a successful Pages publication. A workflow
+  # started by release's GITHUB_TOKEN cannot reliably chain workflow_run here.
   workflow_dispatch:
 
 permissions:
@@ -17,7 +15,7 @@ concurrency:
 
 jobs:
   mirror:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_repository.full_name == github.repository)
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:

@@ -84,6 +84,30 @@ test("a partial scrape failure still mirrors its successful Pages publication", 
   assert.deepEqual(result, { id: 42, name: "github-pages-42-1" });
 });
 
+test("dispatch can resolve a completed merge while its workflow is still running", async () => {
+  const repository = "null-object-0000/umanager";
+  const run = { id: 43, run_attempt: 1, status: "in_progress", head_branch: "main", head_repository: { full_name: repository }, path: ".github/workflows/update-feed.yml" };
+  const result = await resolvePublication(async route => {
+    if (route.startsWith("actions/workflows/")) {
+      assert.ok(!route.includes("status=completed"), "the workflow can still be finishing its dispatch job");
+      return { workflow_runs: [run] };
+    }
+    if (route.includes("/jobs?")) return { jobs: [{ name: "merge", conclusion: "success", steps: [{ name: "Deploy to GitHub Pages", conclusion: "success" }] }, { name: "mirror", conclusion: null }] };
+    return { artifacts: [{ name: "github-pages-43-1", expired: false }] };
+  }, repository);
+  assert.deepEqual(result, { id: 43, name: "github-pages-43-1" });
+});
+
+test("an unfinished Pages publication is skipped even when its artifact exists", async () => {
+  const repository = "null-object-0000/umanager";
+  const run = { id: 44, run_attempt: 1, head_branch: "main", head_repository: { full_name: repository }, path: ".github/workflows/update-feed.yml" };
+  await assert.rejects(resolvePublication(async route => {
+    if (route.startsWith("actions/workflows/")) return { workflow_runs: [run] };
+    if (route.includes("/jobs?")) return { jobs: [{ name: "merge", conclusion: null, steps: [{ name: "Deploy to GitHub Pages", conclusion: null }] }] };
+    throw new Error("An unpublished artifact must not be downloaded");
+  }, repository), /No successful main-branch Pages publication/);
+});
+
 test("an expired latest publication fails rather than rolling back", async () => {
   const repository = "null-object-0000/umanager";
   await assert.rejects(resolvePublication(async route => {

@@ -4,9 +4,9 @@
 
 ## 发布链路
 
-原 `update-feed.yml` 继续完成抓取、签名与 GitHub Pages 发布；本次不修改生成器、签名密钥、原发布工作流或 release → update-feed 时序。
+原 `update-feed.yml` 继续完成抓取、签名与 GitHub Pages 发布；生成器、签名密钥与 release → update-feed 时序不变。Pages 发布成功后，独立的轻量 job 显式 dispatch 镜像工作流，仅该 job 具有 Actions 写权限，不接触签名或腾讯云 Secrets。它失败不会使规范 Pages 发布失效。
 
-独立的 `mirror-feed.yml` 在 main 分支 `update-feed` 完成后触发，也支持在 main 上手动运行。它在执行时选择最近一次 GitHub Pages 发布成功的规范产物：即使某个抓取组失败，只要 merge 用旧数据补齐后成功发布，也会同步。下载该次 Pages 的固定 artifact，验证后原样部署；若最新已发布 artifact 过期则失败，不静默降级成更旧快照。镜像失败不会阻止 GitHub 发布。部署任务只有读取 Actions artifact 的权限与腾讯云部署 Secrets，不持有任何 `FEED_SIGNING_KEY*`。
+独立的 `mirror-feed.yml` 在 main 分支 Pages 发布成功后由上述 job 启动，也支持在 main 上手动运行。显式 dispatch 避免 release 用 `GITHUB_TOKEN` 启动 update-feed 后，后续 `workflow_run` 事件没有继续触发的问题。它在执行时选择最近一次 GitHub Pages 发布成功的规范产物：即使某个抓取组失败，只要 merge 用旧数据补齐后成功发布，也会同步；整个工作流尚在结束 dispatch job 时也可使用已完成的 merge。下载该次 Pages 的固定 artifact，验证后原样部署；若最新已发布 artifact 过期则失败，不静默降级成更旧快照。镜像失败不会阻止 GitHub 发布。部署任务只有读取 Actions artifact 的权限与腾讯云部署 Secrets，不持有任何 `FEED_SIGNING_KEY*`。
 
 `scripts/edgeone/extract-pages-artifact.py` 拒绝归档穿越、链接、特殊文件、重复路径和异常大小。`prepare.mjs` 从客户端现有常量读取中央公钥，验证 v2/v3 feed、catalog、中央源背书和图标摘要；只有验证全部通过才复制原始字节。镜像不重新序列化或重新签名任何 feed。`mirror-status.json` 仅用于运维核对，不是客户端信任来源。
 
