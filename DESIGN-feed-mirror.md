@@ -20,6 +20,14 @@
 
 自 v0.18.4 起，客户端优先使用镜像；旧安装版需要升级到 v0.18.4 或更新版本后才会启用此传输策略。升级不改变签名公钥、验签逻辑、规范源身份或 GitHub 回退。
 
+## UManager 安装包镜像（v0.18.5 起）
+
+仅 UManager 自身的 amd64 Debian 包支持固定传输镜像，路径为 `https://updates.snewbie.site/umanager/releases/v版本/UManager_版本_amd64.deb`。签名 feed 与下载计划仍声明 GitHub Release 原始 URL，`vendors.json`、helper 授权、公钥、签名、其他软件的下载白名单不变。只有应用 ID、包名、架构、三段数字版本、GitHub 仓库路径和文件名全部精确匹配时才生成镜像候选；镜像只允许自身精确主机，GitHub 回退使用原有主机白名单。
+
+后台下载队列对每个候选执行原有 HTTPS、重定向白名单、响应及实际大小、SHA256、Debian 包名/版本/架构检查。镜像限时 60 秒；网络、404 或完整校验失败均先删除临时文件再从 GitHub 重新下载。用户取消不会触发回退。校验完成后才进入原有缓存与安装路径。
+
+镜像 CI 在已验证的 Pages 快照旁运行 `scripts/edgeone/package.mjs`，重新核对中央 feed 签名，从精确 GitHub Release 地址获取当前包，并验证签名 feed 的大小和 SHA256 后原样发布。只保留当前快照对应的包；旧版本路径可能返回 404，客户端自动回退 GitHub。免费单文件上限按 25 MiB 控制，超限或包同步失败不阻止元数据镜像发布，客户端继续走 GitHub。`package-status.json` 是运维信息，不参与客户端信任。
+
 ## 验证
 
 - `npm test --prefix scripts/edgeone`：字节保持、签名错误、错误源密钥、背书和图标摘要拒绝。

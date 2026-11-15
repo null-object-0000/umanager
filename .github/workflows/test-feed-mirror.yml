@@ -8,6 +8,8 @@ on:
       - "src-tauri/src/feed*"
       - "src-tauri/src/icon.rs"
       - "src-tauri/src/lib.rs"
+      - "src-tauri/src/package_transport.rs"
+      - "src-tauri/src/source_engine.rs"
       - "scripts/edgeone/**"
       - ".github/workflows/*feed*.yml"
   workflow_dispatch:
@@ -48,3 +50,7 @@ jobs:
         run: cargo check --manifest-path src-tauri/Cargo.toml
       - name: Test signed-feed validation and verified fallback
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib feed
+      - name: Test package mirror fallback and source validation
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib package_transport
+          cargo test --manifest-path src-tauri/Cargo.toml --lib source_engine

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const canonicalBase = "https://null-object-0000.github.io/umanager/";
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
-function verifyBytes(bytes, signature, publicKey) {
+export function verifyBytes(bytes, signature, publicKey) {
   if (!/^[a-f0-9]{128}$/i.test(signature) || !/^[a-f0-9]{64}$/i.test(publicKey)) {
     throw new Error("Invalid Ed25519 signature or public key encoding");
   }

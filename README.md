@@ -2,6 +2,8 @@
 
 更新数据源增加 EdgeOne 全球镜像（含中国大陆）：`https://updates.snewbie.site/umanager/v3/feed.json`。自 v0.18.4 起，客户端优先从镜像获取完整的 feed/签名对及图标，失败时回退 GitHub；公钥、签名校验、规范源身份和软件包下载校验不变。旧安装版需要升级后才会使用镜像。部署与验证说明见 [DESIGN-feed-mirror.md](DESIGN-feed-mirror.md)。
 
+自 v0.18.5 起，UManager 自身安装包也优先走同一 EdgeOne 镜像；网络或完整校验失败后自动从 GitHub 重新下载，取消下载会停止回退。其他软件的下载源不变，所有安装包继续校验大小、SHA256 和 `.deb` 包名/版本/架构。
+
 > 面向 Ubuntu 的个人软件管家：扫描、安装、更新、卸载来自厂商官网与官方仓库的 `.deb` 应用，支持签名校验与特权复核；官网 tar.gz 应用可安装到当前用户目录。
 
 UManager 是基于 [Tauri 2](https://tauri.app/)（Rust 后端 + React 前端）的桌面应用。软件信息只来自签名元数据源，系统级操作全部经 Polkit 特权 helper 执行，遵循「不可变计划 + 特权 dry-run + 再次确认」的安全模型。

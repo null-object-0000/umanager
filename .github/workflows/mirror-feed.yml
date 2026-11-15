@@ -44,6 +44,11 @@ jobs:
         run: node scripts/edgeone/prepare.mjs published/site mirror-site
         env:
           SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+      - name: Mirror the signed UManager release package
+        # A missing/oversized package must not prevent metadata publication.
+        # Clients retain the canonical GitHub download fallback.
+        continue-on-error: true
+        run: node scripts/edgeone/package.mjs mirror-site
       - run: npm ci --prefix scripts/edgeone
       - name: Deploy the verified mirror
         run: node scripts/edgeone/deploy.mjs mirror-site
