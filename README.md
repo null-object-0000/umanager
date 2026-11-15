@@ -1,6 +1,6 @@
 # UManager
 
-更新数据源增加 EdgeOne 全球镜像（含中国大陆）：`https://updates.snewbie.site/umanager/v3/feed.json`。包含镜像接入代码的新版客户端优先从镜像获取完整的 feed/签名对及图标，失败时回退 GitHub；公钥、签名校验、规范源身份和软件包下载校验不变。旧安装版需要升级后才会使用镜像。部署与验证说明见 [DESIGN-feed-mirror.md](DESIGN-feed-mirror.md)。
+更新数据源增加 EdgeOne 全球镜像（含中国大陆）：`https://updates.snewbie.site/umanager/v3/feed.json`。自 v0.18.4 起，客户端优先从镜像获取完整的 feed/签名对及图标，失败时回退 GitHub；公钥、签名校验、规范源身份和软件包下载校验不变。旧安装版需要升级后才会使用镜像。部署与验证说明见 [DESIGN-feed-mirror.md](DESIGN-feed-mirror.md)。
 
 > 面向 Ubuntu 的个人软件管家：扫描、安装、更新、卸载来自厂商官网与官方仓库的 `.deb` 应用，支持签名校验与特权复核；官网 tar.gz 应用可安装到当前用户目录。
 
