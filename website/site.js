@@ -7,3 +7,8 @@ copyButton?.addEventListener('click', async () => {
     copyButton.textContent = '已复制 ✓';
   } catch { status.textContent = '未能访问剪贴板，请选中上方命令手动复制。'; }
 });
+
+document.querySelector('#reset-demo')?.addEventListener('click', () => {
+  const frame = document.querySelector('#product-demo');
+  if (frame instanceof HTMLIFrameElement) frame.src = '/demo/';
+});

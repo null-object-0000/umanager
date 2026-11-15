@@ -2,9 +2,9 @@ name: Deploy UManager website
 on:
   push:
     branches: [main]
-    paths: ['website/**', '.github/workflows/deploy-website.yml']
+    paths: ['website/**', 'src/**', 'package.json', 'package-lock.json', '.github/workflows/deploy-website.yml']
   pull_request:
-    paths: ['website/**', '.github/workflows/deploy-website.yml']
+    paths: ['website/**', 'src/**', 'package.json', 'package-lock.json', '.github/workflows/deploy-website.yml']
   workflow_dispatch:
   workflow_call:
     secrets:
@@ -26,8 +26,15 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       - name: Build website from verified release metadata
         run: node website/build.mjs
+      - name: Verify demo isolation and preview flows
+        run: |
+          npx tsc --noEmit -p website/demo/tsconfig.json
+          node website/check-demo.mjs
+          npx vitest run website/demo
       - name: Install deployment SDK
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: npm ci --prefix scripts/edgeone

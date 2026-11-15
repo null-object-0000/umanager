@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build } from 'vite';
 import { centralPublicKey, verifyBytes } from '../scripts/edgeone/prepare.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url)), output=path.join(root,'dist');
 let update;
@@ -36,10 +37,11 @@ const replacements={VERSION:update.version,MIRROR_URL:mirror,GITHUB_URL:update.d
 let html=fs.readFileSync(path.join(root,'index.html'),'utf8').replace(/\{\{([A-Z0-9_]+)\}\}/g,(_,name)=>{if(!(name in replacements))throw Error('Unknown template field '+name);return replacements[name];});
 if(/\{\{/.test(html))throw Error('Unrendered website template');
 fs.writeFileSync(path.join(output,'index.html'),html);
-for(const name of ['style.css','site.js'])fs.copyFileSync(path.join(root,name),path.join(output,name));
+for(const name of ['style.css','site.js','demo-frame.css'])fs.copyFileSync(path.join(root,name),path.join(output,name));
 fs.writeFileSync(path.join(output,'robots.txt'),`User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
 fs.writeFileSync(path.join(output,'sitemap.xml'),`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${origin}/</loc></url></urlset>`);
 fs.writeFileSync(path.join(output,'release.json'),JSON.stringify({version:update.version,mirrorUrl:mirror,githubUrl:update.downloadUrl,sha256:update.sha256,size:update.size},null,2));
 fs.writeFileSync(path.join(output,'404.html'),'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>页面未找到 · UManager</title><meta name="robots" content="noindex"><h1>页面未找到</h1><a href="/">返回 UManager 官网</a></html>');
-fs.writeFileSync(path.join(output,'edgeone.json'),JSON.stringify({headers:[{source:'/*',headers:[{key:'X-Content-Type-Options',value:'nosniff'},{key:'Referrer-Policy',value:'strict-origin-when-cross-origin'}]},{source:'/release.json',headers:[{key:'Cache-Control',value:'public,max-age=0,must-revalidate'}]}]}));
+fs.writeFileSync(path.join(output,'edgeone.json'),JSON.stringify({headers:[{source:'/*',headers:[{key:'X-Content-Type-Options',value:'nosniff'},{key:'Referrer-Policy',value:'strict-origin-when-cross-origin'}]},{source:'/demo/*',headers:[{key:'Access-Control-Allow-Origin',value:'*'},{key:'Cross-Origin-Resource-Policy',value:'cross-origin'},{key:'X-Robots-Tag',value:'noindex,follow'}]},{source:'/release.json',headers:[{key:'Cache-Control',value:'public,max-age=0,must-revalidate'}]}]}));
+await build({configFile:path.join(root,'demo/vite.config.mjs')});
 console.log('Built UManager website from verified release v'+update.version);
