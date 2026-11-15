@@ -1,0 +1,14 @@
+{
+  "name": "umanager-edgeone-feed-mirror",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@edgeone/makers-sdk": "0.2.0"
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
+  },
+  "scripts": {
+    "test": "node --test test/prepare.mjs"
+  }
+}

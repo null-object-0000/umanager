@@ -1153,7 +1153,20 @@ pub async fn self_update_entry() -> Result<Option<FeedApplicationEntry>, String>
 
 async fn fetch(feed_config: &MetadataFeed) -> Result<FetchedFeed, String> {
     let hosts = feed_config.hosts.clone();
-    fetch_feed_at(&feed_config.url, &hosts, FEED_PUBLIC_KEY_HEX).await
+    fetch_feed_with_mirror(&feed_config.url, &hosts, FEED_PUBLIC_KEY_HEX).await
+}
+
+async fn fetch_feed_with_mirror(
+    url: &str,
+    hosts: &[String],
+    public_key_hex: &str,
+) -> Result<FetchedFeed, String> {
+    crate::feed_transport::verified_fallback(
+        crate::feed_transport::endpoints(url, hosts),
+        |endpoint| async move {
+            fetch_feed_at(&endpoint.url, &endpoint.hosts, public_key_hex).await
+        },
+    ).await
 }
 
 /// Fetch a feed at any level (the central feed or a v3 source feed), verify its
@@ -1205,7 +1218,7 @@ async fn fetch_feed_at(url: &str, hosts: &[String], public_key_hex: &str) -> Res
 /// Fetch one v3 source feed and verify it against the source's own public key.
 async fn fetch_source_feed(source: &FeedSourceInfo) -> Result<FetchedFeed, String> {
     let hosts = source.hosts.clone();
-    fetch_feed_at(&source.url, &hosts, &source.public_key_hex).await
+    fetch_feed_with_mirror(&source.url, &hosts, &source.public_key_hex).await
 }
 
 async fn verify_feed_signature_at(
@@ -1463,6 +1476,15 @@ fn unix_timestamp_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transport_does_not_change_the_ed25519_verification_contract() {
+        let key = "69c752be8327d33643750ef584a03d005a477f381fa2610f2d2396b9e35f6741";
+        let signature = "fa96927ebc6affacf8411b51ebe76839ba1f747e743fab86139aa544dac668789f983a3b5ca6f6d58eaf44c2227b2ace1b14363d5ff6df1c14782c2df2234704";
+        assert!(verify_ed25519_with(b"transport preserves the signed bytes", signature, key).is_ok());
+        assert!(verify_ed25519_with(b"transport changes the signed bytes", signature, key).is_err());
+        assert!(verify_ed25519_with(b"transport preserves the signed bytes", &"00".repeat(64), key).is_err());
+    }
 
     #[test]
     fn feed_parses_categories_and_assignments() {

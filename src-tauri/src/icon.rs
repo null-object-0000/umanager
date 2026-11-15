@@ -1,5 +1,5 @@
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::time::Duration;
@@ -29,30 +29,13 @@ pub async fn fetch_app_icon(
     let target = icon_dir.join(format!("{app_id}-{hash_prefix}.png"));
 
     if !target.is_file() {
-        let client = crate::source_engine::restricted_client(hosts, Duration::from_secs(20))?;
-        let response = client
-            .get(icon_url)
-            .send()
-            .await
-            .map_err(|error| format!("下载图标失败：{error}"))?
-            .error_for_status()
-            .map_err(|error| format!("图标服务器返回错误：{error}"))?;
-        if response.url().scheme() != "https"
-            || !crate::source_engine::host_allowed(response.url().host_str(), hosts)
-        {
-            return Err("图标来源于未授权域名".to_owned());
-        }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| format!("读取图标内容失败：{error}"))?;
-        if bytes.len() > 1024 * 1024 {
-            return Err("图标大小异常".to_owned());
-        }
-        let actual = format!("{:x}", Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(icon_sha256) {
-            return Err("图标 SHA-256 校验失败".to_owned());
-        }
+        let bytes = crate::feed_transport::verified_fallback(
+            crate::feed_transport::endpoints(icon_url, hosts),
+            |endpoint| async move {
+                fetch_verified_icon(&endpoint.url, &endpoint.hosts, icon_sha256).await
+            },
+        )
+        .await?;
         tokio::fs::create_dir_all(&icon_dir)
             .await
             .map_err(|error| format!("无法创建图标缓存目录：{error}"))?;
@@ -65,6 +48,38 @@ pub async fn fetch_app_icon(
         .await
         .map_err(|error| format!("读取图标缓存失败：{error}"))?;
     Ok(format!("data:image/png;base64,{}", STANDARD.encode(bytes)))
+}
+
+async fn fetch_verified_icon(
+    icon_url: &str,
+    hosts: &[String],
+    icon_sha256: &str,
+) -> Result<Vec<u8>, String> {
+    let client = crate::source_engine::restricted_client(hosts, Duration::from_secs(20))?;
+    let response = client
+        .get(icon_url)
+        .send()
+        .await
+        .map_err(|error| format!("下载图标失败：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("图标服务器返回错误：{error}"))?;
+    if response.url().scheme() != "https"
+        || !crate::source_engine::host_allowed(response.url().host_str(), hosts)
+    {
+        return Err("图标来源于未授权域名".to_owned());
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("读取图标内容失败：{error}"))?;
+    if bytes.len() > 1024 * 1024 {
+        return Err("图标大小异常".to_owned());
+    }
+    let actual = format!("{:x}", Sha256::digest(&bytes));
+    if !actual.eq_ignore_ascii_case(icon_sha256) {
+        return Err("图标 SHA-256 校验失败".to_owned());
+    }
+    Ok(bytes.to_vec())
 }
 
 fn is_hex(input: &str, len: usize) -> bool {

@@ -37,6 +37,7 @@ UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），�
 - **`feed.json` 是软件信息的唯一来源**（候选版本、大小、SHA-256、下载地址、发布 tag、展示版本）。
 - feed 由 GitHub Actions 定时/按需抓取厂商来源后生成，**用 Ed25519 签名**发布到 GitHub Pages。
 - App 只拉取 `feed.json` + `feed.json.sig`，验签、校验 HTTPS 精确域名与字段格式后使用。
+- 内置 GitHub 发布路径的传输优先使用 `https://updates.snewbie.site/umanager/`（EdgeOne 全球可用区，含中国大陆），网络错误、验签失败或图标摘要不符时，整组回退 GitHub。镜像和原站分别使用独立的精确域名白名单；自定义源不自动套用镜像。缓存键、`source.url`、源背书和安装计划里的 `feed_url` 始终保留 GitHub 规范身份。`feed.rs` 原有验签函数与特权 helper 授权链不变，详见 `DESIGN-feed-mirror.md`。
 - 每次验签成功后把 `feed.json` 原文 + 签名原子写入应用缓存（`feed/feed-cache.json`）；之后读取优先本地缓存，每次用内置公钥重新验签，过期则 stale-while-revalidate（先返回缓存、后台刷新，15 分钟周期 + 设置页手动刷新）。
 - 真正的安装路径不变：按 feed 中的下载地址下载 `.deb` → 核对域名、大小、SHA-256、`.deb` 包名/版本/架构 → 生成不可变计划 → 特权 helper 复核 → 固定 `dpkg --install` / `dpkg --remove`。
 - 下载（第一阶段）走**常驻后台队列**（`download_queue.rs`），用户可以随时离开页面做别的事；安装 / 卸载（第二阶段）仍需逐次确认并弹一次管理员授权。

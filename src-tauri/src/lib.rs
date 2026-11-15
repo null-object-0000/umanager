@@ -8,6 +8,7 @@ mod dev_cli_tools;
 mod dev_tools;
 mod download_queue;
 mod feed;
+mod feed_transport;
 mod firmware;
 mod icon;
 mod installable;

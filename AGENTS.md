@@ -11,7 +11,7 @@ UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + Reac
 
 ## 必须遵守的安全不变量（改动前先读）
 
-1. **软件信息只来自签名 feed**（`feed.json` + `feed.json.sig`，发布在 GitHub Pages）。禁止在 App 里重新引入本机抓取（官网 HTML / GitHub API / `apt-cache policy`）。
+1. **软件信息只来自签名 feed**（`feed.json` + `feed.json.sig`，GitHub Pages 为规范源，EdgeOne 仅镜像原始字节）。传输镜像不得改变源身份、公钥、背书、验签逻辑或软件包下载白名单。禁止在 App 里重新引入本机抓取（官网 HTML / GitHub API / `apt-cache policy`）。
 2. **`src-tauri/resources/vendors.json` 编译进主程序和特权 helper**。改动它=需要发新版 App；它是「受管软件有哪些、允许哪些域名、能否卸载」的编译期事实来源。
 3. **新增受管软件只改 `feed-sources.json`**（仓库根目录，CI-only）。CI 会把它抓取并 Ed25519 签名进 `catalogJson`，老版本 App 无需更新。
 4. **特权 helper 只通过「内置公钥 + 计划内已签名 `catalogJson`/`catalogSignature`」授权 feed 新增软件**。不要放宽 helper 白名单去信任计划里的任意未签名字段。
