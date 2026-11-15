@@ -1,0 +1,39 @@
+name: Deploy UManager website
+on:
+  push:
+    branches: [main]
+    paths: ['website/**', '.github/workflows/deploy-website.yml']
+  pull_request:
+    paths: ['website/**', '.github/workflows/deploy-website.yml']
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      TENCENT_CLOUD_SECRET_ID:
+        required: true
+      TENCENT_CLOUD_SECRET_KEY:
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: umanager-website-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  website:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Build website from verified release metadata
+        run: node website/build.mjs
+      - name: Install deployment SDK
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: npm ci --prefix scripts/edgeone
+      - name: Publish global website
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: node website/deploy.mjs
+        env:
+          TENCENT_CLOUD_SECRET_ID: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}
+          TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}

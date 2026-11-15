@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import {Makers} from '../scripts/edgeone/node_modules/@edgeone/makers-sdk/dist/index.js';
+const projectId='makers-dq7dxuvlgiqv';
+const makers=new Makers({credentials:{secretId:process.env.TENCENT_CLOUD_SECRET_ID,secretKey:process.env.TENCENT_CLOUD_SECRET_KEY},zoneId:'zone-3xezk62mta64',region:'china'});
+const project=await makers.projects.get({projectId});
+if(project.name!=='umanager-website-global'||project.area!=='global')throw Error('Wrong website deployment target');
+if(!fs.existsSync('website/dist/index.html'))throw Error('Build the website first');
+const deployment=await makers.deployments.deploy({projectId,artifact:{directory:'website/dist'},env:'Production'});
+const result=await makers.deployments.wait({projectId,deploymentId:deployment.deploymentId,timeout:300,pollInterval:5});
+if(result.status!=='Success')throw Error('Website deployment failed');
+console.log(JSON.stringify({deploymentId:deployment.deploymentId,status:result.status,site:'https://umanager.devtrends.site/'}));
