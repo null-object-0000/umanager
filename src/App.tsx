@@ -2497,6 +2497,7 @@ export default function App() {
             <button className={filter === "installable" ? "active" : ""} onClick={() => setFilter("installable")}>可安装</button>
           </div>
           <div className="store-sort">
+            <span className="store-result-count" role="status">{visibleSoftware.length} 款软件</span>
             <span>排序</span>
             <SortPopUp value={sortMode} onChange={setSortMode}/>
           </div>
