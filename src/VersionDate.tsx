@@ -4,6 +4,10 @@
 // 避免把「采集推断」当成官方发布时间。
 import type { VersionUpdatedAtSource } from "./types";
 
+export function CardVersion({ version }: { version: string }) {
+  return <span className="app-card-version" title={version}>{version}</span>;
+}
+
 const sourceText: Record<VersionUpdatedAtSource, string> = {
   official: "官方发布时间",
   serverModified: "官方安装包更新时间",
