@@ -1,0 +1,54 @@
+name: Mirror signed feed to EdgeOne
+
+on:
+  workflow_run:
+    workflows: [update-feed]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: edgeone-feed-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: scripts/edgeone/package-lock.json
+      - name: Resolve the exact successful Pages publication
+        id: source
+        run: node scripts/edgeone/resolve-run.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.source.outputs.artifact_name }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: published
+      - name: Extract publication data without links or traversal
+        run: python3 scripts/edgeone/extract-pages-artifact.py published/artifact.tar published/site
+      - name: Verify signatures and stage unchanged bytes
+        run: node scripts/edgeone/prepare.mjs published/site mirror-site
+        env:
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+      - run: npm ci --prefix scripts/edgeone
+      - name: Deploy the verified mirror
+        run: node scripts/edgeone/deploy.mjs mirror-site
+        env:
+          TENCENT_CLOUD_SECRET_ID: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}
+          TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}

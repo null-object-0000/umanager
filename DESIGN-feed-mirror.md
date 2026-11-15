@@ -1,0 +1,29 @@
+# UManager 签名更新数据源镜像
+
+镜像入口为 `https://updates.snewbie.site/umanager/`，使用 EdgeOne 全球可用区（含中国大陆）。GitHub Pages 的发布流程与地址保持原样。
+
+## 发布链路
+
+原 `update-feed.yml` 继续完成抓取、签名与 GitHub Pages 发布；本次不修改生成器、签名密钥、原发布工作流或 release → update-feed 时序。
+
+独立的 `mirror-feed.yml` 在 main 分支 `update-feed` 完成后触发，也支持在 main 上手动运行。它在执行时选择最近一次 GitHub Pages 发布成功的规范产物：即使某个抓取组失败，只要 merge 用旧数据补齐后成功发布，也会同步。下载该次 Pages 的固定 artifact，验证后原样部署；若最新已发布 artifact 过期则失败，不静默降级成更旧快照。镜像失败不会阻止 GitHub 发布。部署任务只有读取 Actions artifact 的权限与腾讯云部署 Secrets，不持有任何 `FEED_SIGNING_KEY*`。
+
+`scripts/edgeone/extract-pages-artifact.py` 拒绝归档穿越、链接、特殊文件、重复路径和异常大小。`prepare.mjs` 从客户端现有常量读取中央公钥，验证 v2/v3 feed、catalog、中央源背书和图标摘要；只有验证全部通过才复制原始字节。镜像不重新序列化或重新签名任何 feed。`mirror-status.json` 仅用于运维核对，不是客户端信任来源。
+
+腾讯云 Secrets 为 `TENCENT_CLOUD_SECRET_ID`、`TENCENT_CLOUD_SECRET_KEY`；部署工具依赖独立锁定在 `scripts/edgeone`。发布目录没有 SPA fallback，缺失文件应返回失败，不能伪装为有效 feed。
+
+## 客户端与信任边界
+
+`feed_transport.rs` 只为原精确白名单已允许的 `https://null-object-0000.github.io/umanager/` 路径添加固定镜像候选。它不改变配置中的规范 URL，也不重写签名数据里的源 URL、公钥或背书。任意自定义域名、其他 GitHub 项目、非 HTTPS、额外端口、凭据、查询和片段不自动套用镜像。
+
+每个候选单独获取 feed 与对应 `.sig`，并通过原 `fetch_feed_at` / `verify_ed25519_with` 后才算成功。镜像失败时整组回退，不拼接镜像 JSON 与 GitHub 签名。图标同样先通过原大小、HTTPS、域名和 SHA-256 检查，再写入缓存。安装包下载路径与白名单、特权 helper、feed/plan schema 和缓存身份不变。
+
+客户端代码合入不会改变已安装二进制；用户升级到包含本功能的版本后，才会优先使用镜像。本次不自动发布新客户端版本。
+
+## 验证
+
+- `npm test --prefix scripts/edgeone`：字节保持、签名错误、错误源密钥、背书和图标摘要拒绝。
+- `python3 -m unittest discover -s scripts/edgeone/test -p 'test_*.py'`：归档边界。
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib feed`：客户端验签契约、精确域名范围及已验证的整体回退。
+- `test-feed-mirror.yml` 在 Ubuntu 上运行以上检查、`cargo check`、前端测试和构建。
+- 上线后按 `mirror-status.json` 对照原 artifact 的 SHA-256，并用客户端原公钥核对公开镜像的全部 feed 签名。

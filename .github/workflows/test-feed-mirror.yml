@@ -1,0 +1,50 @@
+name: Test feed mirror and fallback
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "src-tauri/src/feed*"
+      - "src-tauri/src/icon.rs"
+      - "src-tauri/src/lib.rs"
+      - "scripts/edgeone/**"
+      - ".github/workflows/*feed*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feed-mirror-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Test mirror signature and byte preservation checks
+        run: npm test --prefix scripts/edgeone
+      - name: Test archive extraction boundaries
+        run: python3 -m unittest discover -s scripts/edgeone/test -p 'test_*.py'
+      - name: Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential gcc-mingw-w64-x86-64 libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Check client compilation
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Test signed-feed validation and verified fallback
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib feed
