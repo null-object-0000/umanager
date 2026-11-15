@@ -256,6 +256,10 @@ nav { display: grid; gap: 2px; }
 }
 .store-workspace { padding-bottom: 48px; }
 
+@supports not (scrollbar-gutter: stable) {
+  .workspace { overflow-y: scroll; }
+}
+
 .workspace-header {
   display: flex;
   align-items: flex-end;
