@@ -33,7 +33,7 @@ import { hasPendingWork, summarizePendingWork } from "./closeBehavior";
 import type { CloseSummary } from "./closeBehavior";
 import type { SortMode } from "./model";
 import { conflictingVariant, foldVariantCandidates, groupVariants, isSwitchableGroup, variantLabelOf, variantSelectionKey } from "./variants";
-import { VersionDate } from "./VersionDate";
+import { CardVersion, VersionDate } from "./VersionDate";
 import chatgptIcon from "./assets/app-icons/chatgpt.png";
 import flclashIcon from "./assets/app-icons/flclash.png";
 import chromeIcon from "./assets/app-icons/google-chrome.png";
@@ -1264,7 +1264,7 @@ function SoftwareRow({ item, category, variantLabel, job, onOpen, onRemove, onLa
     <div className="app-card-footer">
       <span className={`status-badge ${statusClass}`}>{statusText}</span>
       <VersionDate seconds={item.offer?.versionUpdatedAtUnixSeconds ?? item.managed?.versionUpdatedAtUnixSeconds} source={item.offer?.versionUpdatedAtSource ?? item.managed?.versionUpdatedAtSource}/>
-      <span className="app-card-version">{item.installed ? `v${item.installedVersion}` : item.candidateVersion ? `v${item.candidateVersion}` : item.architecture}</span>
+      <CardVersion version={item.installed ? `v${item.installedVersion}` : item.candidateVersion ? `v${item.candidateVersion}` : item.architecture}/>
     </div>
   </article>;
 }
@@ -1406,7 +1406,7 @@ function DevToolchainRow({ toolchain, onOpen }: { toolchain: DevToolchain; onOpe
     </div>
     <div className="app-card-footer">
       <span className={`status-badge ${statusClass}`}>{statusText}</span>
-      {state?.defaultVersion && <span className="app-card-version">{state.defaultVersion}</span>}
+      {state?.defaultVersion && <CardVersion version={state.defaultVersion}/>}
     </div>
   </article>;
 }
@@ -1555,7 +1555,7 @@ function DevToolRow({ tool, state, category, onOpen }: { tool: DevTool; state: D
     <div className="app-card-footer">
       <span className={`status-badge ${statusClass}`}>{statusText}</span>
       <VersionDate seconds={state?.versionUpdatedAtUnixSeconds} source={state?.versionUpdatedAtSource}/>
-      {state?.version && <span className="app-card-version">v{state.version}</span>}
+      {state?.version && <CardVersion version={`v${state.version}`}/>}
     </div>
   </article>;
 }

@@ -578,7 +578,7 @@ nav { display: grid; gap: 2px; }
 
 .app-card-footer {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   margin-top: 14px;
@@ -586,15 +586,17 @@ nav { display: grid; gap: 2px; }
   border-top: 1px solid var(--hairline);
 }
 .app-card-version {
+  flex: 1 1 0;
   margin-left: auto;
   color: var(--text-3);
   font: 500 var(--fs-xs) var(--font-mono);
   min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: normal;
-  line-height: 1.4;
-  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
 }
+.app-card-footer > .status-badge { flex: none; }
 
 /* 「当前版本发布时间」— the date the newest version was published, i.e. the
    sort key of 「最近更新」; hidden entirely when the feed has no time. */

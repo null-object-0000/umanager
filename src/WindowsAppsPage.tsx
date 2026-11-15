@@ -4,7 +4,7 @@
 import { useEffect, useRef } from "react";
 import type { DownloadProgress, WindowsAction, WindowsPlan, WindowsSettings, WindowsState } from "./types";
 import { CardDownloadRing } from "./DownloadProgress";
-import { VersionDate } from "./VersionDate";
+import { CardVersion, VersionDate } from "./VersionDate";
 import wecomIcon from "./assets/app-icons/wecom.png";
 
 export type WindowsRowAction = "install" | "update" | "uninstall" | "launch" | "configure" | "stop";
@@ -47,7 +47,7 @@ export function WindowsRow({ state, progress, category, onOpen, onLaunch, onRemo
     <div className="app-card-footer">
       <span className={`status-badge ${statusClass}`}>{statusText}</span>
       <VersionDate seconds={state.versionUpdatedAtUnixSeconds} source={state.versionUpdatedAtSource}/>
-      <span className="app-card-version">{state.installedVersion ?? state.candidateVersion ?? (state.installed ? "无法识别" : "未安装")}</span>
+      <CardVersion version={state.installedVersion ?? state.candidateVersion ?? (state.installed ? "无法识别" : "未安装")}/>
     </div>
   </article>;
 }
