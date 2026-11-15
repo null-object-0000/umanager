@@ -47,6 +47,8 @@
       "v2raya": "network",
       "discord": "chat",
       "claude-desktop": "ai-tools",
+      "t3code": "ai-tools",
+      "paseo": "ai-tools",
       "cursor": "dev-tools",
       "docker-desktop": "dev-tools",
       "workbuddy": "ai-tools",

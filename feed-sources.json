@@ -580,6 +580,48 @@
       }
     },
     {
+      "applicationId": "t3code",
+      "packageName": "t3code",
+      "displayName": "T3 Code",
+      "vendor": "T3 Tools",
+      "architecture": "amd64",
+      "description": "面向编程智能体的桌面控制中心，连接已有的 AI 编程工具与订阅，管理会话、代码变更和项目命令。",
+      "homepage": "https://t3.codes/zh/download",
+      "icon": "t3code",
+      "accentColor": "#ec4899",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/pingdotgg/t3code/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "T3-Code-{tagVersion}-amd64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
+      "applicationId": "paseo",
+      "packageName": "paseo",
+      "displayName": "Paseo",
+      "vendor": "Paseo",
+      "architecture": "amd64",
+      "description": "连接并管理 AI 编程智能体的桌面应用，支持从桌面、手机与浏览器远程继续会话，需连接自己的服务与账号。",
+      "homepage": "https://paseo.sh/zh-CN/download",
+      "icon": "paseo",
+      "accentColor": "#2563eb",
+      "removable": true,
+      "source": {
+        "kind": "releaseApi",
+        "releaseApiUrl": "https://api.github.com/repos/getpaseo/paseo/releases/latest",
+        "releaseApiHosts": ["api.github.com"],
+        "assetNamePattern": "Paseo-{tagVersion}-amd64.deb",
+        "stripTagPrefix": "v",
+        "assetDownloadHosts": ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"],
+        "allowPrerelease": false
+      }
+    },
+    {
       "applicationId": "cursor",
       "packageName": "cursor",
       "displayName": "Cursor",
