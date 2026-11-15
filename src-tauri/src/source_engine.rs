@@ -741,6 +741,19 @@ async fn download_plan_file(
     progress: &ProgressCallback,
     cancel: &CancelCheck,
 ) -> Result<VerifiedFile, String> {
+    if app.application_id == "umanager" && plan.archive.is_none() {
+        return crate::package_transport::verified_fallback(
+            crate::package_transport::endpoints(app, plan), path, cancel,
+            |endpoint| async move {
+                let (size, sha256) = download_blob_file_at(
+                    app, plan, path, progress, cancel, &endpoint.url, &endpoint.hosts, endpoint.timeout,
+                ).await?;
+                let metadata = inspect_artifact(app, plan, path, cancel).await?;
+                validate_downloaded_metadata(plan, &metadata)?;
+                Ok((size, sha256, metadata))
+            },
+        ).await;
+    }
     if let Some(archive) = &plan.archive {
         let zip_path = path.with_extension("zip.tmp");
         let mut transport = plan.clone();
@@ -789,9 +802,22 @@ async fn download_blob_file(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let download_url = resolve_download_url(app, &plan.download_url).await?;
-    let client = restricted_client(&download_hosts, Duration::from_secs(30 * 60))?;
+    download_blob_file_at(app, plan, path, progress, cancel, &download_url, &download_hosts, Duration::from_secs(30 * 60)).await
+}
+
+async fn download_blob_file_at(
+    app: &Application,
+    plan: &DownloadPlan,
+    path: &Path,
+    progress: &ProgressCallback,
+    cancel: &CancelCheck,
+    download_url: &str,
+    download_hosts: &[String],
+    timeout: Duration,
+) -> Result<(u64, String), String> {
+    let client = restricted_client(download_hosts, timeout)?;
     let mut response = client
-        .get(&download_url)
+        .get(download_url)
         .send()
         .await
         .map_err(|error| format!("下载 {} 安装包失败：{error}", app.display_name))?

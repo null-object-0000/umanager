@@ -17,6 +17,7 @@ mod launcher;
 mod local_deb;
 mod network;
 mod operation_plan;
+mod package_transport;
 mod scanner;
 mod scripts;
 mod source_engine;
