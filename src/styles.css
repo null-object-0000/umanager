@@ -249,10 +249,16 @@ nav { display: grid; gap: 2px; }
 .workspace {
   min-width: 0;
   overflow: auto;
+  /* Filtering must not add a column when a short result hides the scrollbar. */
+  scrollbar-gutter: stable;
   padding: 30px 40px 52px;
   background: var(--bg);
 }
 .store-workspace { padding-bottom: 48px; }
+
+@supports not (scrollbar-gutter: stable) {
+  .workspace { overflow-y: scroll; }
+}
 
 .workspace-header {
   display: flex;
@@ -514,7 +520,9 @@ nav { display: grid; gap: 2px; }
 
 .app-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
+  /* Reserve empty tracks for short result sets, while keeping enough room for
+     the icon/actions and the status/date/version footer at every density. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: 20px;
   padding-bottom: 8px;
 }
@@ -570,6 +578,7 @@ nav { display: grid; gap: 2px; }
 
 .app-card-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-top: 14px;
@@ -580,10 +589,11 @@ nav { display: grid; gap: 2px; }
   margin-left: auto;
   color: var(--text-3);
   font: 500 var(--fs-xs) var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 45%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.4;
+  max-width: 100%;
 }
 
 /* 「当前版本发布时间」— the date the newest version was published, i.e. the
@@ -1591,7 +1601,6 @@ nav { display: grid; gap: 2px; }
   .workspace { padding: 24px 24px 40px; }
   .drawer-layer { left: 200px; }
   .detail-drawer { width: 100%; }
-  .app-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
   .header-actions time { display: none; }
 }
 

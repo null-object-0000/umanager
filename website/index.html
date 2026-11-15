@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://umanager.devtrends.site/"><meta property="og:image" content="https://umanager.devtrends.site/assets/app-preview.jpg">
   <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="UManager · Ubuntu 软件管家"><meta name="twitter:description" content="把安装、更新、卸载与开发环境管理，收进一个清楚的界面。"><meta name="twitter:image" content="https://umanager.devtrends.site/assets/app-preview.jpg">
   <link rel="icon" href="/assets/logo.png" type="image/png"><link rel="apple-touch-icon" href="/assets/logo.png">
-  <link rel="stylesheet" href="/style.css"><script src="/site.js" defer></script>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/demo-frame.css"><script src="/site.js" defer></script>
   <script type="application/ld+json">{{STRUCTURED_DATA}}</script>
 </head>
 <body>
@@ -26,7 +26,7 @@
 <section class="shell hero">
   <div class="hero-copy"><div><p class="eyebrow"><span class="status-dot"></span> 为 Ubuntu 而生 · 代码公开</p><h1>软件管理，<br>简单<span class="blue">一点。</span></h1></div>
   <div class="hero-intro"><p>安装、更新、卸载，开发环境与 AI 工具。<br>把散落的日常操作，收进一个清楚的界面。<br>少找几次下载页，多做一点自己的事。</p><div class="actions"><a class="button primary" href="{{MIRROR_URL}}">下载 Ubuntu 版 <span aria-hidden="true">↓</span></a><a class="text-link" href="#features">看看它能做什么 <span aria-hidden="true">↘</span></a></div><p class="release-note">v{{VERSION}} <span>·</span> Ubuntu 22.04+ <span>·</span> amd64 <span>·</span> {{SIZE_MB}} MB</p></div></div>
-  <figure class="product"><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>你的软件，一个地方。</span><span class="window-tag">UManager for Ubuntu</span></div><img src="/assets/app-preview.jpg" width="2320" height="1309" fetchpriority="high" alt="UManager 软件商店界面，统一浏览桌面应用与 AI CLI，查看已安装和可更新的软件"><figcaption>实际前端的开发预览；版本、软件状态与数据仅作界面示意。</figcaption></figure>
+  <figure class="product" id="interactive-demo"><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>你的软件，一个地方。现在可以亲手试试。</span><span class="demo-controls"><button type="button" id="reset-demo">重置演示</button><a href="/demo/" target="_blank" rel="noopener">大屏打开 ↗</a></span></div><div class="demo-viewport"><iframe id="product-demo" class="demo-frame" src="/demo/" title="UManager 交互演示：搜索软件、浏览详情、体验模拟下载和批量更新" loading="lazy" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe></div><figcaption>复用真实客户端界面，使用示例数据；下载、授权与安装均为模拟。手机可左右滑动查看桌面界面。</figcaption><noscript><p>启用 JavaScript 后可体验完整交互。<a href="/assets/app-preview.jpg">查看产品界面截图</a></p></noscript></figure>
 </section>
 <section class="shell familiar" aria-labelledby="familiar-title"><p id="familiar-title">熟悉的软件，不必再四处寻找。</p><div class="app-strip"><span><img src="/assets/vscode.png" alt="" width="28" height="28">VS Code</span><span><img src="/assets/google-chrome.png" alt="" width="28" height="28">Chrome</span><span><img src="/assets/wechat.png" alt="" width="28" height="28">微信</span><span><img src="/assets/nodejs.svg" alt="" width="28" height="28">Node.js</span><span><img src="/assets/rust.svg" alt="" width="28" height="28">Rust</span><span><img src="/assets/codex.svg" alt="" width="28" height="28">Codex CLI</span></div><p class="small muted">部分受管软件示例，具体可用版本与支持范围以客户端为准。</p></section>
 <section class="shell section" id="features"><div class="section-heading"><p class="eyebrow">LESS FRICTION. MORE BUILDING.</p><h2>日常要用的，<br>都安排得明明白白。</h2><p>从桌面应用到命令行工具，管理路径更集中，<br>每次操作的来源、进度与结果也更清楚。</p></div>

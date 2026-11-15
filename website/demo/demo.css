@@ -1,0 +1,6 @@
+html,body{min-width:960px!important;height:100%;margin:0}
+.website-demo-notice{height:36px;position:relative;z-index:100;display:flex;align-items:center;justify-content:center;gap:12px;box-sizing:border-box;background:#e7efff;color:#355784;border-bottom:1px solid #c9d8ef;font:11px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;white-space:nowrap}
+.website-demo-notice strong{font-size:10px;background:#2366e8;color:white;border-radius:4px;padding:2px 7px}
+#root{height:calc(100% - 36px)!important}
+/* The real desktop application owns its layout; the outer website provides a
+   horizontally scrollable viewport for phones instead of rewriting app views. */
