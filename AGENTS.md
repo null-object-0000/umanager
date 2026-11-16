@@ -7,7 +7,7 @@
 
 ## 项目速览
 
-UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + React 前端）**，管理从厂商官网/官方仓库安装的 `.deb` 应用。系统级安装/卸载全部经**特权 helper**（Polkit，`crates/umanager-helper`）执行，采用「不可变计划 + 特权 dry-run + 再次确认」（Polkit 用 `auth_admin_keep`，一次会话只弹一次管理员授权）。
+UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + React 前端）**，管理从厂商官网/官方仓库安装的 `.deb` 应用。系统级安装/卸载全部经**特权 helper**（Polkit，`crates/umanager-helper`）执行，采用不可变计划与特权 dry-run。受管软件在用户点击「安装 / 更新」后连续完成复核与执行（Polkit 用 `auth_admin_keep`，一次会话只弹一次管理员授权）；本地安装包、卸载清理和固件更新保留独立确认。
 
 ## 必须遵守的安全不变量（改动前先读）
 
@@ -21,6 +21,12 @@ UManager 是面向 Ubuntu 的个人软件管家：**Tauri 2（Rust 后端 + Reac
 8. **计划不可变**：`plan_id = SHA-256(payload)`，15 分钟有效期，只读、归属当前用户（`crates/umanager-plan`）。
 9. **私钥只存在于 GitHub Actions secret `FEED_SIGNING_KEY`**；任何提交都不得包含私钥。公钥（hex `57d369…c8f9`）内置在 `src-tauri/src/feed.rs` 与 `crates/umanager-helper/src/main.rs`。
 10. **schema 同步**：feed schema 与 plan schema 当前均为 **v2**。升级时主程序、helper、`scripts/update-feed.mjs` 三处必须同步修改。
+
+## 交互原则
+
+- 受管软件的安装/更新只需一次明确操作，不拆成「授权复核 → 再次确认安装」两个按钮；下载完成或后台状态刷新不能自动触发安装。
+- 不用步骤条、说明横幅或段落重复按钮、状态和用户已知的操作；优先展示软件、版本、进度、操作结果与可执行的错误处理。
+- 技术证据与日志按需展开；必要的风险、数据删除范围、缺失依赖和失败原因不能隐藏。
 
 ## 关键文件（改哪里）
 

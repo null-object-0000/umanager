@@ -1031,7 +1031,6 @@ nav { display: grid; gap: 2px; }
 .install-local-button:hover:not(:disabled), .remove-confirm-button:hover:not(:disabled) { background: var(--red-hover); }
 .install-local-button:disabled, .remove-confirm-button:disabled { opacity: 0.6; }
 
-.download-safety { margin: 9px 2px 0; color: var(--text-3); font-size: var(--fs-sm); line-height: 1.5; text-align: center; }
 
 .download-success, .immutable-plan, .dry-run-success {
   display: flex;
@@ -1674,10 +1673,8 @@ nav { display: grid; gap: 2px; }
 .download-queue-bar { flex: 1; height: 6px; border-radius: var(--radius-pill); background: rgba(0, 0, 0, 0.07); overflow: hidden; }
 .download-queue-bar > span { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--accent); transition: width 0.25s ease; }
 .download-queue-stats { flex: none; color: var(--text-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
-.download-queue-note { margin: 0; color: var(--text-3); font-size: var(--fs-sm); }
 .download-queue-error { margin: 0; color: var(--red-text); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .download-queue-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.download-queue-hint { margin: 16px 0 0; color: var(--text-3); font-size: var(--fs-sm); line-height: 1.5; }
 
 .status-badge.queued { color: var(--text-2); background: rgba(0, 0, 0, 0.05); }
 .status-badge.downloading, .status-badge.verifying { color: var(--accent); background: var(--accent-soft); }
@@ -1730,7 +1727,6 @@ nav { display: grid; gap: 2px; }
 .batch-picker h2, .batch-card h2 { margin: 0; font-size: var(--fs-lg); }
 .batch-picker p, .batch-card-header p { color: var(--text-2); line-height: 1.6; }
 .batch-picker footer { justify-content: flex-end; margin-top: 20px; }
-.batch-scope, .batch-history-note { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.7; }
 .batch-select-all, .batch-selection-list label, .batch-confirmation label { display: flex; align-items: flex-start; gap: 10px; line-height: 1.6; }
 .batch-picker input, .batch-confirmation input { accent-color: var(--accent); flex: 0 0 auto; margin-top: 4px; }
 .batch-selection-list { list-style: none; padding: 0; margin: 12px 0; }
@@ -1767,26 +1763,12 @@ nav { display: grid; gap: 2px; }
 .batch-filters { width: fit-content; margin-bottom: 18px; }
 @media (max-width: 720px) { .batch-card { padding: 16px; } .batch-card-header { flex-wrap: wrap; } .batch-item-top { flex-wrap: wrap; gap: 6px; } }
 
-.task-overview { display: flex; flex-direction: column; gap: 7px; padding: 20px 24px; margin-bottom: 20px; background: var(--accent-soft); border-radius: var(--radius-card); }
-.task-overview strong { font-size: var(--fs-lg); }
-.task-overview span { color: var(--text-2); line-height: 1.6; }
-.install-flow { padding: 20px; margin: 20px 0; border: 1px solid var(--hairline); border-radius: var(--radius-card); background: var(--card); }
-.install-flow ol { display: flex; gap: 16px; padding: 0; margin: 0; list-style: none; }
-.install-flow li { display: flex; align-items: center; gap: 8px; flex: 1; color: var(--text-3); font-size: var(--fs-sm); }
-.install-flow li > span { display: grid; place-items: center; width: 25px; height: 25px; flex-shrink: 0; border-radius: 50%; background: var(--bg); }
-.install-flow li.current { color: var(--accent); font-weight: 600; }
-.install-flow li.current > span { color: white; background: var(--accent); }
-.install-flow li.complete { color: var(--green-text); }
-.install-flow li.complete > span { background: var(--green-soft); }
-.install-flow > p, .install-confirm-summary p, .install-confirm-summary > span { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.7; }
-.install-flow > p { margin-bottom: 0; }
-.install-confirm-summary { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--hairline); overflow-wrap: anywhere; }
 @media (max-width: 720px) {
-  .install-flow ol { gap: 8px; }
-  .install-flow li { flex-direction: column; align-items: flex-start; }
   .batch-filters { max-width: 100%; flex-wrap: wrap; }
   .download-queue-row { flex-wrap: wrap; }
   .download-queue-title { flex-wrap: wrap; }
   .download-queue-actions { margin-left: auto; }
 }
 .batch-item-list > summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-sm); padding: 8px 0; }
+
+.operation-success { color: var(--green-text); font-size: var(--fs-sm); margin: 16px 0; }

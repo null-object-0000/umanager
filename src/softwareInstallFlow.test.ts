@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOperationPlan, installPackage, runOperationDryRun } from "./api";
-import { confirmSoftwareInstall, reviewSoftwareInstall } from "./softwareInstallFlow";
+import { executeReviewedSoftwareInstall, installSoftware, reviewSoftwareInstall } from "./softwareInstallFlow";
 import type { DryRunReport, OperationPlanArtifact } from "./types";
 vi.mock("./api", () => ({ createOperationPlan: vi.fn(), installPackage: vi.fn(), runOperationDryRun: vi.fn() }));
 const plan: OperationPlanArtifact = {
@@ -9,30 +9,34 @@ const plan: OperationPlanArtifact = {
 };
 const report: DryRunReport = { dryRun: true, planId: "locked-plan", action: "installVerifiedDeb", packageName: "test", installedVersion: "1", targetVersion: "2", architecture: "amd64", sha256: "abc", verified: true, systemModified: false };
 beforeEach(() => { vi.resetAllMocks(); vi.spyOn(Date, "now").mockReturnValue(100_000); vi.mocked(createOperationPlan).mockResolvedValue(plan); vi.mocked(runOperationDryRun).mockResolvedValue(report); });
-describe("installation review and explicit confirmation", () => {
+afterEach(() => vi.restoreAllMocks());
+describe("installation review and execution", () => {
   it("stops after review without installing", async () => {
     const result = await reviewSoftwareInstall("test", vi.fn());
     expect(runOperationDryRun).toHaveBeenCalledWith("locked-plan");
     expect(result.report).toEqual(report);
     expect(installPackage).not.toHaveBeenCalled();
   });
-  it("installs the reviewed plan only after a separate confirmation", async () => {
-    const reviewed = await reviewSoftwareInstall("test", vi.fn());
+  it("one install action reviews and executes the same immutable plan", async () => {
     const progress = vi.fn();
-    await confirmSoftwareInstall(reviewed.plan, reviewed.report, progress);
+    const onReviewed = vi.fn();
+    await installSoftware("test", vi.fn(), onReviewed, progress);
+    expect(onReviewed).toHaveBeenCalledWith(report);
+    expect(runOperationDryRun).toHaveBeenCalledWith("locked-plan");
+    expect(vi.mocked(runOperationDryRun).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(installPackage).mock.invocationCallOrder[0]);
     expect(createOperationPlan).toHaveBeenCalledTimes(1);
     expect(installPackage).toHaveBeenCalledWith("locked-plan", progress);
   });
   it("rejects failed or mismatched reviews", async () => {
     vi.mocked(runOperationDryRun).mockResolvedValue({ ...report, verified: false });
-    await expect(reviewSoftwareInstall("test", vi.fn())).rejects.toThrow("未通过");
-    await expect(confirmSoftwareInstall(plan, { ...report, planId: "other" }, vi.fn())).rejects.toThrow("未通过");
+    await expect(installSoftware("test", vi.fn(), vi.fn(), vi.fn())).rejects.toThrow("未通过");
+    await expect(executeReviewedSoftwareInstall(plan, { ...report, planId: "other" }, vi.fn())).rejects.toThrow("未通过");
     expect(installPackage).not.toHaveBeenCalled();
   });
-  it("blocks expired plans without creating or installing a replacement", async () => {
+  it("blocks a plan that expires during review", async () => {
     vi.spyOn(Date, "now").mockReturnValue(200_000);
-    await expect(confirmSoftwareInstall(plan, report, vi.fn())).rejects.toThrow("已过期");
+    await expect(installSoftware("test", vi.fn(), vi.fn(), vi.fn())).rejects.toThrow("已过期");
     expect(installPackage).not.toHaveBeenCalled();
-    expect(createOperationPlan).not.toHaveBeenCalled();
+    expect(createOperationPlan).toHaveBeenCalledTimes(1);
   });
 });

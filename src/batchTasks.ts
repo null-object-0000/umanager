@@ -2,8 +2,8 @@ import type { BatchItem, BatchStatus, BatchTask, CatalogApplication, ManagedPack
 
 export interface BatchCandidate { applicationId: string; package: ManagedPackage }
 export const batchStatusLabels: Record<BatchStatus, string> = {
-  preparing: "准备下载", downloading: "下载与校验中", awaitingReview: "等待授权复核", reviewing: "管理员复核中",
-  awaitingConfirmation: "等待再次确认", installing: "串行安装中", completed: "全部完成", paused: "需要处理", interrupted: "上次运行中断", canceled: "已结束",
+  preparing: "准备下载", downloading: "下载与校验中", awaitingReview: "待更新", reviewing: "管理员复核中",
+  awaitingConfirmation: "待更新", installing: "串行安装中", completed: "全部完成", paused: "需要处理", interrupted: "上次运行中断", canceled: "已结束",
 };
 export const batchItemLabels: Record<BatchItem["status"], string> = {
   downloading: "等待下载校验", ready: "待复核", reviewed: "复核通过", installing: "正在安装", succeeded: "更新成功", failed: "失败", blocked: "未执行，需重新检查", unknown: "安装结果待核对", canceled: "已结束",

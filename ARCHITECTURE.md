@@ -4,7 +4,7 @@
 
 ## 1. 项目是什么
 
-UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），管理从厂商官网/官方仓库安装的 `.deb` 应用及其版本更新、安装、卸载。所有系统级操作都经过一个独立的特权 helper（Polkit），并遵循「不可变计划 + 特权 dry-run + 再次确认」的安全模型（Polkit 用 `auth_admin_keep`：一次会话只弹一次管理员授权，之后该会话内的后续特权操作不再重复弹窗）。
+UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），管理从厂商官网/官方仓库安装的 `.deb` 应用及其版本更新、安装、卸载。所有系统级操作都经过一个独立的特权 helper（Polkit），采用不可变计划与特权 dry-run；受管软件由用户点击「安装 / 更新」后连续完成复核与执行，本地安装包、卸载清理和固件更新仍保留单独确认（Polkit 用 `auth_admin_keep`：一次会话只弹一次管理员授权，之后该会话内的后续特权操作不再重复弹窗）。
 
 ### 固件检测与按设备更新
 
@@ -20,11 +20,11 @@ UManager 是面向 Ubuntu 的个人软件管家（Tauri 2 + React + Rust），�
 
 ### 受管 `.deb` 批量更新与任务记录
 
-`src-tauri/src/batch_tasks.rs` 管理批次生命周期，`src/TasksPage.tsx` 提供勾选清单、汇总确认和任务历史。批次创建时从有效签名目录与实际安装状态解析应用，排除自更新、未安装软件和非自动安装来源，固定每项原版本、目标版本、架构、大小与 SHA-256。先完整验证选择，再通过既有 `download_queue` 入队；精确绑定 job ID，拒绝复用与所选版本/摘要不一致的下载结果。下载失败项留在原批次，只有成功项纳入本次复核。
+`src-tauri/src/batch_tasks.rs` 管理批次生命周期，`src/TasksPage.tsx` 提供软件选择、更新操作和任务历史。用户点击「更新」后，`batchInstallFlow` 连续完成复核与执行；后台快照和下载完成事件不触发安装。批次创建时从有效签名目录与实际安装状态解析应用，排除自更新、未安装软件和非自动安装来源，固定每项原版本、目标版本、架构、大小与 SHA-256。先完整验证选择，再通过既有 `download_queue` 入队；精确绑定 job ID，拒绝复用与所选版本/摘要不一致的下载结果。下载失败项留在原批次，只有成功项纳入本次复核。
 
 复核复用 `operation_plan::create_install_plan`，重新校验缓存、比较固定字段并逐项调用原 helper dry-run。任何项目复核失败，本批次不执行安装。`dependency_check::batch_preflight` 以固定只读命令检查 `dpkg --audit`、安装包 control 与本机包关系，保守拒绝已声明的 Conflicts/Breaks 和可识别的反向依赖破坏；它不是 APT 求解器，不修复依赖、不改变源、不提供新的候选软件信息。当前安装依赖缺口也阻止批量安装。
 
-复核成功后，在内存中保存有序不可变计划集合，以 `SHA-256(JSON(batch_id, plan_ids))` 生成确认摘要。执行命令只接收批次 ID 和摘要；必须匹配内存审批、项目状态、全部计划 ID/内容和有效期，审批单次消费。再次确认后先对整批做只读预检与 helper dry-run，再逐项重查依赖/冲突并交给既有 helper 安装；helper 仍独立执行全部安全校验。每项安装结束用实际 dpkg 状态核对完整安装的目标版本。遇到失败停止余下项目，已成功结果保留。`operation_plan::MUTATION_LOCK` 串行化应用内普通安装、本地 `.deb` 安装、卸载与批量执行，系统 dpkg 锁仍是跨进程边界。主窗口收起不影响后台任务；托盘退出与应用内重启在软件操作期间被拒绝。
+复核成功后，在内存中保存有序不可变计划集合，以 `SHA-256(JSON(batch_id, plan_ids))` 生成确认摘要。执行命令只接收批次 ID 和摘要；必须匹配内存审批、项目状态、全部计划 ID/内容和有效期，审批单次消费。执行时先对整批做只读预检与 helper dry-run，再逐项重查依赖/冲突并交给既有 helper 安装；helper 仍独立执行全部安全校验。每项安装结束用实际 dpkg 状态核对完整安装的目标版本。遇到失败停止余下项目，已成功结果保留。`operation_plan::MUTATION_LOCK` 串行化应用内普通安装、本地 `.deb` 安装、卸载与批量执行，系统 dpkg 锁仍是跨进程边界。主窗口收起不影响后台任务；托盘退出与应用内重启在软件操作期间被拒绝。
 
 任务状态以 0600 临时文件、fsync 和原子 rename 写入 `app_data_dir/batch-tasks.json`，关键状态必须先保存才允许执行后续效果；保存失败停止后续操作并显示错误。日志按项目限制条数/长度，历史最多 100 批、总大小最多 8 MiB，必要时淘汰旧批次并裁剪日志。记录仅用于展示，不能作为授权；加载时所有活动批次变为中断并清除确认摘要，不自动恢复下载或安装。重试通过重新扫描、用户重新选择和新批次完成；已成功项目不会作为重试候选。既有 feed/plan schema、helper 白名单与签名授权链均不变。
 
@@ -335,7 +335,7 @@ LLM 是**用户自带的可选服务**，不参与任何 feed 信任判断，只
 
 归档安装、更新和卸载本身无特权，复用应用内 `MUTATION_LOCK` 防并发变更；DEB 计划入口和 helper 均排除 `TarGz`，批量 DEB 更新也排除它。旧客户端将新 source kind 解析为 Unknown 并拒绝自动安装。
 
-软件 UI 使用同一 `InstallDrawer` / `UpdateDrawer` 与 `useSoftwareInstall` 生命周期；不按来源格式另开简化详情弹窗。获取、后台下载进度、版本/来源/校验证据、已安装管理均共用，tar.gz 只在执行后端、用户目录安装说明和锁定计划的再次确认上区分。卸载保留与 DEB 相同的确认对话框结构。
+软件 UI 使用同一 `InstallDrawer` / `UpdateDrawer` 与 `useSoftwareInstall` 生命周期；不按来源格式另开简化详情弹窗。获取、后台下载进度、版本/来源/校验证据、已安装管理均共用，用户点击「安装 / 更新」后连续创建计划、复核并执行；tar.gz 只在执行后端和安装目录上区分。卸载保留与 DEB 相同的确认对话框结构。
 
 Antigravity 三条产品线的日志页面虽使用不同 `tab` 参数，HTML 实际包含全部产品。`scripts/antigravity-changelog.mjs` 在 CI 按 `rel-<product>-<version>` 的 article 精确定位，保留日期、分类与 Markdown 内容，禁止跨产品或跨版本回退。App/IDE 接入应用 releaseNotes，CLI 接入工具 releaseNotes 与官方 JSON 版本索引。CLI 使用编译期工具定义中的官方脚本、`agy update` 和限定文件卸载；主程序不抓取官网日志或远程版本。
 

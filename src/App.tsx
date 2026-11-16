@@ -237,7 +237,7 @@ function DependencyGapWarning({ gap }: { gap: DependencyGap }) {
   if (installable.length === 0 && unavailable.length === 0) return null;
   return <div className="dependency-warning">
     <strong>⚠ 安装包依赖未满足</strong>
-    <span>UManager 用固定的 <code>dpkg --install</code> 安装，不会自动补装依赖；以下依赖未满足会导致安装失败：</span>
+    <span>请先安装以下依赖：</span>
     {installable.length > 0 && <>
       <ul>{installable.map((item, index) => <li key={`installable-${index}-${item}`}><code>{item}</code></li>)}</ul>
       <p>
@@ -245,11 +245,11 @@ function DependencyGapWarning({ gap }: { gap: DependencyGap }) {
         {aptPackageNames(installable).length > 0 && <>（或 <code>sudo apt-get install -f</code>）</>}
         补装后重试。
       </p>
-      <p>
+      <details><summary>下载依赖超时？</summary><p>
         apt 不会继承你 shell 里的 <code>http_proxy</code>／<code>https_proxy</code>（<code>sudo</code> 会清空环境变量）；
         若 apt 下载厂商源超时，请显式指定代理后重试，例如
         <code>sudo apt-get -o Acquire::http::Proxy=http://127.0.0.1:7890 -o Acquire::https::Proxy=http://127.0.0.1:7890 install -f</code>。
-      </p>
+      </p></details>
     </>}
     {unavailable.length > 0 && <>
       <ul>{unavailable.map((item, index) => <li key={`unavailable-${index}-${item}`} className="dependency-warning-unavailable"><code>{item}</code></li>)}</ul>
@@ -306,7 +306,7 @@ function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose
       </div>
       <section className="windows-card">
         <h2>Wine 配置</h2>
-        <p className="windows-note">默认采用现有企业微信环境的兼容设置：Windows 10、192 DPI、X11 / XWayland、中文字体链接与替换（写到 Wine 真正读取的 HKLM 路径）、中文区域与界面语言（zh-CN）和标题栏修复。配置仅作用于企业微信环境；应用配置前需要先退出企业微信，否则会被拒绝。</p>
+        <p className="windows-note">修改配置前需退出企业微信。</p>
         <fieldset disabled={locked} className="windows-settings">
           <label>Wine 运行器<select value={settings.wineBinary} onChange={e => setSettings({ ...settings, wineBinary: e.target.value })}>{["/usr/bin/wine", "/opt/wine-devel/bin/wine", "/opt/wine-stable/bin/wine", "/opt/wine-staging/bin/wine"].map(p => <option key={p}>{p}</option>)}</select></label>
           <label>Windows 版本<select value={settings.windowsVersion} onChange={e => setSettings({ ...settings, windowsVersion: e.target.value })}><option value="win10">Windows 10（默认）</option><option value="win11">Windows 11</option></select></label>
@@ -325,7 +325,7 @@ function WindowsDetailDrawer({ state, busy, message, progress, onAction, onClose
         </div>
         {!state.installed && <p className="windows-note">配置将随首次安装一起应用。</p>}
       </section>
-      <p className="windows-note">安装 / 更新会打开企业微信官方向导，安装包来源、版本、大小与 SHA-256 均由签名软件源授权；卸载运行官方卸载向导，聊天记录是否保留由向导中的选项决定。</p>
+
     </div>
   </DetailShell>;
 }
@@ -596,7 +596,7 @@ function OperationLogPanel({ events, running }: { events: OperationProgressEvent
   const phases = events.filter((event) => event.kind !== "log");
   const logs = events.filter((event) => event.kind === "log");
   return <section className="operation-progress-panel" aria-live="polite">
-    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "正在执行系统包操作" : "系统包操作已结束"}</strong><span>只读输出，不能输入或执行命令</span></div></div></header>
+    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "正在执行系统包操作" : "系统包操作已结束"}</strong></div></div></header>
     <div className="operation-phase-list">{phases.map((event, index) => <div className={event.kind} key={`${index}-${event.message}`}><span>{event.kind === "completed" ? "✓" : event.kind === "warning" ? "!" : "•"}</span><p>{event.message}</p></div>)}</div>
     <details className="operation-log-details" open={running || undefined}>
       <summary>详细日志 <b>{logs.length}</b></summary>
@@ -751,7 +751,7 @@ function NetworkSettingsPanel() {
   };
 
   return <section className="settings-panel network-panel">
-    <div className="settings-section-heading"><div><div><h2>网络代理</h2><p>让官网更新检查与安装包下载经本地代理访问网络</p></div></div><span className={`install-kind-badge ${enabled ? "" : "unknown"}`}>{enabled ? "已启用" : "未启用"}</span></div>
+    <div className="settings-section-heading"><div><div><h2>网络代理</h2><p>用于检查更新和下载安装包</p></div></div><span className={`install-kind-badge ${enabled ? "" : "unknown"}`}>{enabled ? "已启用" : "未启用"}</span></div>
     {loading && <div className="settings-loading"><span className="loader"/><span>正在读取网络代理设置…</span></div>}
     {!loading && <>
       <div className="network-proxy-form">
@@ -826,7 +826,7 @@ function LlmSettingsPanel() {
   };
 
   return <section className="settings-panel network-panel">
-    <div className="settings-section-heading"><div><div><h2>LLM 翻译与归纳</h2><p>用你自己的 OpenAI 兼容服务：英文更新日志一键翻译成中文并归纳「更新重点」，中文等日志直接归纳「更新重点」（不改动原文）；结果缓存在本机，下次打开直接展示，除非你点「重新翻译 / 重新归纳」</p></div></div><span className={`install-kind-badge ${enabled ? "" : "unknown"}`}>{enabled ? "已启用" : "未启用"}</span></div>
+    <div className="settings-section-heading"><div><div><h2>LLM 翻译与归纳</h2><p>翻译更新日志、归纳更新重点</p></div></div><span className={`install-kind-badge ${enabled ? "" : "unknown"}`}>{enabled ? "已启用" : "未启用"}</span></div>
     {loading && <div className="settings-loading"><span className="loader"/><span>正在读取 LLM 设置…</span></div>}
     {!loading && <>
       <div className="network-proxy-form">
@@ -834,7 +834,7 @@ function LlmSettingsPanel() {
         <label className="proxy-url-field"><span>服务地址</span><input value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setSaved(false); }} placeholder="https://api.deepseek.com/v1 或 http://192.168.1.50:8080/v1" disabled={!enabled} spellCheck={false} aria-label="LLM 服务地址"/></label>
         <label className="proxy-url-field"><span>API Key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setSaved(false); }} placeholder="sk-…（本地服务可留空）" disabled={!enabled} spellCheck={false} aria-label="LLM API Key"/></label>
         <label className="proxy-url-field"><span>模型</span><input value={model} onChange={(event) => { setModel(event.target.value); setSaved(false); }} placeholder="deepseek-chat" disabled={!enabled} spellCheck={false} aria-label="LLM 模型名称"/></label>
-        <p className="proxy-hint">兼容任何 OpenAI 风格接口：DeepSeek、Moonshot、OpenAI、Ollama 等。服务地址填 API 根路径（通常以 <code>/v1</code> 结尾），App 会请求 <code>/chat/completions</code>。支持 <code>http://</code> 与 <code>https://</code>：内网机器、自建 New API / LiteLLM 网关或局域网中转站可直接填 <code>http://</code> 地址（不限于本机）。API Key 仅保存在本机，只发给你填写的服务地址。</p>
+        <p className="proxy-hint">填写 OpenAI 兼容服务的 API 根地址（通常以 <code>/v1</code> 结尾）。API Key 仅保存在本机。</p>
         {error && <div className="inline-error">{error}</div>}
         {testResult && <div className="inline-note">{testResult}</div>}
         <div className="proxy-actions">
@@ -880,12 +880,11 @@ function DownloadSettingsPanel() {
 
   const current = concurrency ?? 1;
   return <section className="settings-panel network-panel">
-    <div className="settings-section-heading"><div><div><h2>下载</h2><p>同时下载几个安装包。下载在后台队列里进行：可以随时离开页面、切到别的软件，也能取消正在下载的任务</p></div></div><span className={`install-kind-badge ${concurrency !== null ? "" : "unknown"}`}>{concurrency !== null ? `并发 ${current}` : "读取中"}</span></div>
+    <div className="settings-section-heading"><div><div><h2>同时下载数</h2></div></div><span className={`install-kind-badge ${concurrency !== null ? "" : "unknown"}`}>{concurrency !== null ? `并发 ${current}` : "读取中"}</span></div>
     {error && <div className="inline-error">{error}</div>}
     <div className="filter-tabs segmented download-concurrency" role="tablist" aria-label="下载并发数">
       {[1, 2, 3].map((value) => <button key={value} role="tab" aria-selected={current === value} className={current === value ? "active" : ""} disabled={saving || concurrency === null} onClick={() => void choose(value)}>{value} 个</button>)}
     </div>
-    <p className="proxy-hint">并发下载会让几个数百 MB 的安装包互相抢带宽，每个进度都变慢；串行通常总耗时更短。改动立即生效并跨重启保留。</p>
     {saved && !error && <span className="proxy-saved">✓ 已保存</span>}
   </section>;
 }
@@ -977,7 +976,7 @@ function SettingsPage({ info, loading, error, onRefresh }: { info: InstallationI
       ? "当前从开发构建目录运行，不属于系统软件包；请直接停止开发进程。"
       : "当前可执行文件不属于已安装的 Debian 软件包；退出后可直接删除文件。";
   return <main className="workspace settings-workspace">
-    <header className="workspace-header"><div><h1>设置</h1><p>查看 UManager 版本与安装形态</p></div><button className="secondary-button" onClick={onRefresh} disabled={loading}>{loading ? "检测中…" : "重新检测"}</button></header>
+    <header className="workspace-header"><div><h1>设置</h1></div><button className="secondary-button" onClick={onRefresh} disabled={loading}>{loading ? "检测中…" : "重新检测"}</button></header>
     <section className="settings-panel">
       <div className="settings-section-heading"><div><span className="brand-mark large"><img src={umanagerLogo} alt=""/></span><div><h2>UManager</h2><p>Ubuntu 个人软件管家</p></div></div><span className={`install-kind-badge ${info?.installationKind ?? "unknown"}`}>{kindLabel}</span></div>
       {error && <div className="message error"><strong>无法检测安装形态</strong><span>{error}</span></div>}
@@ -1015,27 +1014,6 @@ function DownloadCard({ plan }: { plan: DownloadPlan }) {
   return <div className="download-plan-card"><div className="download-file"><div><strong>{plan.fileName}</strong><span>{formatBytes(plan.expectedSize)} · {plan.architecture}</span></div><span className="apt-index-badge">{isWebsite ? "发布资产" : "APT 索引"}</span></div><dl><div><dt>版本</dt><dd>{plan.version}</dd></div><div><dt>SHA-256</dt><dd title={plan.expectedSha256 ?? undefined}>{plan.expectedSha256 ?? "下载后计算"}</dd></div><div><dt>缓存位置</dt><dd title={plan.targetPath}>{plan.targetPath}</dd></div></dl></div>;
 }
 
-function InstallFlow({ phase, job, isArchive, plan, archivePlan }: {
-  phase: string; job: DownloadJob | undefined; isArchive: boolean;
-  plan: OperationPlanArtifact | null; archivePlan: ArchivePlan | null;
-}) {
-  const step = phase === "done" ? 3 : phase === "installing" || phase === "confirming" ? 2 : phase === "planning" || phase === "dry-run" || job?.status === "ready" ? 1 : 0;
-  const payload = plan?.plan.payload ?? archivePlan?.payload;
-  return <section className="install-flow" aria-label="安装步骤">
-    <ol>{["下载与校验", isArchive ? "核对安装计划" : "授权复核", "确认安装"].map((label, index) => <li key={label} className={index < step ? "complete" : index === step ? "current" : ""} aria-current={index === step ? "step" : undefined}><span>{index < step ? "✓" : index + 1}</span>{label}</li>)}</ol>
-    {phase === "confirming" && payload ? <div className="install-confirm-summary" role="status"><strong>复核通过，请确认本次安装</strong><p>{plan?.plan.payload.packageName ?? archivePlan?.payload.applicationId} · {payload.installedVersion ?? "未安装"} → {plan?.plan.payload.targetVersion ?? archivePlan?.payload.version}</p><p>{isArchive ? "安装到当前用户目录。" : "安装将修改系统，并运行厂商软件包的安装脚本。"}计划有效至 {new Date(payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}。</p><span>核对后点击上方「确认安装 / 确认更新」继续。</span></div>
-      : <p role="status">{phase === "done" ? "安装完成，可以打开软件。" : phase === "installing" ? "正在安装，请勿退出程序或关闭电脑。" : phase === "dry-run" ? "等待管理员授权并复核，复核完成后由你确认安装。" : phase === "planning" ? "正在准备安装计划…" : job?.status === "ready" ? "安装包已就绪，点击上方按钮开始复核。" : job?.status === "error" ? "下载失败，请重试下载。" : job?.status === "canceled" ? "下载已取消，可以重新下载。" : job ? "下载在后台进行；完成后可在任务中心继续安装。" : "点击上方按钮下载，校验完成后由你确认安装。"}</p>}
-  </section>;
-}
-
-function ArchiveInstallDetails({ plan, message }: { plan: ArchivePlan | null; message: string | null }) {
-  if (!plan) return null;
-  return <>
-    <div className="immutable-plan"><strong>安装计划已锁定</strong><span>安装位置：{plan.installPath}</span><span>有效至：{new Date(plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>
-    {message ? <div className="dry-run-success"><strong>✓ 安装完成</strong><span>{message}</span></div> : <div className="dry-run-success"><strong>✓ 安装前复核通过</strong><span>已重新核对签名软件源、安装状态和缓存文件；核对计划后点击上方确认按钮执行安装。</span></div>}
-  </>;
-}
-
 /// 详情页顶部的变体切换（与「开发环境」里 dsh 的版本线切换同款交互）：同一款
 /// 软件的国内版 / 国际版是两份互相独立的安装包，切换后「获取 / 更新 / 卸载」都
 /// 作用于所选变体。只是选择安装对象，不改变任何授权或校验链路。
@@ -1053,7 +1031,6 @@ function VariantPicker({ variants, selected, onSelect }: { variants: CatalogAppl
         ))}
       </div>
     </div>
-    <p className="channel-hint">国内版与国际版是两份互相独立的安装包，可以同时安装；切换只决定当前要安装、更新或卸载哪一个。</p>
   </div>;
 }
 
@@ -1064,7 +1041,7 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
   const [details, setDetails] = useState<ApplicationDetails | null>(null);
   const [downloadPlan, setDownloadPlan] = useState<DownloadPlan | null>(null);
   const [loading, setLoading] = useState(true);
-  const { operationPlan, archivePlan, dryRun, installed, archiveInstalled, installPhase, error, setError, progressEvents, install, cancelConfirmation } = useSoftwareInstall(applicationId, isArchive, onInstalled, onDismissDownload);
+  const { operationPlan, archivePlan, dryRun, installed, installPhase, error, setError, progressEvents, install } = useSoftwareInstall(applicationId, isArchive, onInstalled, onDismissDownload);
 
   useEffect(() => {
     let disposed = false;
@@ -1102,8 +1079,7 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
   }
   else if (installRunning) { actionLabel = installPhase === "planning" ? "准备中…" : installPhase === "dry-run" ? "复核中…" : "安装中…"; actionDisabled = true; onAction = () => {}; }
   else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
-  else if (installPhase === "confirming") { actionLabel = "确认更新"; actionDisabled = false; onAction = () => void install(); }
-  else if (ready) { actionLabel = isArchive ? "准备更新" : "授权并复核"; actionDisabled = false; onAction = () => void install(); }
+  else if (ready) { actionLabel = "更新"; actionDisabled = false; onAction = () => void install(); }
   else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
   else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
   else if (hasUpdate) { actionLabel = "下载更新"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
@@ -1115,8 +1091,7 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
     ? <><button className="hero-button" disabled>已排队</button><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
     : <>
         <button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>
-        {installPhase === "confirming" && <button className="ghost-link" onClick={cancelConfirmation}>取消</button>}
-        {removable && installPhase !== "confirming" && !installRunning && !downloading && !queued && <button className="ghost-link" onClick={onRemove}>卸载</button>}
+        {removable && !installRunning && !downloading && !queued && <button className="ghost-link" onClick={onRemove}>卸载</button>}
       </>;
 
   return <DetailShell
@@ -1129,21 +1104,20 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
     canClose={!installRunning}
     onClose={onClose}
   >
-    {(job || installPhase !== "idle" || hasUpdate) && <InstallFlow phase={installPhase} job={job} isArchive={isArchive} plan={operationPlan} archivePlan={archivePlan}/>}
-    {installPhase === "confirming" && operationPlan && <DependencyGapWarning gap={operationPlan.missingDependencies}/>}
-    {!installRunning && installPhase !== "confirming" && variantPicker}
+    {operationPlan && <DependencyGapWarning gap={operationPlan.missingDependencies}/>}
+    <OperationLogPanel events={progressEvents} running={installPhase === "installing"}/>
+    {done && <p className="operation-success" role="status">✓ {installed?.installedVersion || archivePlan?.payload.installedVersion ? "更新完成" : "安装完成"}</p>}
+    {!installRunning && variantPicker}
     {loading && <div className="drawer-loading"><span className="loader"/><p>正在读取官方源与安装包元数据…</p></div>}
     {error && !details && <div className="message error"><strong>无法检查 {item.displayName} 更新</strong><span>{error}</span></div>}
     {details && <div className="drawer-content">
-      {(downloading || queued) && <div className="message" role="status" aria-live="polite"><strong>下载在后台队列里进行</strong><span>可以点左上角「返回」继续做别的事；下载完成后到「任务中心」继续复核与确认。</span></div>}
-      <div className={`trust-banner ${details.trusted ? "trusted" : "needsReview"}`}><Icon name="shield"/><div><strong>{details.trusted ? `来源验证通过 · ${sourceText[details.sourceKind] ?? details.sourceKind}` : "来源需要复核"}</strong><span>{isArchive ? "官方签名软件源、下载域名和应用架构均符合软件源策略" : isWebsite ? "官网、下载域名、Debian 包名和架构均符合软件源策略" : "包名、架构和官方仓库均符合软件源策略"}</span></div></div>
+      {!details.trusted && <p className="inline-error" role="alert">来源验证未通过</p>}
       <WhatsNew version={details.candidateVersion ?? downloadPlan?.version ?? null} seconds={details.versionUpdatedAtUnixSeconds} notes={details.releaseNotes} url={details.releaseNotesUrl}/>
-      {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>{isArchive ? "大小、SHA-256、归档路径、版本和程序架构均通过" : "大小、SHA-256、包名、版本和架构均通过"}；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
       {downloadError && <div className="inline-error">{downloadError}</div>}
       {error && details && !downloadError && <div className="inline-error">{error}</div>}
 
       <details className="tech-disclosure">
-        <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 更新计划</span></summary>
+        <summary><Icon name="shield"/>安装详情</summary>
         <section className="detail-section"><h3>版本</h3><div className="version-pair"><div><span>已安装</span><strong>{done ? archivePlan?.payload.version ?? installed?.targetVersion ?? details.installedVersion : details.installedVersion ?? "未安装"}</strong></div><div><span>{isWebsite ? "官方包完整版本" : "候选版本"}</span><strong>{details.candidateVersion ?? downloadPlan?.version ?? "待解析"}</strong></div></div>{details.websiteVersion && <p className="version-source-note">{isArchive ? `官网展示 ${details.websiteVersion}；下载后核对应用内版本和程序架构。` : `官网/发布标签展示 ${details.websiteVersion}；UManager 通过 HTTP Range 读取 .deb 控制信息，获得用于比较的完整版本。`}</p>}</section>
         <InfoPanel homepage={item.homepage} entries={[
           { label: "开发者", value: details.vendor },
@@ -1157,16 +1131,11 @@ function UpdateDrawer({ item, job, variantPicker, onEnqueue, onCancelDownload, o
         <section className="detail-section"><h3>官方证据</h3><div className="evidence-list">{details.evidence.map((entry) => <div key={entry.label}><span className={entry.passed ? "check passed" : "check failed"}>{entry.passed ? "✓" : "!"}</span><div><strong>{entry.label}</strong><code>{entry.actual}</code></div></div>)}</div></section>
         <section className="detail-section download-section"><h3>官方安装包</h3>
           {downloadPlan && <DownloadCard plan={downloadPlan}/>}
-          <p className="download-safety">{isArchive ? "安装到当前用户目录，无需管理员权限。下载完成后核对安装计划，再确认执行。" : "下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。"}</p>
         </section>
         {(downloadResult?.verified || archivePlan !== null) && <section className="detail-section final-plan-section"><h3>最终更新计划</h3>
           <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isArchive ? "安装到当前用户目录" : isSelfUpdate ? "install-umanager" : isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{item.packageName} · {item.architecture}</dd></div><div><dt>版本</dt><dd>{item.installedVersion} → {downloadResult?.version ?? archivePlan?.payload.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult?.actualSha256 ?? archivePlan?.payload.sha256}>{downloadResult?.actualSha256 ?? archivePlan?.payload.sha256}</dd></div></dl></div>
-          <ArchiveInstallDetails plan={archivePlan} message={archiveInstalled}/>
           {operationPlan && <div className="immutable-plan"><strong>更新计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
-          {operationPlan && <DependencyGapWarning gap={operationPlan.missingDependencies}/>}
-          {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已重新核对来源、版本、架构和缓存中的安装包，本次未修改系统。</span></div>}
-          <OperationLogPanel events={progressEvents} running={installPhase === "installing"}/>
-          {installed && <div className="dry-run-success"><strong>✓ 更新安装完成</strong><span>固定参数 dpkg 安装命令已成功结束，软件列表已重新扫描。</span></div>}
+          {dryRun && <div className="dry-run-success"><strong>✓ 安装包已验证</strong></div>}
         </section>}
       </details>
     </div>}
@@ -1296,7 +1265,7 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
   const downloadPlan = offer.downloadPlan;
   const isArchive = catalogByPackage[offer.packageName]?.source.kind === "tarGz";
   const isWebsite = offer.sourceKind === "officialWebsite";
-  const { operationPlan, archivePlan, dryRun, installed, archiveInstalled, installPhase, error, setError, progressEvents, install, cancelConfirmation } = useSoftwareInstall(offer.applicationId, isArchive, onInstalled, onDismissDownload);
+  const { operationPlan, archivePlan, dryRun, installed, installPhase, error, setError, progressEvents, install } = useSoftwareInstall(offer.applicationId, isArchive, onInstalled, onDismissDownload);
 
   const downloadStatus = job?.status;
   const downloading = downloadStatus === "downloading" || downloadStatus === "verifying";
@@ -1314,8 +1283,7 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
   if (done) { actionLabel = "打开"; actionDisabled = !launchable; onAction = onLaunch; }
   else if (installRunning) { actionLabel = installPhase === "planning" ? "准备中…" : installPhase === "dry-run" ? "复核中…" : "安装中…"; actionDisabled = true; onAction = () => {}; }
   else if (downloading) { actionLabel = "下载中…"; actionDisabled = true; onAction = () => {}; }
-  else if (installPhase === "confirming") { actionLabel = "确认安装"; actionDisabled = false; onAction = () => void install(); }
-  else if (ready) { actionLabel = isArchive ? "准备安装" : "授权并复核"; actionDisabled = false; onAction = () => void install(); }
+  else if (ready) { actionLabel = "安装"; actionDisabled = false; onAction = () => void install(); }
   else if (queued) { actionLabel = "已排队"; actionDisabled = true; onAction = () => {}; }
   else if (downloadError) { actionLabel = "重试下载"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
   else { actionLabel = "下载安装包"; actionDisabled = !downloadPlan; onAction = () => { setError(null); onEnqueue(); }; }
@@ -1332,7 +1300,7 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
     ? <><HeroDownloadProgress progress={job.progress}/><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
     : queued
     ? <><button className="hero-button" disabled>已排队</button><button className="ghost-link" onClick={onCancelDownload}>取消下载</button></>
-    : <><button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>{installPhase === "confirming" && <button className="ghost-link" onClick={cancelConfirmation}>取消</button>}</>;
+    : <button className="hero-button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>;
 
   return <DetailShell
     label={`安装 ${offer.displayName}`}
@@ -1344,24 +1312,22 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
     canClose={!installRunning}
     onClose={onClose}
   >
-    <InstallFlow phase={installPhase} job={job} isArchive={isArchive} plan={operationPlan} archivePlan={archivePlan}/>
-    {installPhase === "confirming" && operationPlan && <DependencyGapWarning gap={operationPlan.missingDependencies}/>}
-    {!installRunning && installPhase !== "confirming" && variantPicker}
+    {operationPlan && <DependencyGapWarning gap={operationPlan.missingDependencies}/>}
+    <OperationLogPanel events={progressEvents} running={installPhase === "installing"}/>
+    {done && <p className="operation-success" role="status">✓ {installed?.installedVersion || archivePlan?.payload.installedVersion ? "更新完成" : "安装完成"}</p>}
+    {!installRunning && variantPicker}
     <div className="drawer-content">
-      <div className="trust-banner trusted"><Icon name="shield"/><div><strong>来源验证通过 · {sourceText[offer.sourceKind] ?? offer.sourceKind}</strong><span>{offer.packageName} · {offer.architecture} 已匹配软件源策略</span></div></div>
-      {(downloading || queued) && <div className="message" role="status" aria-live="polite"><strong>下载在后台队列里进行</strong><span>可以点左上角「返回」继续浏览或安装别的软件；下载完成后到「任务中心」继续复核与确认。</span></div>}
-      {!installRunning && installPhase !== "confirming" && variantSwitch && <div className="dependency-warning" role="status">
+      {!installRunning && variantSwitch && <div className="dependency-warning" role="status">
         <strong>「{variantSwitch.label}」和「{variantSwitch.targetLabel}」不能同时安装</strong>
-        <span>这两个安装包互相冲突（提供同一个系统包）。替换会先卸载已安装的「{variantSwitch.label}」，卸载完成后自动开始下载「{variantSwitch.targetLabel}」；实际安装仍由你确认并授权。</span>
+        <span>替换会先卸载「{variantSwitch.label}」，再下载「{variantSwitch.targetLabel}」。</span>
         <button className="secondary-button" onClick={variantSwitch.onSwitch}>先卸载{variantSwitch.label}</button>
       </div>}
       <WhatsNew version={offer.candidateVersion ?? null} seconds={offer.versionUpdatedAtUnixSeconds} notes={offer.releaseNotes} url={offer.releaseNotesUrl}/>
-      {downloadResult?.verified && <div className="download-success"><span>✓</span><div><strong>安装包校验通过</strong><p>{isArchive ? "大小、SHA-256、归档路径、版本和程序架构均通过" : "大小、SHA-256、包名、版本和架构均通过"}；SHA-256：{downloadResult.actualSha256.slice(0, 16)}…</p></div></div>}
       {downloadError && <div className="inline-error">{downloadError}</div>}
       {error && !downloadError && <div className="inline-error">{error}</div>}
 
       <details className="tech-disclosure">
-        <summary><Icon name="shield"/>安全验证与安装详情<span className="tech-disclosure-hint">版本 · 来源 · 证据 · SHA-256 · 安装计划</span></summary>
+        <summary><Icon name="shield"/>安装详情</summary>
         <section className="detail-section"><h3>安装版本</h3><div className="version-pair"><div><span>当前状态</span><strong>{done ? "已安装" : "未安装"}</strong></div><div><span>候选版本</span><strong>{offer.candidateVersion ?? "未解析"}</strong></div></div></section>
         <InfoPanel homepage={offer.homepage} entries={[
           { label: "开发者", value: offer.vendor },
@@ -1374,16 +1340,11 @@ function InstallDrawer({ offer, job, variantPicker, variantSwitch, onEnqueue, on
         <section className="detail-section"><h3>安装来源</h3><div className="path-card"><div><span className={`source-dot ${offer.sourceKind}`}/><strong>{isWebsite ? "厂商官方发布通道" : `${offer.vendor} 官方 APT 仓库`}</strong></div><code title={downloadPlan?.downloadUrl}>{downloadPlan?.downloadUrl}</code><p>{isWebsite ? "下载地址与所有 HTTPS 重定向都不能离开允许域名。" : "安装包路径和所有 HTTPS 重定向都不能离开允许域名。"}</p></div></section>
         <section className="detail-section download-section"><h3>官方安装包</h3>
           {downloadPlan && <DownloadCard plan={downloadPlan}/>}
-          <p className="download-safety">{isArchive ? "安装到当前用户目录，无需管理员权限。下载完成后核对安装计划，再确认执行。" : "下载不请求 root 权限；校验失败的文件不会进入缓存。下载完成后需再确认，才会请求系统授权并执行安装。"}</p>
         </section>
         {(downloadResult?.verified || archivePlan !== null) && <section className="detail-section final-plan-section"><h3>最终安装计划</h3>
           <div className="final-plan-card"><dl><div><dt>动作</dt><dd>{isArchive ? "安装到当前用户目录" : isWebsite ? "install-verified-website-deb" : "install-verified-deb"}</dd></div><div><dt>包</dt><dd>{offer.packageName} · {offer.architecture}</dd></div><div><dt>版本</dt><dd>未安装 → {downloadResult?.version ?? archivePlan?.payload.version}</dd></div><div><dt>SHA-256</dt><dd title={downloadResult?.actualSha256 ?? archivePlan?.payload.sha256}>{downloadResult?.actualSha256 ?? archivePlan?.payload.sha256}</dd></div></dl></div>
-          <ArchiveInstallDetails plan={archivePlan} message={archiveInstalled}/>
           {operationPlan && <div className="immutable-plan"><strong>安装计划已锁定</strong><span>ID：{operationPlan.plan.planId}</span><span>原版本：{operationPlan.plan.payload.installedVersion ?? "未安装"}</span><span>有效至：{new Date(operationPlan.plan.payload.expiresAtUnixSeconds * 1000).toLocaleTimeString("zh-CN")}</span></div>}
-          {operationPlan && <DependencyGapWarning gap={operationPlan.missingDependencies}/>}
-          {dryRun && <div className="dry-run-success"><strong>✓ 特权环境复核通过</strong><span>helper 已确认软件仍未安装，并重新核对来源、缓存文件与安装包元数据。</span></div>}
-          <OperationLogPanel events={progressEvents} running={installPhase === "installing"}/>
-          {installed && <div className="dry-run-success"><strong>✓ {offer.displayName} 安装完成</strong><span>固定参数 dpkg 安装命令已成功结束，软件列表已重新扫描。</span></div>}
+          {dryRun && <div className="dry-run-success"><strong>✓ 安装包已验证</strong></div>}
         </section>}
       </details>
     </div>
@@ -1394,7 +1355,7 @@ function DevLogPanel({ events, running }: { events: DevOperationProgress[]; runn
   if (events.length === 0) return null;
   const logs = events.filter((event) => event.phase === "running");
   return <section className="operation-progress-panel" aria-live="polite">
-    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "正在执行版本操作" : "版本操作已结束"}</strong><span>输出只读，不会请求 root 权限</span></div></div></header>
+    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "正在执行版本操作" : "版本操作已结束"}</strong></div></div></header>
     <details className="operation-log-details" open={running || undefined}>
       <summary>详细日志 <b>{logs.length}</b></summary>
       <div className="operation-terminal" role="log">{logs.length === 0 ? <span className="terminal-placeholder">等待版本管理器输出…</span> : logs.map((event, index) => <div className={event.stream} key={`${index}-${event.message}`}><span>{event.stream === "stderr" ? "ERR" : "OUT"}</span><code>{event.message}</code></div>)}</div>
@@ -1730,7 +1691,7 @@ function ScriptLogPanel({ events, running }: { events: ScriptProgressEvent[]; ru
   const system = events.filter((event) => event.stream === "system");
   const lines = events.filter((event) => event.stream !== "system");
   return <section className="operation-progress-panel" aria-live="polite">
-    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "脚本正在运行" : "脚本已结束"}</strong><span>输出只读，脚本以当前用户身份运行，不经 root</span></div></div></header>
+    <header><div><span className={running ? "operation-pulse" : "operation-complete-mark"}>{running ? "" : "✓"}</span><div><strong>{running ? "脚本正在运行" : "脚本已结束"}</strong></div></div></header>
     {system.length > 0 && <div className="script-system-lines">{system.map((event, index) => <div key={index}>{event.message}</div>)}</div>}
     <div className="operation-terminal" role="log">{lines.length === 0 ? <span className="terminal-placeholder">等待脚本输出…</span> : lines.map((event, index) => <div className={event.stream} key={index}><span>{event.stream === "stderr" ? "ERR" : "OUT"}</span><code>{event.message}</code></div>)}</div>
   </section>;
@@ -1841,13 +1802,12 @@ function ScriptsPage() {
 // ---------------------------------------------------------------------------
 // 「下载」页：后台下载队列的完整视图。安装 / 更新是两阶段的——这里只负责第一阶段
 // （下载 + 校验），用户可以随时离开；第二阶段（锁定计划 + 管理员授权 + dpkg）仍然
-// 在安装 / 更新抽屉里由用户逐次确认。
+// 在安装 / 更新抽屉里由用户发起，复核通过后连续执行。
 // ---------------------------------------------------------------------------
 
-function DownloadQueueRow({ job, position, installed, onOpen, onRetry, onCancel, onRemove }: {
+function DownloadQueueRow({ job, position, onOpen, onRetry, onCancel, onRemove }: {
   job: DownloadJob;
   position: number;
-  installed: boolean;
   onOpen: (job: DownloadJob) => void;
   onRetry: (job: DownloadJob) => void;
   onCancel: (jobId: string) => void;
@@ -1871,14 +1831,10 @@ function DownloadQueueRow({ job, position, installed, onOpen, onRetry, onCancel,
           </div>
         : job.status === "error" && job.error
         ? <p className="download-queue-error">{job.error}</p>
-        : job.status === "ready"
-        ? <p className="download-queue-note">已下载并通过大小、SHA-256、包名、版本与架构校验，等待你确认{installActionLabel(installed)}。</p>
-        : job.status === "canceled"
-        ? <p className="download-queue-note">已取消。缓存里已校验的安装包会保留，重新下载会直接复用。</p>
-        : <p className="download-queue-note">等待前面的任务结束。</p>}
+        : null}
     </div>
     <div className="download-queue-actions">
-      {job.status === "ready" && <button className="get-button update" onClick={() => onOpen(job)}>{`继续${installActionLabel(installed)}`}</button>}
+      {job.status === "ready" && <button className="get-button update" onClick={() => onOpen(job)}>查看</button>}
       {active && <button className="ghost-link" onClick={() => onCancel(job.jobId)}>取消下载</button>}
       {(job.status === "error" || job.status === "canceled") && <button className="get-button" onClick={() => onRetry(job)}>重试</button>}
       {!active && <button className="ghost-link" onClick={() => onRemove(job.jobId)}>移除记录</button>}
@@ -1886,9 +1842,8 @@ function DownloadQueueRow({ job, position, installed, onOpen, onRetry, onCancel,
   </li>;
 }
 
-function IndividualTasks({ jobs, installedOf, onOpen, onRetry, onCancel, onRemove }: {
+function IndividualTasks({ jobs, onOpen, onRetry, onCancel, onRemove }: {
   jobs: DownloadJob[];
-  installedOf: (packageName: string) => boolean;
   onOpen: (job: DownloadJob) => void;
   onRetry: (job: DownloadJob) => void;
   onCancel: (jobId: string) => void;
@@ -1896,8 +1851,7 @@ function IndividualTasks({ jobs, installedOf, onOpen, onRetry, onCancel, onRemov
 }) {
   const ordered = sortJobs(jobs);
   return <section className="software-panel download-queue-panel" aria-label="单个软件下载与安装">
-    <ul className="download-queue-list">{ordered.map((job) => <DownloadQueueRow key={job.jobId} job={job} position={queuedPosition(jobs, job)} installed={installedOf(job.packageName)} onOpen={onOpen} onRetry={onRetry} onCancel={onCancel} onRemove={onRemove}/>)}</ul>
-    <p className="download-queue-hint">下载完成后，点「继续安装 / 更新」核对版本并复核。下载并发数可在「设置 → 下载」调整。</p>
+    <ul className="download-queue-list">{ordered.map((job) => <DownloadQueueRow key={job.jobId} job={job} position={queuedPosition(jobs, job)} onOpen={onOpen} onRetry={onRetry} onCancel={onCancel} onRemove={onRemove}/>)}</ul>
   </section>;
 }
 
@@ -2548,7 +2502,7 @@ export default function App() {
             ? <DevToolRow tool={item.tool!} state={item.toolState ?? null} category={item.category} onOpen={() => openSoftware(item)} key={item.key}/>
             : item.windows ? <WindowsRow state={item.windows.state} progress={windowsProgress} category={item.category} onOpen={() => setWindowsOpen(true)} onLaunch={() => handleWindowsAction("launch")} onRemove={() => handleWindowsAction("uninstall")} key={item.key}/> : null)}</div>
       </section>
-    </main> : page === "tasks" ? <TasksPage snapshot={batchTasks.snapshot} error={batchTasks.error} jobs={downloadJobs} onSnapshot={batchTasks.apply} onRefresh={() => { void batchTasks.refresh(); void listDownloads().then(applyDownloadJobs).catch((reason) => setNotice(String(reason))); }} onRetry={(batch) => void openBatchPicker(batch)} renderDownloads={(jobs) => <IndividualTasks jobs={jobs} installedOf={(packageName) => (result?.packages ?? []).some((pkg) => pkg.packageName === packageName)} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/>}/> : page === "firmware" ? <FirmwarePage/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
+    </main> : page === "tasks" ? <TasksPage snapshot={batchTasks.snapshot} error={batchTasks.error} jobs={downloadJobs} onSnapshot={batchTasks.apply} onRefresh={() => { void batchTasks.refresh(); void listDownloads().then(applyDownloadJobs).catch((reason) => setNotice(String(reason))); }} onRetry={(batch) => void openBatchPicker(batch)} renderDownloads={(jobs) => <IndividualTasks jobs={jobs} onOpen={openQueuedJob} onRetry={(job) => void enqueueFor(job.applicationId, job.version)} onCancel={(jobId) => void cancelJob(jobId)} onRemove={(jobId) => void dismissJob(jobId)}/>}/> : page === "firmware" ? <FirmwarePage/> : page === "dev" ? <DevToolsPage/> : page === "scripts" ? <ScriptsPage/> : <SettingsPage info={installationInfo} loading={installationInfoLoading} error={installationInfoError} onRefresh={() => void refreshInstallationInfo()}/>}
     {batchPicker && <BatchUpdatePicker candidates={batchPicker.candidates} skipped={batchPicker.skipped} onClose={() => setBatchPicker(null)} onStarted={(snapshot) => { batchTasks.apply(snapshot); setBatchPicker(null); setPage("tasks"); }}/> }
     {updatePackage && <UpdateDrawer item={updatePackage} job={jobOf(updatePackage.packageName)} variantPicker={variantPicker} onEnqueue={() => enqueuePackage(updatePackage.packageName, applicationIdOf(updatePackage.packageName), updatePackage.candidateVersion)} onCancelDownload={() => cancelPackageJob(updatePackage.packageName)} onDismissDownload={() => dismissPackageJob(updatePackage.packageName)} onClose={() => setUpdatePackage(null)} onInstalled={() => void refresh()} onLaunch={() => launchApp(updatePackage.packageName)} onRemove={() => { setUpdatePackage(null); setRemovalPackage(result?.packages.find((pkg) => pkg.packageName === updatePackage.packageName) ?? updatePackage); }}/>}
     {pendingLocalDeb && <LocalDebDialog initial={pendingLocalDeb} onClose={() => setPendingLocalDeb(null)} onInstalled={() => void refresh()}/>}
