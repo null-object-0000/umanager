@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import { batchNeedsAttention, matchesBatchFilter, matchesDownloadFilter, standaloneDownloads, taskFilters } from "./taskCenter";
+import type { TaskFilter } from "./taskCenter";
 import { useEffect, useRef, useState } from "react";
 import { batchActive, batchItemLabels, batchStatusLabels, canConfirmBatch, reviewExpiresAt, unfinishedIds } from "./batchTasks";
 import type { BatchCandidate } from "./batchTasks";
@@ -92,8 +95,9 @@ function BatchCard({ batch, jobs, onSnapshot, onRetry }: {
   const expired = batch.status === "awaitingConfirmation" && !canConfirmBatch(batch, now);
   const expiry = reviewExpiresAt(batch);
   return <article className={`batch-card batch-${batch.status}`}>
-    <header className="batch-card-header"><div><h2>{new Date(batch.createdAtUnixSeconds * 1000).toLocaleString("zh-CN")} 的更新</h2><p>共 {batch.items.length} 项 · 成功 {successes} 项</p></div><span className="batch-status" role="status">{batchStatusLabels[batch.status]}</span></header>
+    <header className="batch-card-header"><div><h2>批量更新 · {batch.items.length} 个软件</h2><p>{new Date(batch.createdAtUnixSeconds * 1000).toLocaleString("zh-CN")} · 已完成 {successes} / {batch.items.length}</p></div><span className="batch-status" role="status">{batchStatusLabels[batch.status]}</span></header>
     <p className="batch-message">{batch.message}</p>
+    <details className="batch-item-list" open={batchActive(batch.status) || batchNeedsAttention(batch.status)}><summary>查看 {batch.items.length} 项更新清单</summary>
     <ol className="batch-items">{batch.items.map((item) => {
       const job = jobs.find((j) => j.jobId === item.downloadJobId);
       const progress = item.status === "downloading" ? job?.progress : null;
@@ -104,12 +108,12 @@ function BatchCard({ batch, jobs, onSnapshot, onRetry }: {
         {item.error && <p className="batch-error">{item.error}</p>}
         <details className="batch-item-details"><summary>来源校验与操作日志</summary><dl><dt>软件包</dt><dd>{item.packageName} · {item.architecture}</dd><dt>安装包</dt><dd>{formatBytes(item.size)}</dd><dt>下载来源</dt><dd>{item.downloadUrl}</dd><dt>SHA-256</dt><dd>{item.sha256}</dd>{item.planId && <><dt>计划 ID</dt><dd>{item.planId}</dd></>}</dl>{item.logs.length > 0 ? <pre>{item.logs.join("\n")}</pre> : <p>尚无安装日志。</p>}</details>
       </li>;
-    })}</ol>
+    })}</ol></details>
     {batch.status === "awaitingReview" && <div className="batch-actions"><p>本次将复核 {ready} 项；复核阶段不安装。任何一项复核失败，本批次不会开始安装。</p><button className="primary-button" disabled={busy} onClick={() => void action(() => reviewBatchUpdate(batch.id))}>授权并复核 {ready} 项（不安装）</button></div>}
     {batch.status === "awaitingConfirmation" && <div className="batch-confirmation">
       {expired ? <p className="batch-error" role="status">复核计划已过期，请重新授权复核。</p> : <p>复核通过，清单有效至 {expiry ? new Date(expiry * 1000).toLocaleTimeString("zh-CN") : "—"}。安装串行执行，失败后停止后续项目。</p>}
       <label><input type="checkbox" checked={confirmed} disabled={busy || expired} onChange={(event) => setConfirmed(event.target.checked)}/>我已核对以上 {ready} 项更新，确认执行这些计划；理解安装会运行厂商的软件包脚本。</label>
-      <div className="batch-actions"><button className="primary-button" disabled={busy || !confirmed || !canConfirmBatch(batch, now)} onClick={() => { setConfirmed(false); void action(() => executeBatchUpdate(batch.id, batch.reviewId!)); }}>再次确认并安装 {ready} 项</button><button className="secondary-button" disabled={busy} onClick={() => void action(() => reviewBatchUpdate(batch.id))}>重新授权复核</button></div>
+      <div className="batch-actions"><button className="primary-button" disabled={busy || !confirmed || !canConfirmBatch(batch, now)} onClick={() => { setConfirmed(false); void action(() => executeBatchUpdate(batch.id, batch.reviewId!)); }}>再次确认并安装 {ready} 项</button>{expired && <button className="secondary-button" disabled={busy} onClick={() => void action(() => reviewBatchUpdate(batch.id))}>重新复核</button>}</div>
       <details className="batch-item-details"><summary>本次复核清单摘要</summary><code>{batch.reviewId}</code></details>
     </div>}
     {["preparing", "downloading", "awaitingReview", "awaitingConfirmation"].includes(batch.status) && <button className="ghost-link" disabled={busy} onClick={() => void action(() => cancelBatchUpdate(batch.id))}>结束本批次（保留下载）</button>}
@@ -120,21 +124,27 @@ function BatchCard({ batch, jobs, onSnapshot, onRetry }: {
   </article>;
 }
 
-export function TasksPage({ snapshot, error, jobs, onSnapshot, onRefresh, onRetry, onDownloads }: {
+export function TasksPage({ snapshot, error, jobs, onSnapshot, onRefresh, onRetry, renderDownloads }: {
   snapshot: BatchSnapshot; error: string | null; jobs: DownloadJob[]; onSnapshot: (snapshot: BatchSnapshot) => void;
-  onRefresh: () => void; onRetry: (batch: BatchTask) => void; onDownloads: () => void;
+  onRefresh: () => void; onRetry: (batch: BatchTask) => void; renderDownloads: (jobs: DownloadJob[]) => ReactNode;
 }) {
-  const [filter, setFilter] = useState<"all" | "active" | "attention" | "completed">("all");
-  const ordered = [...snapshot.batches].reverse();
-  const visible = ordered.filter((b) => filter === "all" || (filter === "active" ? batchActive(b.status) : filter === "attention" ? b.status === "paused" || b.status === "interrupted" : b.status === "completed"));
+  const [filter, setFilter] = useState<TaskFilter>("all");
+  const individual = standaloneDownloads(jobs, snapshot.batches);
+  const ordered = [...snapshot.batches].sort((a, b) => Number(batchNeedsAttention(b.status)) - Number(batchNeedsAttention(a.status)) || b.createdAtUnixSeconds - a.createdAtUnixSeconds);
+  const visible = ordered.filter((b) => matchesBatchFilter(b, filter));
+  const visibleJobs = individual.filter((job) => matchesDownloadFilter(job, filter));
+  const count = (id: TaskFilter) => ordered.filter((b) => matchesBatchFilter(b, id)).length + individual.filter((job) => matchesDownloadFilter(job, id)).length;
   return <main className="workspace tasks-workspace">
-    <header className="workspace-header"><div><h1>任务中心</h1><p>批量更新进度、确认清单与操作记录</p></div><div className="header-actions"><button className="secondary-button" onClick={onDownloads}>下载队列</button><button className="primary-button" onClick={onRefresh}>刷新记录</button></div></header>
+    <header className="workspace-header"><div><h1>任务中心</h1><p>下载进度、安装确认与批量更新，在这里继续</p></div><div className="header-actions"><button className="primary-button" onClick={onRefresh}>刷新记录</button></div></header>
     {batchPreview() && <p className="batch-preview">浏览器预览：授权与安装均为模拟，不会修改本机软件。</p>}
-    <div className="filter-tabs segmented batch-filters" aria-label="筛选任务">{([ ["all", "全部"], ["active", "进行中"], ["attention", "需处理"], ["completed", "已完成"] ] as const).map(([id, label]) => <button key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>)}</div>
+    <div className="task-overview"><strong>{count("attention") ? `${count("attention")} 个任务等待处理` : count("active") ? "任务正在后台运行" : snapshot.revision < 0 ? "正在读取任务…" : error ? "任务记录暂不可用" : "当前没有待处理任务"}</strong><span>{count("attention") ? "下载完成后需要复核与确认，安装才会开始。" : "可以继续浏览软件，随时回来查看进度。"}</span></div>
+    <div className="filter-tabs segmented batch-filters" aria-label="筛选任务">{taskFilters.map(([id, label]) => <button key={id} className={filter === id ? "active" : ""} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label} · {count(id)}</button>)}</div>
     {error && <p className="batch-error" role="alert">{error}</p>}
     {snapshot.storageError && <p className="batch-error" role="alert">任务记录保存失败，已停止后续操作：{snapshot.storageError}</p>}
-    {snapshot.revision < 0 && !error ? <p className="dev-empty">正在读取任务记录…</p> : visible.length === 0 && <div className="software-panel dev-empty">{ordered.length ? "没有符合筛选条件的任务。" : "暂无批量更新任务。到「更新」页选择「批量更新 .deb」开始。"}</div>}
-    {visible.map((batch) => <BatchCard key={batch.id} batch={batch} jobs={jobs} onSnapshot={onSnapshot} onRetry={onRetry}/>)}
+    {snapshot.revision < 0 && !error ? <p className="dev-empty">正在读取任务记录…</p> : visible.length === 0 && visibleJobs.length === 0 && <div className="software-panel dev-empty">{ordered.length || individual.length ? "没有符合筛选条件的任务。" : "暂无任务。在「软件」页下载软件，或在「更新」页选择要更新的项目。"}</div>}
+    {visible.filter((batch) => batchNeedsAttention(batch.status)).map((batch) => <BatchCard key={batch.id} batch={batch} jobs={jobs} onSnapshot={onSnapshot} onRetry={onRetry}/>)}
+    {visibleJobs.length > 0 && renderDownloads(visibleJobs)}
+    {visible.filter((batch) => !batchNeedsAttention(batch.status)).map((batch) => <BatchCard key={batch.id} batch={batch} jobs={jobs} onSnapshot={onSnapshot} onRetry={onRetry}/>)}
     <p className="batch-history-note">本机保存最近 100 批更新记录。重新启动后，未完成任务需要重新检查与确认；历史记录不会自动触发安装。</p>
   </main>;
 }

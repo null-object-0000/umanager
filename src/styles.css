@@ -1766,3 +1766,27 @@ nav { display: grid; gap: 2px; }
 .batch-progress progress { accent-color: var(--accent); width: min(200px, 35%); }
 .batch-filters { width: fit-content; margin-bottom: 18px; }
 @media (max-width: 720px) { .batch-card { padding: 16px; } .batch-card-header { flex-wrap: wrap; } .batch-item-top { flex-wrap: wrap; gap: 6px; } }
+
+.task-overview { display: flex; flex-direction: column; gap: 7px; padding: 20px 24px; margin-bottom: 20px; background: var(--accent-soft); border-radius: var(--radius-card); }
+.task-overview strong { font-size: var(--fs-lg); }
+.task-overview span { color: var(--text-2); line-height: 1.6; }
+.install-flow { padding: 20px; margin: 20px 0; border: 1px solid var(--hairline); border-radius: var(--radius-card); background: var(--card); }
+.install-flow ol { display: flex; gap: 16px; padding: 0; margin: 0; list-style: none; }
+.install-flow li { display: flex; align-items: center; gap: 8px; flex: 1; color: var(--text-3); font-size: var(--fs-sm); }
+.install-flow li > span { display: grid; place-items: center; width: 25px; height: 25px; flex-shrink: 0; border-radius: 50%; background: var(--bg); }
+.install-flow li.current { color: var(--accent); font-weight: 600; }
+.install-flow li.current > span { color: white; background: var(--accent); }
+.install-flow li.complete { color: var(--green-text); }
+.install-flow li.complete > span { background: var(--green-soft); }
+.install-flow > p, .install-confirm-summary p, .install-confirm-summary > span { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.7; }
+.install-flow > p { margin-bottom: 0; }
+.install-confirm-summary { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--hairline); overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .install-flow ol { gap: 8px; }
+  .install-flow li { flex-direction: column; align-items: flex-start; }
+  .batch-filters { max-width: 100%; flex-wrap: wrap; }
+  .download-queue-row { flex-wrap: wrap; }
+  .download-queue-title { flex-wrap: wrap; }
+  .download-queue-actions { margin-left: auto; }
+}
+.batch-item-list > summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-sm); padding: 8px 0; }

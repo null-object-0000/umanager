@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { createOperationPlan, executeArchiveOperation, installPackage, prepareArchiveOperation, runOperationDryRun } from "./api";
-import type { ArchivePlan, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent } from "./types";
+import { executeArchiveOperation, prepareArchiveOperation } from "./api";
+import { confirmSoftwareInstall, reviewSoftwareInstall } from "./softwareInstallFlow";
+import type { ArchivePlan, DryRunReport, OperationExecutionReport, OperationPlanArtifact, OperationProgressEvent } from "./types";
 
 type InstallPhase = "idle" | "planning" | "dry-run" | "confirming" | "installing" | "done";
 
@@ -9,7 +10,7 @@ type InstallPhase = "idle" | "planning" | "dry-run" | "confirming" | "installing
 export function useSoftwareInstall(applicationId: string | undefined, isArchive: boolean, onInstalled: () => void, onDismissDownload: () => void) {
   const [operationPlan, setOperationPlan] = useState<OperationPlanArtifact | null>(null);
   const [archivePlan, setArchivePlan] = useState<ArchivePlan | null>(null);
-  const [dryRun, setDryRun] = useState<OperationExecutionReport | null>(null);
+  const [dryRun, setDryRun] = useState<DryRunReport | null>(null);
   const [installed, setInstalled] = useState<OperationExecutionReport | null>(null);
   const [archiveInstalled, setArchiveInstalled] = useState<string | null>(null);
   const [installPhase, setInstallPhase] = useState<InstallPhase>("idle");
@@ -34,23 +35,29 @@ export function useSoftwareInstall(applicationId: string | undefined, isArchive:
           setInstallPhase("confirming");
           return;
         }
+        if (Date.now() / 1000 >= archivePlan.payload.expiresAtUnixSeconds) throw new Error("安装计划已过期，请重新核对后确认安装。");
         setInstallPhase("installing");
         setArchiveInstalled(await executeArchiveOperation(archivePlan.planId));
       } else {
-        setInstallPhase("planning");
-        const plan = await createOperationPlan(applicationId);
-        setOperationPlan(plan);
-        setInstallPhase("dry-run");
-        setDryRun(await runOperationDryRun(plan.plan.planId));
+        if (installPhase !== "confirming" || !operationPlan || !dryRun) {
+          setOperationPlan(null); setDryRun(null); setProgressEvents([]);
+          setInstallPhase("planning");
+          const { report } = await reviewSoftwareInstall(applicationId, (plan) => {
+            setOperationPlan(plan); setInstallPhase("dry-run");
+          });
+          setDryRun(report);
+          setInstallPhase("confirming");
+          return;
+        }
         setInstallPhase("installing");
-        setInstalled(await installPackage(plan.plan.planId, (event) => setProgressEvents((current) => [...current.slice(-499), event])));
+        setInstalled(await confirmSoftwareInstall(operationPlan, dryRun, (event) => setProgressEvents((current) => [...current.slice(-499), event])));
       }
       setInstallPhase("done");
       onInstalled(); onDismissDownload();
     } catch (reason) {
-      setError(String(reason)); setArchivePlan(null); setInstallPhase("idle");
+      setError(String(reason)); setOperationPlan(null); setDryRun(null); setArchivePlan(null); setInstallPhase("idle");
     } finally { running.current = false; }
   };
-  const cancelConfirmation = () => { setArchivePlan(null); setInstallPhase("idle"); };
+  const cancelConfirmation = () => { setOperationPlan(null); setDryRun(null); setArchivePlan(null); setInstallPhase("idle"); };
   return { operationPlan, archivePlan, dryRun, installed, archiveInstalled, installPhase, error, setError, progressEvents, install, cancelConfirmation };
 }
