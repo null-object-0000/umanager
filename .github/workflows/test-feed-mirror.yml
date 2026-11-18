@@ -41,7 +41,7 @@ jobs:
       - name: Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential gcc-mingw-w64-x86-64 libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential gcc-mingw-w64-x86-64 libssl-dev librsvg2-dev patchelf
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:

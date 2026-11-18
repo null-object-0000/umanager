@@ -1,13 +1,6 @@
 import type { BatchSnapshot, DownloadJob } from "./types";
 import { batchActive } from "./batchTasks";
 
-/**
- * 「关闭窗口」的实际语义由后端决定：托盘图标可见时收进托盘、进程常驻，
- * 否则就是真正的退出。退出前必须让用户看到还没结束的工作，否则下载与
- * 批量更新会随着进程一起消失。
- */
-export type CloseBehavior = "tray" | "quit";
-
 export interface CloseSummary {
   activeDownloads: number;
   activeBatches: number;
@@ -24,7 +17,7 @@ export function hasPendingWork(summary: CloseSummary): boolean {
   return summary.activeDownloads > 0 || summary.activeBatches > 0;
 }
 
-/** 关闭前的提示文案；没有未完成工作时提示「只是关掉」。 */
+/** 根据任务状态生成退出提示。 */
 export function closePrompt(summary: CloseSummary): { title: string; body: string } {
   if (summary.activeBatches > 0) {
     return {

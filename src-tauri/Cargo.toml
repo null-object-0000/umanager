@@ -1,6 +1,6 @@
 [package]
 name = "umanager"
-version = "0.18.9"
+version = "0.18.10"
 description = "A read-only first Ubuntu manager for vendor .deb applications"
 authors = ["UManager contributors"]
 edition = "2024"
@@ -27,7 +27,7 @@ ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 notify-rust = "4"
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = "2"
 tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "process"] }
 umanager-catalog = { path = "../crates/umanager-catalog" }

@@ -18,7 +18,7 @@
 ```bash
 # 系统依赖
 sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libssl-dev libayatana-appindicator3-dev librsvg2-dev
+  libssl-dev librsvg2-dev
 
 # 运行时（Node 用 nvm，Rust 用 rustup）
 nvm install && nvm use

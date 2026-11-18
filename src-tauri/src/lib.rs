@@ -732,7 +732,6 @@ pub fn run() {
             translation::initialize(app.handle());
             feed::initialize(app.handle());
             dev_cli_tools::initialize(app.handle());
-            background::initialize(app.handle())?;
             Ok(())
         })
         .on_window_event(background::handle_window_event)

@@ -180,8 +180,8 @@ export function restartApp(): Promise<void> {
 }
 
 /**
- * 用户确认「退出 UManager」后调用。没有可用托盘时，关闭窗口会先被后端拦下并
- * 发 `close-requested`，界面问完用户后再走这里；被未结束的任务拦住时会抛错。
+ * 关闭窗口时，后端发出 `close-requested`。界面在没有待处理任务或用户确认后调用此命令。
+ * 安装或卸载等软件操作尚未结束时，后端拒绝退出。
  */
 export function confirmClose(): Promise<void> {
   if (isMock()) return Promise.resolve();

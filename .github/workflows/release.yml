@@ -30,7 +30,6 @@ jobs:
             wget \
             file \
             libssl-dev \
-            libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
 
