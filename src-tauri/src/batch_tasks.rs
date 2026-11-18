@@ -426,6 +426,27 @@ pub fn list_batch_tasks(tasks: tauri::State<'_, BatchTasks>) -> Result<Snapshot,
     tasks.snapshot()
 }
 
+fn remove_history(snapshot: &mut Snapshot, batch_id: &str) -> Result<(), String> {
+    let batch = snapshot
+        .batches
+        .iter()
+        .find(|b| b.id == batch_id)
+        .ok_or("任务记录不存在")?;
+    if !matches!(batch.status, BatchStatus::Completed | BatchStatus::Canceled) {
+        return Err("只能删除已完成或已结束的任务记录".into());
+    }
+    snapshot.batches.retain(|b| b.id != batch_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_batch_task(app: AppHandle, batch_id: String) -> Result<Snapshot, String> {
+    let _publish_on_return = PublishOnDrop(&app);
+    let tasks = app.state::<BatchTasks>();
+    tasks.change(|snapshot| remove_history(snapshot, &batch_id))?;
+    tasks.snapshot()
+}
+
 #[tauri::command]
 pub async fn start_batch_update(
     app: AppHandle,
@@ -452,7 +473,9 @@ pub async fn start_batch_update(
         let application = catalog
             .by_application_id(&id)
             .filter(|a| {
-                a.is_auto_installable() && !a.is_user_archive() && a.application_id != crate::installation::APPLICATION_ID
+                a.is_auto_installable()
+                    && !a.is_user_archive()
+                    && a.application_id != crate::installation::APPLICATION_ID
             })
             .ok_or_else(|| format!("{id} 不支持批量更新；UManager 自更新需单独确认"))?;
         if !packages.insert(application.package_name.clone()) {
@@ -1085,6 +1108,34 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use umanager_plan::{OperationAction, PLAN_SCHEMA_VERSION, PlanPayload};
+
+    #[test]
+    fn history_removal_only_allows_terminal_batches() {
+        for status in [
+            BatchStatus::Preparing,
+            BatchStatus::Downloading,
+            BatchStatus::AwaitingReview,
+            BatchStatus::Reviewing,
+            BatchStatus::AwaitingConfirmation,
+            BatchStatus::Installing,
+            BatchStatus::Paused,
+            BatchStatus::Interrupted,
+            BatchStatus::Completed,
+            BatchStatus::Canceled,
+        ] {
+            let (mut batch, _) = approved();
+            batch.status = status;
+            let id = batch.id.clone();
+            let mut snapshot = Snapshot {
+                batches: vec![batch],
+                ..Snapshot::default()
+            };
+            let allowed = matches!(status, BatchStatus::Completed | BatchStatus::Canceled);
+            assert_eq!(remove_history(&mut snapshot, &id).is_ok(), allowed);
+            assert_eq!(snapshot.batches.is_empty(), allowed);
+        }
+        assert!(remove_history(&mut Snapshot::default(), "missing").is_err());
+    }
 
     fn item(id: &str) -> BatchItem {
         BatchItem {

@@ -4,7 +4,7 @@ import type { TaskFilter } from "./taskCenter";
 import { useEffect, useRef, useState } from "react";
 import { batchActive, batchItemLabels, batchStatusLabels, canConfirmBatch, unfinishedIds } from "./batchTasks";
 import type { BatchCandidate } from "./batchTasks";
-import { batchPreview, cancelBatchUpdate, listBatchTasks, onBatchTasksChanged, startBatchUpdate } from "./batchApi";
+import { batchPreview, cancelBatchUpdate, listBatchTasks, onBatchTasksChanged, removeBatchTask, startBatchUpdate } from "./batchApi";
 import { installBatchUpdate } from "./batchInstallFlow";
 import { formatBytes } from "./DownloadProgress";
 import type { BatchSnapshot, BatchTask, DownloadJob } from "./types";
@@ -114,6 +114,7 @@ function BatchCard({ batch, jobs, onSnapshot, onRetry }: {
     {(batch.status === "paused" || batch.status === "interrupted") && <button className="ghost-link" disabled={busy} onClick={() => void action(() => cancelBatchUpdate(batch.id))}>结束跟进（保留记录）</button>}
     {!batchActive(batch.status) && unfinishedIds(batch).length > 0 && <div className="batch-actions"><button className="secondary-button" disabled={busy} onClick={() => onRetry(batch)}>重新检查未完成项…</button></div>}
     {(batch.status === "installing" || batch.status === "reviewing") && <p className="batch-running" role="status">{batch.status === "installing" ? "安装期间请勿退出程序或关闭电脑。" : "等待管理员授权…"}</p>}
+    {["completed", "canceled"].includes(batch.status) && <button className="ghost-link" disabled={busy} title="仅删除任务记录，保留安装包和已安装软件" onClick={() => void action(() => removeBatchTask(batch.id))}>删除记录</button>}
     {error && <p className="batch-error" role="alert">{error}</p>}
   </article>;
 }

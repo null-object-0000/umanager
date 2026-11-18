@@ -94,3 +94,9 @@ export async function cancel(id: string): Promise<BatchSnapshot> {
   if (wasActive) for (const item of batch.items.filter((i) => i.status !== "succeeded" && i.status !== "failed")) item.status = "canceled";
   publish(); return clone();
 }
+
+export async function remove(id: string): Promise<BatchSnapshot> {
+  if (!["completed", "canceled"].includes(find(id).status)) throw new Error("只能删除已完成或已结束的任务记录");
+  snapshot.batches = snapshot.batches.filter((batch) => batch.id !== id);
+  publish(); return clone();
+}

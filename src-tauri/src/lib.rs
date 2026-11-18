@@ -737,6 +737,7 @@ pub fn run() {
         .on_window_event(background::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             batch_tasks::list_batch_tasks,
+            batch_tasks::remove_batch_task,
             batch_tasks::start_batch_update,
             batch_tasks::review_batch_update,
             batch_tasks::execute_batch_update,

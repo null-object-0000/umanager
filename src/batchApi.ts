@@ -31,3 +31,8 @@ export async function onBatchTasksChanged(callback: (snapshot: BatchSnapshot) =>
   }
   return listen<BatchSnapshot>("batch-tasks-changed", (event) => callback(event.payload));
 }
+
+export async function removeBatchTask(batchId: string): Promise<BatchSnapshot> {
+  if (isPreview()) return (await import("./batchPreview")).remove(batchId);
+  return invoke("remove_batch_task", { batchId });
+}
